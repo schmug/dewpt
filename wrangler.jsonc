@@ -4,6 +4,10 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-15",
   "compatibility_flags": ["nodejs_compat"],
+  // explicit routing posture (deliberate, not defaulted): serve on workers.dev,
+  // and give non-production versions preview URLs (Workers Builds PR previews)
+  "workers_dev": true,
+  "preview_urls": true,
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
