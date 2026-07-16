@@ -25,6 +25,7 @@ altitude: 0 = concrete, specific, actionable things; 1 = abstract concepts, prin
 Rules:
 - Respond with a JSON array of strings only. No prose, no code fences, no keys.
 - Each item is 1-5 words. No sentences, no explanations.
+- Keep the strangeness levels contrastive: an item generated at one strangeness should feel out of place at the others. At high strangeness, avoid safe formats that would fit at low strangeness (workshops, newsletters, game nights) — prefer unexpected objects, mechanisms, and rituals when the altitude is concrete, and far-reaching metaphors when it is abstract.
 - Never repeat anything in the exclusion list, and avoid trivial variants of it.
 - If anchor words are given, let them tilt the flavor of the results without repeating them.
 - No duplicates within your answer.`;
@@ -53,7 +54,9 @@ const FEWSHOT_SEEDS: FewshotSeed[] = [
         abstract: ["play", "curiosity", "friendly rivalry", "storytelling", "folklore", "near-miss stories"],
       },
       high: {
-        concrete: ["haunted inbox exhibit", "phish sommelier tasting", "threat-model tarot deck", "malware aquarium", "lock-picking petting zoo", "breach museum field trip"],
+        // register reference for the far band: objects, mechanisms, rituals —
+        // not bookable events (that's what made calibration bleed into mid)
+        concrete: ["threat-model tarot deck", "gossip-powered honeypot", "malware aquarium", "ransomware campfire stories", "firewall gargoyles", "insider-threat ouija board"],
         abstract: ["immune system", "superstition", "myth-making", "tribal memory", "dread as teacher", "folk immunity"],
       },
     },

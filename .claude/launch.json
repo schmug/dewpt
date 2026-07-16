@@ -3,8 +3,11 @@
   "configurations": [
     {
       "name": "dewpt",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["wrangler", "dev", "--port", "8787"],
+      "runtimeExecutable": "zsh",
+      "runtimeArgs": [
+        "-c",
+        "source ~/.zshenv 2>/dev/null; export CLOUDFLARE_ACCESS_CLIENT_ID CLOUDFLARE_ACCESS_CLIENT_SECRET; exec npx wrangler dev --port 8787"
+      ],
       "port": 8787
     }
   ]
