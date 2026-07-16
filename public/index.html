@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dewpt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Space+Grotesk:wght@300..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header>
+  <h1>dew<em>pt</em></h1>
+  <div class="seed" id="seedDisplay" hidden>seed: <b id="seedText"></b></div>
+  <form id="seedForm">
+    <input id="seedInput" type="text" placeholder="seed the field with a topic…" maxlength="200" autocomplete="off" aria-label="Seed topic">
+    <button type="submit">condense</button>
+  </form>
+</header>
+
+<div id="stage">
+  <div id="field" tabindex="0" role="application" aria-label="Idea field. Words appear and fade. Click blank space to prospect, click a word to pin it.">
+    <div class="hint" id="fieldHint">enter a seed to begin condensation</div>
+  </div>
+  <aside id="evaporated" aria-label="Evaporated words, most recent first. Click one to condense it again.">
+    <h2>evaporated</h2>
+    <div id="ghosts"><span class="empty">nothing has evaporated yet</span></div>
+  </aside>
+</div>
+
+<div id="controls">
+  <div class="ctl">
+    <label>dewpoint <span id="sVal">35</span></label>
+    <input type="range" id="strange" min="0" max="100" value="35" step="1">
+  </div>
+  <div class="ctl">
+    <label>altitude <span id="aVal">25</span></label>
+    <input type="range" id="alt" min="0" max="100" value="25" step="1">
+  </div>
+  <div class="ctl">
+    <label>drizzle <span id="fVal">50</span></label>
+    <input type="range" id="flux" min="0" max="100" value="50" step="1">
+  </div>
+</div>
+
+<div id="tray">
+  <div class="trayhead">
+    <h2>condensate</h2>
+    <button id="copyBtn">Copy list</button>
+  </div>
+  <div id="chips"><span class="empty">nothing has condensed yet — click words that catch you</span></div>
+</div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

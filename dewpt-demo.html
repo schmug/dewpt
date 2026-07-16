@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dewpt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Space+Grotesk:wght@300..500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#14121f; --field:#1a1830; --label:#7d7a99; --hair:#2c2947;
+    --t0:#cfd4e8; --t1:#b8a6e8; --t2:#e8a68f; --pin:#f0d98c;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--ink); color:var(--t0); font-family:'Space Grotesk',sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:28px 20px 40px;}
+  header{width:100%; max-width:960px; display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:14px;}
+  h1{font-family:'Fraunces',serif; font-weight:400; font-size:26px; letter-spacing:0.01em;}
+  h1 em{font-style:italic; color:var(--t1);}
+  .seed{font-size:12px; color:var(--label); letter-spacing:0.06em; text-transform:lowercase;}
+  .seed b{color:var(--t0); font-weight:400; border-bottom:1px dotted var(--label);}
+  #field{position:relative; width:100%; max-width:960px; height:480px; background:radial-gradient(ellipse at 50% 42%, #201d3d 0%, var(--field) 62%, #171528 100%); border:1px solid var(--hair); border-radius:14px; overflow:hidden; cursor:crosshair;}
+  #field:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+  .hint{position:absolute; bottom:10px; left:14px; font-size:11px; color:#565378; letter-spacing:0.05em; pointer-events:none;}
+  .word{position:absolute; font-family:'Fraunces',serif; white-space:nowrap; cursor:pointer; user-select:none; opacity:0; transition:opacity 1.4s ease, transform 9s linear, filter 0.4s; will-change:opacity,transform;}
+  .word.t1{color:var(--t1);}
+  .word.t2{color:var(--t2); font-style:italic;}
+  .word.t0{color:var(--t0);}
+  .word.pinned{color:var(--pin) !important; font-style:normal; filter:none !important; opacity:1 !important; text-decoration:underline dotted; text-underline-offset:5px; z-index:3;}
+  .word:hover{filter:none !important; opacity:1 !important;}
+  .pulse{position:absolute; border:1px solid var(--t1); border-radius:50%; width:12px; height:12px; pointer-events:none; animation:pulse 0.9s ease-out forwards;}
+  @keyframes pulse{from{opacity:0.9; transform:translate(-50%,-50%) scale(1);} to{opacity:0; transform:translate(-50%,-50%) scale(9);}}
+  #controls{width:100%; max-width:960px; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px 32px; margin-top:18px;}
+  .ctl label{display:flex; justify-content:space-between; font-size:12px; color:var(--label); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:7px;}
+  .ctl label span{color:var(--t0); text-transform:none; letter-spacing:0;}
+  input[type=range]{width:100%; appearance:none; height:2px; background:var(--hair); border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{appearance:none; width:16px; height:16px; border-radius:50%; background:var(--t0); border:2px solid var(--ink); cursor:pointer;}
+  input[type=range]::-moz-range-thumb{width:14px; height:14px; border-radius:50%; background:var(--t0); border:2px solid var(--ink); cursor:pointer;}
+  input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px;}
+  #tray{width:100%; max-width:960px; margin-top:22px; border-top:1px solid var(--hair); padding-top:14px;}
+  #tray .trayhead{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;}
+  #tray h2{font-size:12px; font-weight:400; color:var(--label); letter-spacing:0.1em; text-transform:uppercase;}
+  #copyBtn{background:none; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:12px; padding:5px 12px; border-radius:6px; cursor:pointer;}
+  #copyBtn:hover{border-color:var(--label);}
+  #copyBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+  #chips{display:flex; flex-wrap:wrap; gap:8px; min-height:32px;}
+  .chip{display:inline-flex; align-items:center; gap:7px; font-family:'Fraunces',serif; font-size:15px; color:var(--pin); border:1px solid #4a4222; background:#1e1b2e; padding:4px 10px; border-radius:999px;}
+  .chip button{background:none; border:none; color:var(--label); cursor:pointer; font-size:13px; line-height:1; padding:0;}
+  .chip button:hover{color:var(--t2);}
+  .empty{font-size:13px; color:#565378; font-style:italic;}
+  @media (prefers-reduced-motion: reduce){
+    .word{transition:opacity 0.5s ease;}
+    .pulse{animation:none; opacity:0;}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>dew<em>pt</em></h1>
+  <div class="seed">seed: <b>security awareness people actually enjoy</b></div>
+</header>
+
+<div id="field" tabindex="0" role="application" aria-label="Idea field. Words appear and fade. Click blank space to prospect, click a word to pin it.">
+  <div class="hint">click blank space to prospect · click a word to pin it</div>
+</div>
+
+<div id="controls">
+  <div class="ctl">
+    <label>dewpoint <span id="sVal">35</span></label>
+    <input type="range" id="strange" min="0" max="100" value="35" step="1">
+  </div>
+  <div class="ctl">
+    <label>altitude <span id="aVal">25</span></label>
+    <input type="range" id="alt" min="0" max="100" value="25" step="1">
+  </div>
+  <div class="ctl">
+    <label>drizzle <span id="fVal">50</span></label>
+    <input type="range" id="flux" min="0" max="100" value="50" step="1">
+  </div>
+</div>
+
+<div id="tray">
+  <div class="trayhead">
+    <h2>condensate</h2>
+    <button id="copyBtn">Copy list</button>
+  </div>
+  <div id="chips"><span class="empty">nothing has condensed yet — click words that catch you</span></div>
+</div>
+
+<script>
+const pools = {
+  w0a0:["phishing drill","password day","poster contest","lunch-and-learn","badge stickers","monthly newsletter","quiz with prizes","report button","welcome-back training","door-lock checks"],
+  w0a1:["habit","repetition","trust","reminders","routine","vigilance","compliance","muscle memory","recognition","baseline"],
+  w1a0:["hallway escape room","security mascot","phishing bingo","staff CTF night","spot-the-fake wall","incident tabletop game","security fortune cookies","fake-invoice bake-off","lanyard trading cards","two-minute mystery emails"],
+  w1a1:["play","curiosity","friendly rivalry","storytelling","folklore","street smarts","rituals","bragging rights","shared vocabulary","near-miss stories"],
+  w2a0:["haunted inbox exhibit","phish sommelier tasting","threat-model tarot deck","cafeteria con-artist theater","lock-picking petting zoo","malware aquarium","ransomware campfire stories","gossip-powered honeypot","social-engineering improv night","breach museum field trip"],
+  w2a1:["immune system","superstition","herd instinct","antibodies","myth-making","communal grooming","tribal memory","dread as teacher","apprenticeship of doubt","folk immunity"]
+};
+
+const field = document.getElementById('field');
+const chips = document.getElementById('chips');
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const sliders = {strange:document.getElementById('strange'), alt:document.getElementById('alt'), flux:document.getElementById('flux')};
+const readouts = {strange:document.getElementById('sVal'), alt:document.getElementById('aVal'), flux:document.getElementById('fVal')};
+for (const k in sliders) sliders[k].addEventListener('input', () => readouts[k].textContent = sliders[k].value);
+
+const visible = new Set();
+const pinned = new Map();
+const CAP = 14;
+
+function tierWeights(bump = 0) {
+  let s = Math.min(1, sliders.strange.value / 100 + bump);
+  let w2 = Math.pow(s, 1.4), w0 = Math.pow(1 - s, 1.4);
+  let w1 = Math.max(0.15, 1 - w2 - w0);
+  if (pinned.size > 0) {
+    const counts = [0,0,0];
+    pinned.forEach(t => counts[t]++);
+    const n = pinned.size;
+    w0 = 0.7*w0 + 0.3*(counts[0]/n);
+    w1 = 0.7*w1 + 0.3*(counts[1]/n);
+    w2 = 0.7*w2 + 0.3*(counts[2]/n);
+  }
+  const sum = w0 + w1 + w2;
+  return [w0/sum, w1/sum, w2/sum];
+}
+
+function pickWord(bump = 0) {
+  const [w0,w1,w2] = tierWeights(bump);
+  const r = Math.random();
+  const tier = r < w0 ? 0 : r < w0 + w1 ? 1 : 2;
+  const abs = Math.random() < sliders.alt.value / 100 ? 1 : 0;
+  const pool = pools['w' + tier + 'a' + abs];
+  const fresh = pool.filter(w => !visible.has(w) && !pinned.has(w));
+  if (!fresh.length) return null;
+  return {text: fresh[Math.floor(Math.random() * fresh.length)], tier};
+}
+
+function spawn(px, py, bump = 0) {
+  if (visible.size >= CAP + 4) return;
+  const pick = pickWord(bump);
+  if (!pick) return;
+  const rect = field.getBoundingClientRect();
+  const depth = Math.random();
+  const el = document.createElement('span');
+  el.className = 'word t' + pick.tier;
+  el.textContent = pick.text;
+  el.style.fontSize = (14 + depth * 15) + 'px';
+  el.style.filter = 'blur(' + ((1 - depth) * 1.4).toFixed(1) + 'px)';
+  const x = px !== undefined ? px + (Math.random()-0.5)*140 : 30 + Math.random()*(rect.width-220);
+  const y = py !== undefined ? py + (Math.random()-0.5)*110 : 30 + Math.random()*(rect.height-70);
+  el.style.left = Math.max(12, Math.min(rect.width-160, x)) + 'px';
+  el.style.top = Math.max(12, Math.min(rect.height-40, y)) + 'px';
+  field.appendChild(el);
+  visible.add(pick.text);
+  requestAnimationFrame(() => {
+    el.style.opacity = (0.45 + depth * 0.55).toFixed(2);
+    if (!reduced) el.style.transform = 'translate(' + ((Math.random()-0.5)*30).toFixed(0) + 'px,' + ((Math.random()-0.5)*24).toFixed(0) + 'px)';
+  });
+  const ttl = 5000 + Math.random() * 5000;
+  el._decay = setTimeout(() => {
+    if (el.classList.contains('pinned')) return;
+    el.style.opacity = 0;
+    setTimeout(() => { visible.delete(pick.text); el.remove(); }, 1500);
+  }, ttl);
+  el.addEventListener('click', e => { e.stopPropagation(); togglePin(el, pick); });
+}
+
+function togglePin(el, pick) {
+  if (pinned.has(pick.text)) {
+    pinned.delete(pick.text);
+    el.classList.remove('pinned');
+    el.style.opacity = 0;
+    setTimeout(() => { visible.delete(pick.text); el.remove(); }, 1500);
+  } else {
+    pinned.set(pick.text, pick.tier);
+    clearTimeout(el._decay);
+    el.classList.add('pinned');
+    el.style.transform = 'none';
+  }
+  renderTray();
+}
+
+function renderTray() {
+  chips.innerHTML = '';
+  if (!pinned.size) {
+    chips.innerHTML = '<span class="empty">nothing has condensed yet — click words that catch you</span>';
+    return;
+  }
+  pinned.forEach((tier, text) => {
+    const c = document.createElement('span');
+    c.className = 'chip';
+    c.textContent = text + ' ';
+    const x = document.createElement('button');
+    x.textContent = '×';
+    x.setAttribute('aria-label', 'Remove ' + text);
+    x.addEventListener('click', () => {
+      pinned.delete(text);
+      field.querySelectorAll('.word.pinned').forEach(w => { if (w.textContent === text) { w.remove(); visible.delete(text); } });
+      renderTray();
+    });
+    c.appendChild(x);
+    chips.appendChild(c);
+  });
+}
+
+field.addEventListener('click', e => {
+  if (e.target.closest('.word')) return;
+  const rect = field.getBoundingClientRect();
+  const x = e.clientX - rect.left, y = e.clientY - rect.top;
+  const p = document.createElement('div');
+  p.className = 'pulse';
+  p.style.left = x + 'px'; p.style.top = y + 'px';
+  field.appendChild(p);
+  setTimeout(() => p.remove(), 1000);
+  for (let i = 0; i < 4; i++) setTimeout(() => spawn(x, y, 0.25), i * 180);
+});
+
+document.getElementById('copyBtn').addEventListener('click', () => {
+  const list = [...pinned.keys()].join('\n');
+  if (list) navigator.clipboard.writeText(list).then(() => {
+    const b = document.getElementById('copyBtn');
+    b.textContent = 'Copied';
+    setTimeout(() => b.textContent = 'Copy list', 1400);
+  });
+});
+
+function loop() {
+  if (visible.size < CAP) spawn();
+  const interval = 2400 - sliders.flux.value * 19;
+  setTimeout(loop, interval + Math.random() * 400);
+}
+for (let i = 0; i < 6; i++) setTimeout(() => spawn(), i * 350);
+loop();
+</script>
+</body>
+</html>

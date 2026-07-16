@@ -1,0 +1,72 @@
+/* Demo CSS carried over verbatim from dewpt-demo.html; additions for the seed
+   form, stage layout, and evaporated sidebar are marked at the bottom. */
+:root{
+  --ink:#14121f; --field:#1a1830; --label:#7d7a99; --hair:#2c2947;
+  --t0:#cfd4e8; --t1:#b8a6e8; --t2:#e8a68f; --pin:#f0d98c;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+body{background:var(--ink); color:var(--t0); font-family:'Space Grotesk',sans-serif; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:28px 20px 40px;}
+header{width:100%; max-width:1170px; display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:14px;}
+h1{font-family:'Fraunces',serif; font-weight:400; font-size:26px; letter-spacing:0.01em;}
+h1 em{font-style:italic; color:var(--t1);}
+.seed{font-size:12px; color:var(--label); letter-spacing:0.06em; text-transform:lowercase;}
+.seed b{color:var(--t0); font-weight:400; border-bottom:1px dotted var(--label);}
+#field{position:relative; width:100%; max-width:960px; height:480px; background:radial-gradient(ellipse at 50% 42%, #201d3d 0%, var(--field) 62%, #171528 100%); border:1px solid var(--hair); border-radius:14px; overflow:hidden; cursor:crosshair;}
+#field:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+.hint{position:absolute; bottom:10px; left:14px; font-size:11px; color:#565378; letter-spacing:0.05em; pointer-events:none;}
+.word{position:absolute; font-family:'Fraunces',serif; white-space:nowrap; cursor:pointer; user-select:none; opacity:0; transition:opacity 1.4s ease, transform 9s linear, filter 0.4s; will-change:opacity,transform;}
+.word.t1{color:var(--t1);}
+.word.t2{color:var(--t2); font-style:italic;}
+.word.t0{color:var(--t0);}
+.word.pinned{color:var(--pin) !important; font-style:normal; filter:none !important; opacity:1 !important; text-decoration:underline dotted; text-underline-offset:5px; z-index:3;}
+.word:hover{filter:none !important; opacity:1 !important;}
+.pulse{position:absolute; border:1px solid var(--t1); border-radius:50%; width:12px; height:12px; pointer-events:none; animation:pulse 0.9s ease-out forwards;}
+@keyframes pulse{from{opacity:0.9; transform:translate(-50%,-50%) scale(1);} to{opacity:0; transform:translate(-50%,-50%) scale(9);}}
+#controls{width:100%; max-width:1170px; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px 32px; margin-top:18px;}
+.ctl label{display:flex; justify-content:space-between; font-size:12px; color:var(--label); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:7px;}
+.ctl label span{color:var(--t0); text-transform:none; letter-spacing:0;}
+input[type=range]{width:100%; appearance:none; height:2px; background:var(--hair); border-radius:2px; outline:none;}
+input[type=range]::-webkit-slider-thumb{appearance:none; width:16px; height:16px; border-radius:50%; background:var(--t0); border:2px solid var(--ink); cursor:pointer;}
+input[type=range]::-moz-range-thumb{width:14px; height:14px; border-radius:50%; background:var(--t0); border:2px solid var(--ink); cursor:pointer;}
+input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px;}
+#tray{width:100%; max-width:1170px; margin-top:22px; border-top:1px solid var(--hair); padding-top:14px;}
+#tray .trayhead{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;}
+#tray h2{font-size:12px; font-weight:400; color:var(--label); letter-spacing:0.1em; text-transform:uppercase;}
+#copyBtn{background:none; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:12px; padding:5px 12px; border-radius:6px; cursor:pointer;}
+#copyBtn:hover{border-color:var(--label);}
+#copyBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+#chips{display:flex; flex-wrap:wrap; gap:8px; min-height:32px;}
+.chip{display:inline-flex; align-items:center; gap:7px; font-family:'Fraunces',serif; font-size:15px; color:var(--pin); border:1px solid #4a4222; background:#1e1b2e; padding:4px 10px; border-radius:999px;}
+.chip button{background:none; border:none; color:var(--label); cursor:pointer; font-size:13px; line-height:1; padding:0;}
+.chip button:hover{color:var(--t2);}
+.empty{font-size:13px; color:#565378; font-style:italic;}
+@media (prefers-reduced-motion: reduce){
+  .word{transition:opacity 0.5s ease;}
+  .pulse{animation:none; opacity:0;}
+}
+
+/* ---- additions (not in the demo) ---------------------------------------- */
+
+/* seed entry form */
+#seedForm{display:flex; gap:8px; align-items:center;}
+#seedForm input{background:#1e1b2e; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:13px; padding:7px 12px; border-radius:8px; width:min(340px, 60vw); outline:none;}
+#seedForm input:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+#seedForm input::placeholder{color:#565378; font-style:italic;}
+#seedForm button{background:none; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;}
+#seedForm button:hover{border-color:var(--label);}
+#seedForm button:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+#seedForm[hidden]{display:none;}
+
+/* stage: field + evaporated sidebar */
+#stage{width:100%; max-width:1170px; display:flex; gap:14px; align-items:stretch;}
+#stage #field{flex:1 1 auto; min-width:0;}
+#evaporated{width:196px; flex:0 0 196px; border:1px solid var(--hair); border-radius:14px; background:#171528; padding:12px 14px; overflow-y:auto; max-height:480px;}
+#evaporated h2{font-size:12px; font-weight:400; color:var(--label); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:10px;}
+#ghosts{display:flex; flex-direction:column; gap:7px;}
+.ghost{font-family:'Fraunces',serif; font-size:14px; font-style:italic; color:#565378; background:none; border:none; padding:0; text-align:left; cursor:pointer; transition:color 0.3s ease;}
+.ghost:hover{color:var(--t0);}
+.ghost:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+@media (max-width: 760px){
+  #stage{flex-direction:column;}
+  #evaporated{width:100%; flex:1 1 auto; max-height:150px;}
+}
