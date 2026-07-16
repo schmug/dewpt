@@ -80,6 +80,21 @@ describe("buildGenerationMessages", () => {
     expect(text).toContain("phishing drill"); // concrete (a0)
     expect(text).toContain("muscle memory"); // abstract (a1)
   });
+
+  it("instructs the model to keep the strangeness bands contrastive", () => {
+    const [system] = buildGenerationMessages(inputs());
+    expect(system!.role).toBe("system");
+    expect(system!.content).toContain("out of place");
+  });
+
+  it("steers high strangeness toward objects and metaphors, not event formats", () => {
+    const text = allText(buildGenerationMessages(inputs({ strangeness: 0.85 })));
+    // the far-band register reference: objects/mechanisms/rituals, not bookable events
+    expect(text).toContain("threat-model tarot deck");
+    expect(text).toContain("gossip-powered honeypot");
+    expect(text).not.toContain("breach museum field trip");
+    expect(text).not.toContain("phish sommelier tasting");
+  });
 });
 
 describe("parseCandidateList", () => {
