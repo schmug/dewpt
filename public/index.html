@@ -16,10 +16,42 @@
     <input id="seedInput" type="text" placeholder="seed the field with a topic…" maxlength="200" autocomplete="off" aria-label="Seed topic">
     <button type="submit">condense</button>
   </form>
+  <div id="aboutWrap">
+    <button id="aboutBtn" type="button" aria-expanded="false" aria-controls="about"><span class="q" aria-hidden="true">?</span> what is this?</button>
+    <!-- non-modal (issue #12): no backdrop, no focus trap — the field keeps
+         condensing while this is open. Copy from docs/explainer-research.md.
+         The ? by the sliders stays the interaction legend; this is the concept. -->
+    <aside id="about" aria-labelledby="aboutTitle" hidden>
+      <div class="abouthead">
+        <h2 id="aboutTitle">what is dewpt</h2>
+        <button id="aboutClose" type="button" aria-label="Close about panel">&times;</button>
+      </div>
+      <p>an ambient ideation canvas. give it a seed — a topic, a question, a half-idea — and words condense out of latent space: some obvious, some strange. each one lives a few seconds, then evaporates. that's not a bug — ephemerality is the point. pin the words that catch you and they crystallize, gold, into your condensate. play, not productivity.</p>
+      <p class="note">the name is the meteorological abbreviation for dew point: the threshold where invisible vapor becomes visible water.</p>
+      <h3>the weather, glossed</h3>
+      <dl>
+        <dt>dewpoint</dt><dd>how strange the words get. low: only the obvious condenses. high: far-field vapor precipitates.</dd>
+        <dt>altitude</dt><dd>how abstract. ground level is concrete tactics; high altitude is underlying concepts.</dd>
+        <dt>drizzle</dt><dd>how fast new words condense.</dd>
+        <dt>condensate</dt><dd>the harvest: words you've pinned, ready to copy out.</dd>
+        <dt>evaporated</dt><dd>the ghost trail: the last twenty words that faded. click one to condense it again.</dd>
+        <dt>condense / evaporate</dt><dd>the verbs: words condense (appear) and evaporate (fade). every word does both unless you pin it.</dd>
+      </dl>
+      <p>inspired by kevin kelly's <a href="https://kevinkelly.substack.com/p/latent-space-as-a-new-medium" target="_blank" rel="noopener">"latent space as a new medium"</a> (july 2026) — the idea that a model's space of almost-ideas is a place you can wander, and that the white space between the known ideas is worth prospecting.</p>
+      <p class="note">the moves themselves — prospect, pin, release — are glossed under the <b>?</b> beside the sliders.</p>
+    </aside>
+  </div>
 </header>
 
 <div id="stage">
   <div id="field" tabindex="0" role="application" aria-label="Idea field. Words appear and fade. Click blank space to prospect, click a word to pin it.">
+    <!-- pre-seed manifesto (issue #11): aria-hidden inside role="application";
+         #manifestoSr below mirrors it for assistive tech (the hint's pattern).
+         public/preseed.js unhides it and tears it down when a session starts. -->
+    <div id="manifesto" aria-hidden="true" hidden>
+      <p>words condense out of latent space — they linger, then evaporate.</p>
+      <p>pin the ones that catch you; the rest is weather.</p>
+    </div>
     <!-- aria-hidden: #hintLive below mirrors this text for screen readers —
          a polite live region inside role="application" is unreliable -->
     <div class="hint" id="fieldHint" aria-hidden="true">enter a seed to begin condensation</div>
@@ -33,6 +65,9 @@
   </aside>
 </div>
 <div id="hintLive" class="vh" aria-live="polite">enter a seed to begin condensation</div>
+<!-- static mirror of the pre-seed manifesto (not a live region: it never
+     announces, and the transient meta-words are aria-hidden entirely) -->
+<p id="manifestoSr" class="vh" hidden>words condense out of latent space — they linger, then evaporate. pin the ones that catch you; the rest is weather.</p>
 
 <div id="controls">
   <div class="ctl">
