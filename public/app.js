@@ -1,18 +1,23 @@
 // Session wiring: seed entry, session create/resume (the URL hash is the
 // session), sliders → PATCH params, pin/evaporate/prospect persistence, the
-// evaporated sidebar, copy-list, the progressive hint line (issue #9), and the
-// ? interaction legend (issue #10). All network calls are fire-and-forget or
-// background — the field itself never waits on anything here.
+// evaporated sidebar, copy-list, the progressive hint line (issue #9), the
+// ? interaction legend (issue #10), the pre-seed empty state (issue #11) and
+// the "? what is this?" about panel (issue #12). All network calls are
+// fire-and-forget or background — the field itself never waits on anything here.
 
 import { createField } from '/field.js';
 import { createPoolClient } from '/pool-client.js';
 import { nextHintState, HINT_COPY, HINT_TIMEOUTS } from '/hint-machine.js';
+import { createPreseed } from '/preseed.js';
 
 const fieldEl = document.getElementById('field');
 const fieldHint = document.getElementById('fieldHint');
 const hintLive = document.getElementById('hintLive');
 const legendBtn = document.getElementById('legendBtn');
 const legend = document.getElementById('legend');
+const aboutBtn = document.getElementById('aboutBtn');
+const about = document.getElementById('about');
+const aboutClose = document.getElementById('aboutClose');
 const chipsEl = document.getElementById('chips');
 const ghostsEl = document.getElementById('ghosts');
 const seedForm = document.getElementById('seedForm');
@@ -99,18 +104,43 @@ function hintDispatch(event) {
 // Non-modal: no backdrop, no focus trap, the field keeps condensing behind it.
 
 function setLegendOpen(open) {
+  if (open) setAboutOpen(false); // one ? surface at a time (see issue #12 below)
   legend.hidden = !open;
   legendBtn.setAttribute('aria-expanded', String(open));
 }
 legendBtn.addEventListener('click', () => setLegendOpen(legend.hidden));
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && !legend.hidden) {
+  if (e.key !== 'Escape') return;
+  if (!legend.hidden) {
     setLegendOpen(false);
     legendBtn.focus();
+  }
+  if (!about.hidden) {
+    setAboutOpen(false);
+    aboutBtn.focus();
   }
 });
 document.addEventListener('click', e => {
   if (!legend.hidden && !e.target.closest('#legendWrap')) setLegendOpen(false);
+});
+
+// ---- "? what is this?" about panel (issue #12) ------------------------------
+// The concept layer: sibling of the legend (mechanics layer), same non-modal
+// discipline — no backdrop, no focus trap, no pause; the field keeps
+// condensing while it's open. Mutually exclusive with the legend so the two
+// ? surfaces never stack. Deliberately not closed on outside clicks: it is a
+// docked reading panel, and playing with the field mid-read must not dismiss
+// it — it closes via the toggle, its close button, or Esc.
+
+function setAboutOpen(open) {
+  if (open && !legend.hidden) setLegendOpen(false);
+  about.hidden = !open;
+  aboutBtn.setAttribute('aria-expanded', String(open));
+}
+aboutBtn.addEventListener('click', () => setAboutOpen(about.hidden));
+aboutClose.addEventListener('click', () => {
+  setAboutOpen(false);
+  aboutBtn.focus();
 });
 
 // ---- evaporated sidebar -----------------------------------------------------
@@ -166,6 +196,7 @@ sliders.alt.addEventListener('input', schedulePatchParams);
 sliders.flux.addEventListener('input', schedulePatchParams);
 
 function start(info) {
+  preseed.teardown(); // the pre-seed weather evaporates the moment a session exists
   session = { id: info.id };
   location.hash = info.id;
   seedText.textContent = info.seed;
@@ -238,16 +269,36 @@ copyBtn.addEventListener('click', () => {
   });
 });
 
+// ---- pre-seed empty state (issue #11) ---------------------------------------
+// Before any session, the field demonstrates the concept: centered manifesto
+// plus meta-words condensing and evaporating through the real field motion.
+// Static client-side pool — zero network before session create.
+
+const preseed = createPreseed({
+  fieldEl,
+  sliders,
+  // no session to pin into, so a meta-word click funnels to the one action
+  // that matters pre-seed: seeding the field
+  onWordClick: () => seedInput.focus(),
+});
+
 // resume: the session URL is the session
 async function resume() {
   const id = location.hash.slice(1);
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
   try {
     const res = await fetch(`/api/session/${id}`);
-    if (!res.ok) return;
+    if (!res.ok) return false;
     start(await res.json());
+    return true;
   } catch (err) {
     console.error('resume failed', err);
+    return false;
   }
 }
-resume();
+resume().then(resumed => {
+  // hash arrivals go straight to the live session (no manifesto flash);
+  // everyone else — including a failed resume — gets the pre-seed weather.
+  // The !session guard covers a seed submitted while the resume fetch flew.
+  if (!resumed && !session) preseed.start();
+});

@@ -78,3 +78,11 @@ Cloudflare REST API, so it works even where workerd egress doesn't (WARP).
   [src/hint-machine.ts](src/hint-machine.ts), mirrored for the browser in
   [public/hint-machine.js](public/hint-machine.js); a `localStorage` taught
   flag quiets it for returning users), and a non-modal `?` legend for recall.
+- **Explainer surface** ([docs/explainer-research.md](docs/explainer-research.md))
+  — before a seed exists the field explains itself by demonstration: a
+  centered manifesto plus meta-words about dewpt condensing and evaporating
+  through the real spawn/decay motion ([public/preseed.js](public/preseed.js),
+  static pool in [public/preseed-pool.js](public/preseed-pool.js); zero
+  network, torn down the moment a session starts). A `? what is this?`
+  toggle in the header opens a non-modal about panel — concept, weather
+  glossary, and the Kevin Kelly credit — that never pauses the field.
