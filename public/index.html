@@ -20,26 +20,53 @@
 
 <div id="stage">
   <div id="field" tabindex="0" role="application" aria-label="Idea field. Words appear and fade. Click blank space to prospect, click a word to pin it.">
-    <div class="hint" id="fieldHint">enter a seed to begin condensation</div>
+    <!-- aria-hidden: #hintLive below mirrors this text for screen readers —
+         a polite live region inside role="application" is unreliable -->
+    <div class="hint" id="fieldHint" aria-hidden="true">enter a seed to begin condensation</div>
   </div>
   <aside id="evaporated" aria-label="Evaporated words, most recent first. Click one to condense it again.">
     <h2>evaporated</h2>
+    <!-- aria-hidden: verbatim promotion of the aside's aria-label guidance,
+         made visible for sighted users without double-announcing -->
+    <p class="subline" aria-hidden="true">click a word to condense it again</p>
     <div id="ghosts"><span class="empty">nothing has evaporated yet</span></div>
   </aside>
 </div>
+<div id="hintLive" class="vh" aria-live="polite">enter a seed to begin condensation</div>
 
 <div id="controls">
   <div class="ctl">
     <label>dewpoint <span id="sVal">35</span></label>
-    <input type="range" id="strange" min="0" max="100" value="35" step="1">
+    <input type="range" id="strange" min="0" max="100" value="35" step="1" aria-label="dewpoint" aria-describedby="strangeGloss">
+    <div class="ends" aria-hidden="true"><span>obvious</span><span>surreal</span></div>
+    <span class="vh" id="strangeGloss">how far from the seed the vapor condenses: low, only the obvious; high, far-field and surreal.</span>
   </div>
   <div class="ctl">
     <label>altitude <span id="aVal">25</span></label>
-    <input type="range" id="alt" min="0" max="100" value="25" step="1">
+    <input type="range" id="alt" min="0" max="100" value="25" step="1" aria-label="altitude" aria-describedby="altGloss">
+    <div class="ends" aria-hidden="true"><span>concrete</span><span>abstract</span></div>
+    <span class="vh" id="altGloss">what kind of words condense: low, concrete and specific; high, underlying concepts.</span>
   </div>
   <div class="ctl">
     <label>drizzle <span id="fVal">50</span></label>
-    <input type="range" id="flux" min="0" max="100" value="50" step="1">
+    <input type="range" id="flux" min="0" max="100" value="50" step="1" aria-label="drizzle" aria-describedby="fluxGloss">
+    <div class="ends" aria-hidden="true"><span>sparse</span><span>dense</span></div>
+    <span class="vh" id="fluxGloss">how fast new words condense — pace only, it doesn't change what appears.</span>
+  </div>
+  <div id="legendWrap">
+    <button id="legendBtn" type="button" aria-expanded="false" aria-controls="legend" aria-label="Interaction legend">?</button>
+    <div id="legend" tabindex="0" hidden>
+      <dl>
+        <dt>prospect</dt><dd>click blank space: a pulse draws a burst of slightly stranger words there</dd>
+        <dt>pin</dt><dd>click a word: it crystallizes, joins the condensate, and steers what condenses next</dd>
+        <dt>release</dt><dd>click a pinned word again, or its &times; in the tray</dd>
+        <dt>dewpoint</dt><dd>how far from the seed the vapor condenses: obvious &harr; surreal</dd>
+        <dt>altitude</dt><dd>what kind of words condense: concrete &harr; abstract</dd>
+        <dt>drizzle</dt><dd>how fast new words condense: sparse &harr; dense (pace only)</dd>
+        <dt>evaporated</dt><dd>unpinned words fade after a few seconds and rest in the sidebar; click one to condense it again</dd>
+        <dt>copy list</dt><dd>copies the condensate as plain lines</dd>
+      </dl>
+    </div>
   </div>
 </div>
 

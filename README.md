@@ -72,3 +72,9 @@ Cloudflare REST API, so it works even where workerd egress doesn't (WARP).
   pin-to-condense, reduced-motion), fed by per-bucket local buffers
   ([public/pool-client.js](public/pool-client.js)) that refill in the
   background. An empty buffer skips a spawn tick; it never blocks.
+- **Teaching surface** ([docs/ui-teaching-research.md](docs/ui-teaching-research.md))
+  — slider endpoint labels + screen-reader glosses, a progressive hint line
+  that advances as the user acts (pure state machine in
+  [src/hint-machine.ts](src/hint-machine.ts), mirrored for the browser in
+  [public/hint-machine.js](public/hint-machine.js); a `localStorage` taught
+  flag quiets it for returning users), and a non-modal `?` legend for recall.

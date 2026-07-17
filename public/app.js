@@ -1,13 +1,18 @@
 // Session wiring: seed entry, session create/resume (the URL hash is the
 // session), sliders → PATCH params, pin/evaporate/prospect persistence, the
-// evaporated sidebar, and copy-list. All network calls are fire-and-forget or
+// evaporated sidebar, copy-list, the progressive hint line (issue #9), and the
+// ? interaction legend (issue #10). All network calls are fire-and-forget or
 // background — the field itself never waits on anything here.
 
 import { createField } from '/field.js';
 import { createPoolClient } from '/pool-client.js';
+import { nextHintState, HINT_COPY, HINT_TIMEOUTS } from '/hint-machine.js';
 
 const fieldEl = document.getElementById('field');
 const fieldHint = document.getElementById('fieldHint');
+const hintLive = document.getElementById('hintLive');
+const legendBtn = document.getElementById('legendBtn');
+const legend = document.getElementById('legend');
 const chipsEl = document.getElementById('chips');
 const ghostsEl = document.getElementById('ghosts');
 const seedForm = document.getElementById('seedForm');
@@ -18,7 +23,10 @@ const copyBtn = document.getElementById('copyBtn');
 
 const sliders = { strange: document.getElementById('strange'), alt: document.getElementById('alt'), flux: document.getElementById('flux') };
 const readouts = { strange: document.getElementById('sVal'), alt: document.getElementById('aVal'), flux: document.getElementById('fVal') };
-for (const k in sliders) sliders[k].addEventListener('input', () => readouts[k].textContent = sliders[k].value);
+for (const k in sliders) sliders[k].addEventListener('input', () => {
+  readouts[k].textContent = sliders[k].value;
+  hintDispatch('slider'); // retires H3; a no-op in every other hint state
+});
 
 let session = null; // { id }
 let field = null;
@@ -36,6 +44,74 @@ function api(path, options) {
 function quietly(promise) {
   promise.catch(err => console.error('dewpt api call failed', err));
 }
+
+// ---- progressive hint line (issue #9) ---------------------------------------
+// The transitions live in the pure machine (public/hint-machine.js, mirrored
+// from src/hint-machine.ts); this block owns the side effects: timers, the
+// cross-session taught flag, the crossfade, and the live-region mirror.
+
+const TAUGHT_KEY = 'dewpt.hintTaught';
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+let hintState = 'preSeed';
+let hintTimer = null; // the active state's self-retire timer
+let hintRenderTimer = null; // pending crossfade text swap
+
+function isTaught() {
+  try { return localStorage.getItem(TAUGHT_KEY) === '1'; } catch { return false; }
+}
+function markTaught() {
+  try { localStorage.setItem(TAUGHT_KEY, '1'); } catch { /* private mode: hints replay next session */ }
+}
+
+function renderHint(text) {
+  hintLive.textContent = text; // SR mirror outside #field; announces politely
+  clearTimeout(hintRenderTimer);
+  if (reducedMotion.matches) {
+    fieldHint.textContent = text; // instant swap, no motion
+    fieldHint.style.opacity = '1'; // in case a pre-toggle fade left it at 0
+    return;
+  }
+  fieldHint.style.opacity = '0'; // fade out (CSS transition), swap, fade back
+  hintRenderTimer = setTimeout(() => {
+    fieldHint.textContent = text;
+    fieldHint.style.opacity = '1';
+  }, 450);
+}
+
+function hintDispatch(event) {
+  const next = nextHintState(hintState, event);
+  if (next === hintState) return;
+  hintState = next;
+  clearTimeout(hintTimer);
+  if (hintState === 'slidersPointed' && evaporatedWords.length) {
+    // ghosts already rest in the sidebar (resume fast-forward, or evaporations
+    // that predate H3's retirement) — H4 needn't wait for the next one
+    hintDispatch('evaporate');
+    return;
+  }
+  renderHint(HINT_COPY[hintState]);
+  const ms = HINT_TIMEOUTS[hintState];
+  if (ms) hintTimer = setTimeout(() => hintDispatch('timeout'), ms);
+  if (hintState === 'quiet') markTaught();
+}
+
+// ---- ? legend (issue #10) ---------------------------------------------------
+// Non-modal: no backdrop, no focus trap, the field keeps condensing behind it.
+
+function setLegendOpen(open) {
+  legend.hidden = !open;
+  legendBtn.setAttribute('aria-expanded', String(open));
+}
+legendBtn.addEventListener('click', () => setLegendOpen(legend.hidden));
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !legend.hidden) {
+    setLegendOpen(false);
+    legendBtn.focus();
+  }
+});
+document.addEventListener('click', e => {
+  if (!legend.hidden && !e.target.closest('#legendWrap')) setLegendOpen(false);
+});
 
 // ---- evaporated sidebar -----------------------------------------------------
 
@@ -67,6 +143,7 @@ function restoreWord(word) {
   evaporatedWords = evaporatedWords.filter(w => w.text !== word.text);
   renderGhosts();
   field.spawnText(word.text, word.tier); // condense it again immediately
+  hintDispatch('restore');
   quietly(api('/evaporated/restore', { method: 'POST', body: { text: word.text } }));
 }
 
@@ -94,7 +171,6 @@ function start(info) {
   seedText.textContent = info.seed;
   seedDisplay.hidden = false;
   seedForm.hidden = true;
-  fieldHint.textContent = 'click blank space to prospect · click a word to pin it';
 
   sliders.strange.value = Math.round(info.params.dewpoint * 100);
   sliders.alt.value = Math.round(info.params.altitude * 100);
@@ -104,19 +180,31 @@ function start(info) {
   evaporatedWords = info.evaporated.map(w => ({ text: w.text, tier: w.tier }));
   renderGhosts();
 
+  // hint machine: taught users get the one-line reminder; a resumed session
+  // with anchors has already demonstrated pinning, so replay it (skip to H3)
+  hintDispatch(isTaught() ? 'seedTaught' : 'seed');
+  if (info.anchors.length) hintDispatch('pin');
+
   const pool = createPoolClient(session.id);
   field = createField({
     fieldEl,
     chipsEl,
     sliders,
     drawWord: bucket => pool.draw(bucket),
-    onPin: (text, tier) => quietly(api('/pin', { method: 'POST', body: { text, tier } })),
+    onPin: (text, tier) => {
+      hintDispatch('pin');
+      quietly(api('/pin', { method: 'POST', body: { text, tier } }));
+    },
     onUnpin: text => quietly(api('/pin', { method: 'DELETE', body: { text } })),
     onEvaporate: (text, tier) => {
       noteEvaporated(text, tier);
+      hintDispatch('evaporate');
       quietly(api('/evaporated', { method: 'POST', body: { text, tier } }));
     },
-    onProspect: () => quietly(api('/prospect', { method: 'POST', body: { buckets: [] } })),
+    onProspect: () => {
+      hintDispatch('prospect');
+      quietly(api('/prospect', { method: 'POST', body: { buckets: [] } }));
+    },
   });
   field.hydratePinned(info.anchors);
   pool.prime();
