@@ -98,3 +98,41 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #legend dl{display:grid; grid-template-columns:auto 1fr; gap:7px 12px;}
 #legend dt{font-size:12px; color:var(--t0); letter-spacing:0.06em; white-space:nowrap;}
 #legend dd{font-size:12px; color:var(--label);}
+
+/* explainer layer (#11): pre-seed manifesto, centered under the drifting
+   meta-words (which are ordinary .word t0/t1/t2 spans from preseed.js) */
+#manifesto{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; text-align:center; padding:0 48px; pointer-events:none; opacity:1; transition:opacity 0.45s ease;}
+#manifesto[hidden]{display:none;}
+#manifesto p{font-family:'Fraunces',serif; font-size:18px; color:var(--t0); letter-spacing:0.01em;}
+#manifesto p + p{font-size:14px; color:var(--label); font-style:italic;}
+
+/* explainer layer (#12): "? what is this?" toggle — label copy in the header,
+   opening a non-modal about panel in the evaporated-sidebar family (no
+   backdrop, no focus trap; the field keeps condensing beside it) */
+#aboutWrap{position:relative;}
+#aboutBtn{background:none; border:none; color:var(--label); font-family:inherit; font-size:12px; letter-spacing:0.06em; cursor:pointer; padding:2px 4px; border-radius:4px;}
+#aboutBtn:hover, #aboutBtn[aria-expanded="true"]{color:var(--t0);}
+#aboutBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+#aboutBtn .q{display:inline-block; width:18px; height:18px; line-height:16px; border:1px solid var(--hair); border-radius:50%; text-align:center; margin-right:4px;}
+#aboutBtn:hover .q, #aboutBtn[aria-expanded="true"] .q{border-color:var(--label);}
+#about{position:absolute; top:calc(100% + 10px); right:0; z-index:40; width:min(420px, calc(100vw - 48px)); max-height:calc(100vh - 130px); overflow-y:auto; background:#171528; border:1px solid var(--hair); border-radius:14px; padding:16px 18px 18px; box-shadow:0 14px 40px rgba(0,0,0,0.5); animation:aboutIn 0.35s ease;}
+#about[hidden]{display:none;}
+@keyframes aboutIn{from{opacity:0; transform:translateY(-8px);} to{opacity:1; transform:none;}}
+#about .abouthead{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px;}
+#about h2{font-size:12px; font-weight:400; color:var(--label); letter-spacing:0.1em; text-transform:uppercase;}
+#aboutClose{background:none; border:none; color:var(--label); font-size:16px; line-height:1; cursor:pointer; padding:2px 5px;}
+#aboutClose:hover{color:var(--t2);}
+#aboutClose:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+#about p{font-size:13px; color:var(--t0); line-height:1.55; margin-bottom:10px;}
+#about p.note{font-size:12px; color:var(--label); font-style:italic;}
+#about h3{font-size:11px; font-weight:400; color:var(--label); letter-spacing:0.1em; text-transform:uppercase; margin:14px 0 8px;}
+#about dl{display:grid; grid-template-columns:auto 1fr; gap:7px 12px; margin-bottom:12px;}
+#about dt{font-size:12px; color:var(--t0); letter-spacing:0.06em; white-space:nowrap;}
+#about dd{font-size:12px; color:var(--label);}
+#about a{color:var(--t1); text-decoration:underline dotted; text-underline-offset:3px;}
+#about a:hover{color:var(--t0);}
+#about a:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+@media (prefers-reduced-motion: reduce){
+  #manifesto{transition:none;} /* teardown fade → instant */
+  #about{animation:none;}      /* open slide-in → instant */
+}
