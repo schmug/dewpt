@@ -9,6 +9,11 @@ export function createField({ fieldEl, chipsEl, sliders, onPin, onUnpin, onEvapo
   const field = fieldEl;
   const chips = chipsEl;
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // coarse pointer (touch) has no hover, so the desktop `.word:hover` clarify
+  // never fires; raise the depth floor at spawn instead — bigger base font,
+  // gentler blur, higher opacity floor — so deep words are legible and aimable
+  // without a mouse (docs/mobile-research.md workstream A, Mechanism 2).
+  const coarse = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
 
   const visible = new Set();
   const pinned = new Map();
@@ -58,16 +63,22 @@ export function createField({ fieldEl, chipsEl, sliders, onPin, onUnpin, onEvapo
     const el = document.createElement('span');
     el.className = 'word t' + pick.tier;
     el.textContent = pick.text;
-    el.style.fontSize = (14 + depth * 15) + 'px';
-    el.style.filter = 'blur(' + ((1 - depth) * 1.4).toFixed(1) + 'px)';
-    const x = px !== undefined ? px + (Math.random() - 0.5) * 140 : 30 + Math.random() * (rect.width - 220);
+    el.style.fontSize = ((coarse ? 18 : 14) + depth * (coarse ? 11 : 15)) + 'px';
+    el.style.filter = 'blur(' + ((1 - depth) * (coarse ? 0.6 : 1.4)).toFixed(1) + 'px)';
+    // width-relative placement band: the desktop 220/160px reserves collapse on
+    // a narrow phone field and cluster words at the left (gap #10). Scale the
+    // reserve to the field width — it equals the original 160/30 for any field
+    // ≳380px, so the desktop band is unchanged.
+    const reserve = Math.min(160, rect.width * 0.42);
+    const startPad = Math.min(30, rect.width * 0.08);
+    const x = px !== undefined ? px + (Math.random() - 0.5) * 140 : startPad + Math.random() * Math.max(40, rect.width - reserve - 30 - startPad);
     const y = py !== undefined ? py + (Math.random() - 0.5) * 110 : 30 + Math.random() * (rect.height - 70);
-    el.style.left = Math.max(12, Math.min(rect.width - 160, x)) + 'px';
+    el.style.left = Math.max(12, Math.min(rect.width - reserve, x)) + 'px';
     el.style.top = Math.max(12, Math.min(rect.height - 40, y)) + 'px';
     field.appendChild(el);
     visible.add(pick.text);
     requestAnimationFrame(() => {
-      el.style.opacity = (0.45 + depth * 0.55).toFixed(2);
+      el.style.opacity = ((coarse ? 0.7 : 0.45) + depth * (coarse ? 0.3 : 0.55)).toFixed(2);
       if (!reduced) el.style.transform = 'translate(' + ((Math.random() - 0.5) * 30).toFixed(0) + 'px,' + ((Math.random() - 0.5) * 24).toFixed(0) + 'px)';
     });
     const ttl = 5000 + Math.random() * 5000;
