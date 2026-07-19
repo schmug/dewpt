@@ -57,6 +57,17 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #seedForm button:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #seedForm[hidden]{display:none;}
 
+/* add-your-own-word form in the condensate tray (issue #20): mirrors the seed
+   form's register — the same quiet inputs, one at intake, one mid-session */
+#addForm{display:flex; gap:8px; align-items:center; margin-bottom:12px;}
+#addForm input{background:#1e1b2e; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:13px; padding:7px 12px; border-radius:8px; width:min(300px, 60vw); outline:none;}
+#addForm input:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+#addForm input::placeholder{color:#565378; font-style:italic;}
+#addForm input:disabled{opacity:0.5; cursor:not-allowed;}
+#addForm button{background:none; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;}
+#addForm button:hover{border-color:var(--label);}
+#addForm button:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+
 /* stage: field + evaporated sidebar */
 #stage{width:100%; max-width:1170px; display:flex; gap:14px; align-items:stretch;}
 #stage #field{flex:1 1 auto; min-width:0;}

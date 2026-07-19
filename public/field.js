@@ -85,6 +85,7 @@ export function createField({ fieldEl, chipsEl, sliders, onPin, onUnpin, onEvapo
       }, 1500);
     }, ttl);
     el.addEventListener('click', e => { e.stopPropagation(); togglePin(el, pick); });
+    return el;
   }
 
   function togglePin(el, pick) {
@@ -160,6 +161,30 @@ export function createField({ fieldEl, chipsEl, sliders, onPin, onUnpin, onEvapo
     spawnText(text, tier) {
       if (visible.has(text) || pinned.has(text)) return;
       spawnPick({ text, tier });
+    },
+    /** The user injects their own word/phrase mid-session (issue #20): condense
+     *  it immediately as a crystallized (pinned) anchor — optimistic, before the
+     *  /add round-trip resolves. Re-crystallizes an on-screen instance rather
+     *  than spawning a duplicate (a lingering unpinned twin would later report a
+     *  false evaporation of the now-pinned word). No-op if already pinned; the
+     *  caller owns the persistence round-trip. Returns true when it condensed. */
+    addOwnWord(text, tier = 1) {
+      if (pinned.has(text)) return false;
+      const pick = { text, tier };
+      let el = null;
+      for (const w of field.querySelectorAll('.word')) {
+        if (w.textContent === text) { el = w; break; }
+      }
+      if (!el) el = spawnPick(pick);
+      if (!el) return false;
+      // crystallize in place — mirror togglePin's pin branch, minus onPin (the
+      // caller posts /add, not /pin, and drives the hint machine itself)
+      pinned.set(text, tier);
+      clearTimeout(el._decay);
+      el.classList.add('pinned');
+      el.style.transform = 'none';
+      renderTray();
+      return true;
     },
     /** Rebuild the pinned map from session anchors on resume. */
     hydratePinned(anchors) {

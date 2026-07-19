@@ -311,6 +311,72 @@ describe("anchors", () => {
   });
 });
 
+describe("addWord (user-injected words, issue #20)", () => {
+  it("adds a word that never appeared in any bucket as an anchor", () => {
+    const core = new PoolCore();
+    const { anchors, added } = core.addWord("petrichor", 1, 1000);
+    expect(added).toBe(true);
+    expect(anchors).toEqual([expect.objectContaining({ text: "petrichor", tier: 1, pinnedAt: 1000 })]);
+    // it steers generation: anchors feed the prompt exclusion/flavor list
+    expect(core.excludeForPrompt(10)).toContain("petrichor");
+  });
+
+  it("invalidates the pool so fresh generation is queued (the word becomes a live anchor)", () => {
+    const core = new PoolCore();
+    core.addCandidates("w0a0", entries(["a", "b"]), 1000);
+    expect(core.depths().w0a0.fresh).toBe(2);
+    core.addWord("petrichor", 1, 2000);
+    expect(core.depths().w0a0.fresh).toBe(0); // every bucket's candidates are now stale
+    expect(core.genPlan(3000)).not.toBeNull(); // a regeneration pass is wanted
+  });
+
+  it("dedupes against an existing anchor without duplicating it or bumping its tier", () => {
+    const core = new PoolCore();
+    core.pin("petrichor", 2, 1000);
+    const { anchors, added } = core.addWord("  PETRICHOR ", 0, 2000); // case/space-insensitive
+    expect(added).toBe(false);
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0]).toEqual(expect.objectContaining({ text: "petrichor", tier: 2, pinnedAt: 1000 }));
+  });
+
+  it("does not re-invalidate the pool on a duplicate add", () => {
+    const core = new PoolCore();
+    core.addWord("petrichor", 1, 1000);
+    core.addCandidates("w0a0", entries(["fresh"]), 2000); // fresh: generated after the invalidation
+    expect(core.depths().w0a0.fresh).toBe(1);
+    core.addWord("petrichor", 1, 3000); // duplicate — must not re-stamp invalidatedAt
+    expect(core.depths().w0a0.fresh).toBe(1);
+  });
+
+  it("pulls a pooled word out of the pool when the user adds its exact text", () => {
+    const core = new PoolCore();
+    core.addCandidates("w1a1", entries(["folklore"]), 1000);
+    const { added } = core.addWord("folklore", 1, 2000);
+    expect(added).toBe(true);
+    expect(core.depths().w1a1.total).toBe(0); // no longer both anchor and candidate
+  });
+
+  it("pulls the word out of the evaporated ring when it is added", () => {
+    const core = new PoolCore();
+    core.evaporate("petrichor", 1, 1000);
+    core.addWord("petrichor", 1, 2000);
+    expect(core.evaporated()).toEqual([]);
+  });
+
+  it("ignores empty or whitespace-only text", () => {
+    const core = new PoolCore();
+    expect(core.addWord("   ", 1, 1000).added).toBe(false);
+    expect(core.anchors()).toEqual([]);
+  });
+
+  it("survives a serialize/rehydrate round-trip (persists across resume)", () => {
+    const a = new PoolCore();
+    a.addWord("petrichor", 1, 1000);
+    const b = new PoolCore(a.serialize());
+    expect(b.anchors()).toEqual([expect.objectContaining({ text: "petrichor", tier: 1 })]);
+  });
+});
+
 describe("evaporated ring buffer", () => {
   it("keeps the most recent first and caps at " + EVAPORATED_CAP, () => {
     const core = new PoolCore();

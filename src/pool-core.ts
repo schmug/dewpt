@@ -213,19 +213,36 @@ export class PoolCore {
   // ---- anchors ------------------------------------------------------------
 
   pin(text: string, tier: Tier, now: number): Anchor[] {
-    const key = norm(text);
-    if (!this.anchorList.some((a) => norm(a.text) === key)) {
-      this.anchorList.push({ text: text.trim(), tier, embedding: null, pinnedAt: now });
-      for (const [bucket, pool] of this.buckets) {
-        this.buckets.set(
-          bucket,
-          pool.filter((c) => norm(c.text) !== key),
-        );
-      }
-      this.evaporatedList = this.evaporatedList.filter((e) => norm(e.text) !== key);
-      this.invalidatedAt = now;
-    }
+    this.insertAnchor(text, tier, now);
     return this.anchors();
+  }
+
+  /** Add a user-supplied word/phrase mid-session as a pinned anchor. Rides the
+   *  same mechanic as pin() — the text need never have appeared in the pool, so
+   *  a user can inject an idea the model never offered — and reports whether it
+   *  was newly added so a duplicate stays a no-op (no redundant invalidation or
+   *  regeneration). */
+  addWord(text: string, tier: Tier, now: number): { anchors: Anchor[]; added: boolean } {
+    const added = this.insertAnchor(text, tier, now);
+    return { anchors: this.anchors(), added };
+  }
+
+  /** Shared anchor intake for pin()/addWord(): dedupe by normalized text, drop
+   *  the word from every bucket and the evaporated ring, and invalidate the
+   *  pool. Returns whether a new anchor was actually created. */
+  private insertAnchor(text: string, tier: Tier, now: number): boolean {
+    const key = norm(text);
+    if (!key || this.anchorList.some((a) => norm(a.text) === key)) return false;
+    this.anchorList.push({ text: text.trim(), tier, embedding: null, pinnedAt: now });
+    for (const [bucket, pool] of this.buckets) {
+      this.buckets.set(
+        bucket,
+        pool.filter((c) => norm(c.text) !== key),
+      );
+    }
+    this.evaporatedList = this.evaporatedList.filter((e) => norm(e.text) !== key);
+    this.invalidatedAt = now;
+    return true;
   }
 
   unpin(text: string, now: number): Anchor[] {

@@ -136,6 +136,25 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     return anchors ? json({ anchors }) : json({ error: "no such session" }, 404);
   }
 
+  if (rest === "/add" && method === "POST") {
+    // A user injects their own word/phrase mid-session (issue #20). Shares the
+    // anchor mechanic with /pin; tier defaults to the neutral middle band since
+    // a typed word has no band of origin. Capped at MAX_TEXT_CHARS like any
+    // anchor — a user-added word is a short flavor-tilt, not a fresh seed.
+    const body = await readBody(request);
+    if (!body) return badRequest("expected a JSON object body");
+    const text = parseText(body);
+    if (!text) return badRequest(`text must be a non-empty string of at most ${MAX_TEXT_CHARS} characters`);
+    let tier: Tier = 1;
+    if (body.tier !== undefined) {
+      const parsed = parseTier(body);
+      if (parsed === null) return badRequest("tier must be 0, 1 or 2");
+      tier = parsed;
+    }
+    const anchors = await stub.addWord(text, tier);
+    return anchors ? json({ anchors }) : json({ error: "no such session" }, 404);
+  }
+
   if (rest === "/evaporated" && method === "POST") {
     const body = await readBody(request);
     if (!body) return badRequest("expected a JSON object body");
