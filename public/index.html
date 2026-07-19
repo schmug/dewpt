@@ -2,8 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- viewport-fit=cover exposes env(safe-area-inset-*) on notched devices;
+     zoom stays enabled (no maximum-scale/user-scalable) for accessibility -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>dewpt</title>
+<!-- PWA: installable standalone app. Manifest + icons are static files served
+     from ./public (wrangler assets); theme-color paints the browser/OS chrome
+     to match the field's --ink. See docs/mobile-research.md workstream C. -->
+<meta name="theme-color" content="#14121f">
+<meta name="description" content="An ambient ideation canvas where words condense out of latent space.">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="dewpt">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Space+Grotesk:wght@300..500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">

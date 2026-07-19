@@ -283,12 +283,34 @@ addForm.addEventListener('submit', e => {
   quietly(api('/add', { method: 'POST', body: { text, tier: 1 } }));
 });
 
-copyBtn.addEventListener('click', () => {
-  const list = field ? field.getPinned().join('\n') : '';
-  if (list) navigator.clipboard.writeText(list).then(() => {
+// Export the condensate. On touch, offer the native share sheet where the
+// browser supports it (mobile-idiomatic, SPEC M5); everywhere else — and as the
+// fallback if share is unavailable or fails — copy to the clipboard, which is
+// byte-for-byte the previous desktop behavior. Share is gated behind a coarse
+// pointer so the desktop copy button is unchanged.
+const touchShare = 'share' in navigator && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+
+function copyCondensate(list) {
+  if (!navigator.clipboard) return;
+  navigator.clipboard.writeText(list).then(() => {
     copyBtn.textContent = 'Copied';
     setTimeout(() => copyBtn.textContent = 'Copy list', 1400);
-  });
+  }).catch(err => console.error('dewpt copy failed', err));
+}
+
+copyBtn.addEventListener('click', async () => {
+  const list = field ? field.getPinned().join('\n') : '';
+  if (!list) return;
+  if (touchShare) {
+    try {
+      await navigator.share({ title: 'dewpt condensate', text: list });
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return; // user dismissed the sheet
+      // any other failure falls through to the clipboard path below
+    }
+  }
+  copyCondensate(list);
 });
 
 // ---- pre-seed empty state (issue #11) ---------------------------------------

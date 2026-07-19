@@ -10,6 +10,9 @@ import { drawMetaWord } from '/preseed-pool.js';
 
 export function createPreseed({ fieldEl, sliders, onWordClick }) {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // mirror field.js's coarse-pointer legibility floor so the pre-seed preview
+  // reads the same on touch as the seeded field it previews (#17)
+  const coarse = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
   const manifesto = document.getElementById('manifesto');
   const manifestoSr = document.getElementById('manifestoSr');
 
@@ -36,11 +39,14 @@ export function createPreseed({ fieldEl, sliders, onWordClick }) {
     // spamming assistive tech; #manifestoSr carries the message instead
     el.setAttribute('aria-hidden', 'true');
     el.textContent = pick.text;
-    el.style.fontSize = (14 + depth * 15) + 'px';
-    el.style.filter = 'blur(' + ((1 - depth) * 1.4).toFixed(1) + 'px)';
-    const x = 30 + Math.random() * (rect.width - 220);
+    el.style.fontSize = ((coarse ? 18 : 14) + depth * (coarse ? 11 : 15)) + 'px';
+    el.style.filter = 'blur(' + ((1 - depth) * (coarse ? 0.6 : 1.4)).toFixed(1) + 'px)';
+    // width-relative band, mirroring field.js (gap #10); desktop unchanged
+    const reserve = Math.min(160, rect.width * 0.42);
+    const startPad = Math.min(30, rect.width * 0.08);
+    const x = startPad + Math.random() * Math.max(40, rect.width - reserve - 30 - startPad);
     const y = 30 + Math.random() * (rect.height - 70);
-    el.style.left = Math.max(12, Math.min(rect.width - 160, x)) + 'px';
+    el.style.left = Math.max(12, Math.min(rect.width - reserve, x)) + 'px';
     el.style.top = Math.max(12, Math.min(rect.height - 40, y)) + 'px';
     // no session yet, so a click can't pin — the caller decides (app.js
     // funnels it to the seed input); nothing ever reaches the condensate
@@ -50,7 +56,7 @@ export function createPreseed({ fieldEl, sliders, onWordClick }) {
     visible.add(pick.text);
     requestAnimationFrame(() => {
       if (torn) return; // teardown raced the fade-in: stay at opacity 0
-      el.style.opacity = (0.45 + depth * 0.55).toFixed(2);
+      el.style.opacity = ((coarse ? 0.7 : 0.45) + depth * (coarse ? 0.3 : 0.55)).toFixed(2);
       if (!reduced) el.style.transform = 'translate(' + ((Math.random() - 0.5) * 30).toFixed(0) + 'px,' + ((Math.random() - 0.5) * 24).toFixed(0) + 'px)';
     });
     const ttl = 5000 + Math.random() * 5000; // field.js's decay window
