@@ -9,6 +9,7 @@ import { embedTexts, generateCandidates, type AiRunner } from "./generation";
 import { PoolCore } from "./pool-core";
 import {
   ALT_ABSTRACTION,
+  BUCKET_KEYS,
   TIER_STRANGENESS,
   bucketAlt,
   bucketTier,
@@ -34,6 +35,24 @@ interface Meta {
 
 function toBlob(vec: number[]): Uint8Array {
   return new Uint8Array(new Float32Array(vec).buffer);
+}
+
+/** Parse the persisted per-bucket invalidation stamps. Backward compatible with
+ *  the legacy single-scalar representation (a plain number string): an old
+ *  session's global stamp is spread across every bucket, so nothing regresses on
+ *  the first resume after upgrade. Kept synchronous and cheap for hydrate(). */
+function hydrateInvalidation(raw: string | undefined): Record<BucketKey, number> | undefined {
+  if (raw === undefined) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed === "number") {
+      return Object.fromEntries(BUCKET_KEYS.map((b) => [b, parsed])) as Record<BucketKey, number>;
+    }
+    if (parsed && typeof parsed === "object") return parsed as Record<BucketKey, number>;
+  } catch {
+    // Corrupt/unrecognized value — start fresh (PoolCore fills zeros).
+  }
+  return undefined;
 }
 
 function fromBlob(blob: ArrayBuffer): number[] {
@@ -65,7 +84,7 @@ export class SessionDO extends DurableObject<Env> {
       if (params) this.core.setParams(params, 0);
       this.putMeta("meta", JSON.stringify(this.meta));
       this.putMeta("params", JSON.stringify(this.core.getParams()));
-      this.putMeta("invalidatedAt", "0");
+      this.persistInvalidation();
       await this.ensurePump(0);
     }
     return this.info();
@@ -336,7 +355,7 @@ export class SessionDO extends DurableObject<Env> {
     this.core = new PoolCore({
       params: meta.has("params") ? JSON.parse(meta.get("params")!) : undefined,
       seedEmbedding: meta.has("seedEmbedding") ? JSON.parse(meta.get("seedEmbedding")!) : null,
-      invalidatedAt: meta.has("invalidatedAt") ? Number(meta.get("invalidatedAt")) : 0,
+      invalidatedAt: hydrateInvalidation(meta.get("invalidatedAt")),
       candidates,
       anchors,
       exclude,
@@ -349,7 +368,8 @@ export class SessionDO extends DurableObject<Env> {
   }
 
   private persistInvalidation(): void {
-    this.putMeta("invalidatedAt", String(this.core.serialize().invalidatedAt));
+    // Per-bucket stamps serialize as a small JSON object in the single meta key.
+    this.putMeta("invalidatedAt", JSON.stringify(this.core.getInvalidatedAt()));
   }
 
   private persistBucket(bucket: BucketKey): void {

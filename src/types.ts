@@ -56,6 +56,11 @@ export interface SessionInfo {
 
 export const TARGET_DEPTH = 60; // scored candidates per bucket (spec)
 export const FRESH_TARGET = 24; // fresh candidates wanted per hot bucket after invalidation
+// A bucket is "hot" (worth regenerating on a pin/param change) when its affinity
+// is at least this fraction of the hottest bucket's affinity. Scopes per-bucket
+// invalidation to the buckets the current sliders actually draw from (issue #3):
+// cold buckets keep serving stale candidates and refresh lazily when they warm up.
+export const HOT_AFFINITY_FRAC = 0.5;
 export const GEN_BATCH = 24; // candidates requested per generation call (spec: 20–30)
 export const DEDUPE_COSINE = 0.92; // near-duplicate threshold (spec)
 export const EXCLUDE_CAP = 300; // LRU of recently served texts (spec: ~300)

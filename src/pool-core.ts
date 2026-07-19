@@ -10,6 +10,7 @@ import {
   EXCLUDE_CAP,
   FRESH_TARGET,
   GEN_BATCH,
+  HOT_AFFINITY_FRAC,
   TARGET_DEPTH,
   bucketAlt,
   bucketTier,
@@ -49,10 +50,19 @@ interface ExcludeEntry {
   servedAt: number;
 }
 
+/** Per-bucket "stale since" timestamps. A candidate is fresh when it was
+ *  generated strictly after its own bucket's stamp, so invalidating one bucket
+ *  never touches another's freshness (issue #3). */
+export type InvalidationStamps = Record<BucketKey, number>;
+
+function zeroStamps(): InvalidationStamps {
+  return Object.fromEntries(BUCKET_KEYS.map((k) => [k, 0])) as InvalidationStamps;
+}
+
 export interface PoolCoreState {
   params: DewptParams;
   seedEmbedding: number[] | null;
-  invalidatedAt: number;
+  invalidatedAt: InvalidationStamps;
   candidates: Candidate[];
   anchors: Anchor[];
   exclude: ExcludeEntry[]; // oldest-served first
@@ -62,7 +72,7 @@ export interface PoolCoreState {
 export class PoolCore {
   private params: DewptParams;
   private seedEmbedding: number[] | null;
-  private invalidatedAt: number;
+  private invalidatedAt: InvalidationStamps;
   private buckets: Map<BucketKey, Candidate[]>;
   private anchorList: Anchor[];
   private excludeMap: Map<string, ExcludeEntry>; // insertion order = oldest first
@@ -71,7 +81,8 @@ export class PoolCore {
   constructor(state?: Partial<PoolCoreState>) {
     this.params = { ...DEFAULT_PARAMS, ...state?.params };
     this.seedEmbedding = state?.seedEmbedding ?? null;
-    this.invalidatedAt = state?.invalidatedAt ?? 0;
+    // Fill any missing bucket keys (partial or legacy-scalar-derived state) with 0.
+    this.invalidatedAt = { ...zeroStamps(), ...(state?.invalidatedAt ?? {}) };
     this.buckets = new Map(BUCKET_KEYS.map((k) => [k, []]));
     for (const c of state?.candidates ?? []) this.buckets.get(c.bucket)?.push(c);
     this.anchorList = [...(state?.anchors ?? [])];
@@ -188,7 +199,9 @@ export class PoolCore {
 
   /** Merge a params patch. Dewpoint/altitude changes invalidate the pool
    *  lazily — nothing is dropped; candidates just stop counting as fresh.
-   *  Drizzle is spawn rate only and never invalidates. */
+   *  Only the buckets the new sliders make hot are stamped stale, so a slider
+   *  move that warms a previously-cold bucket is what finally refreshes it
+   *  (deferred, not forgotten). Drizzle is spawn rate only and never invalidates. */
   setParams(patch: Partial<DewptParams>, now: number): DewptParams {
     const next = { ...this.params };
     let invalidates = false;
@@ -202,7 +215,7 @@ export class PoolCore {
       }
     }
     this.params = next;
-    if (invalidates) this.invalidatedAt = now;
+    if (invalidates) this.invalidateHot(now);
     return { ...this.params };
   }
 
@@ -241,7 +254,7 @@ export class PoolCore {
       );
     }
     this.evaporatedList = this.evaporatedList.filter((e) => norm(e.text) !== key);
-    this.invalidatedAt = now;
+    this.invalidateHot(now);
     return true;
   }
 
@@ -249,7 +262,7 @@ export class PoolCore {
     const key = norm(text);
     const before = this.anchorList.length;
     this.anchorList = this.anchorList.filter((a) => norm(a.text) !== key);
-    if (this.anchorList.length !== before) this.invalidatedAt = now;
+    if (this.anchorList.length !== before) this.invalidateHot(now);
     return this.anchors();
   }
 
@@ -344,7 +357,7 @@ export class PoolCore {
     return {
       params: { ...this.params },
       seedEmbedding: this.seedEmbedding,
-      invalidatedAt: this.invalidatedAt,
+      invalidatedAt: this.getInvalidatedAt(),
       candidates: this.allCandidates().map((c) => ({ ...c })),
       anchors: this.anchors(),
       exclude: [...this.excludeMap.values()].map((e) => ({ ...e })),
@@ -352,10 +365,35 @@ export class PoolCore {
     };
   }
 
+  /** The per-bucket staleness stamps — a cheap copy for persistence (the DO
+   *  serializes just this into its meta table, without dumping the whole pool). */
+  getInvalidatedAt(): InvalidationStamps {
+    return { ...this.invalidatedAt };
+  }
+
   // ---- internals ------------------------------------------------------------
 
   private isFresh(c: Candidate): boolean {
-    return c.generatedAt > this.invalidatedAt;
+    return c.generatedAt > this.invalidatedAt[c.bucket];
+  }
+
+  /** Mark every hot bucket stale as of `now`. Cold buckets keep their prior
+   *  stamp, so their candidates stay fresh and aren't regenerated until a later
+   *  slider/anchor change warms them up. The hottest bucket always qualifies, so
+   *  an invalidating event never becomes a silent no-op. */
+  private invalidateHot(now: number): void {
+    for (const bucket of this.hotBuckets()) this.invalidatedAt[bucket] = now;
+  }
+
+  /** Buckets whose affinity is within HOT_AFFINITY_FRAC of the hottest bucket's,
+   *  using the same affinity() the client draws by — the single hotness source. */
+  private hotBuckets(): Set<BucketKey> {
+    const affinities = BUCKET_KEYS.map((b) => [b, this.affinity(b)] as const);
+    const max = Math.max(...affinities.map(([, a]) => a));
+    // Degenerate params (all-zero affinity) — treat every bucket as hot.
+    if (max <= 0) return new Set(BUCKET_KEYS);
+    const threshold = HOT_AFFINITY_FRAC * max;
+    return new Set(affinities.filter(([, a]) => a >= threshold).map(([b]) => b));
   }
 
   private allCandidates(): Candidate[] {
