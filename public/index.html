@@ -33,7 +33,7 @@
         <dt>dewpoint</dt><dd>how strange the words get. low: only the obvious condenses. high: far-field vapor precipitates.</dd>
         <dt>altitude</dt><dd>how abstract. ground level is concrete tactics; high altitude is underlying concepts.</dd>
         <dt>drizzle</dt><dd>how fast new words condense.</dd>
-        <dt>condensate</dt><dd>the harvest: words you've pinned, ready to copy out.</dd>
+        <dt>condensate</dt><dd>the harvest: words you've pinned — or your own, typed straight in — ready to copy out.</dd>
         <dt>evaporated</dt><dd>the ghost trail: the last twenty words that faded. click one to condense it again.</dd>
         <dt>condense / evaporate</dt><dd>the verbs: words condense (appear) and evaporate (fade). every word does both unless you pin it.</dd>
       </dl>
@@ -94,6 +94,7 @@
       <dl>
         <dt>prospect</dt><dd>click blank space: a pulse draws a burst of slightly stranger words there</dd>
         <dt>pin</dt><dd>click a word: it crystallizes, joins the condensate, and steers what condenses next</dd>
+        <dt>add your own</dt><dd>type a word or phrase into the condensate to steer generation toward an idea the field hasn't offered</dd>
         <dt>release</dt><dd>click a pinned word again, or its &times; in the tray</dd>
         <dt>dewpoint</dt><dd>how far from the seed the vapor condenses: obvious &harr; surreal</dd>
         <dt>altitude</dt><dd>what kind of words condense: concrete &harr; abstract</dd>
@@ -110,6 +111,13 @@
     <h2>condensate</h2>
     <button id="copyBtn">Copy list</button>
   </div>
+  <!-- add your own word (issue #20): inject a word/phrase the AI hasn't offered.
+       It condenses immediately as a pinned anchor and steers what comes next.
+       Disabled until a session exists; the placeholder self-teaches (layer 1). -->
+  <form id="addForm">
+    <input id="addInput" type="text" placeholder="add your own word or phrase…" maxlength="64" autocomplete="off" aria-label="Add your own word or phrase to the condensate" disabled>
+    <button type="submit">condense</button>
+  </form>
   <div id="chips"><span class="empty">nothing has condensed yet — click words that catch you</span></div>
 </div>
 

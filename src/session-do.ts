@@ -127,6 +127,22 @@ export class SessionDO extends DurableObject<Env> {
     return this.publicAnchors();
   }
 
+  /** A user injects their own word/phrase mid-session. Rides the anchor path:
+   *  the word becomes a pinned anchor that steers every subsequent generation.
+   *  A duplicate is a no-op — no redundant embed/regeneration is queued. */
+  async addWord(text: string, tier: Tier): Promise<SessionInfo["anchors"] | null> {
+    if (!this.meta) return null;
+    const { added } = this.core.addWord(text, tier, Date.now());
+    if (added) {
+      this.persistAnchors();
+      this.persistEvaporated(); // the word may have been resting in the evaporated ring
+      this.persistInvalidation();
+      this.ctx.storage.sql.exec("DELETE FROM pool WHERE lower(trim(text)) = lower(trim(?))", text);
+      await this.ensurePump(0); // embeds the new anchor, then regenerates
+    }
+    return this.publicAnchors();
+  }
+
   async unpin(text: string): Promise<SessionInfo["anchors"] | null> {
     if (!this.meta) return null;
     this.core.unpin(text, Date.now());

@@ -25,6 +25,8 @@ const seedInput = document.getElementById('seedInput');
 const seedDisplay = document.getElementById('seedDisplay');
 const seedText = document.getElementById('seedText');
 const copyBtn = document.getElementById('copyBtn');
+const addForm = document.getElementById('addForm');
+const addInput = document.getElementById('addInput');
 
 const sliders = { strange: document.getElementById('strange'), alt: document.getElementById('alt'), flux: document.getElementById('flux') };
 const readouts = { strange: document.getElementById('sVal'), alt: document.getElementById('aVal'), flux: document.getElementById('fVal') };
@@ -202,6 +204,7 @@ function start(info) {
   seedText.textContent = info.seed;
   seedDisplay.hidden = false;
   seedForm.hidden = true;
+  addInput.disabled = false; // the condensate add-your-own input only works with a live session
 
   sliders.strange.value = Math.round(info.params.dewpoint * 100);
   sliders.alt.value = Math.round(info.params.altitude * 100);
@@ -259,6 +262,25 @@ seedForm.addEventListener('submit', async e => {
     console.error(err);
     seedForm.querySelector('button').disabled = false;
   }
+});
+
+// ---- add your own word (issue #20) ------------------------------------------
+// A user mid-session drops their own word/phrase into the condensate to steer
+// generation toward something the AI hasn't offered. It rides the pin/anchor
+// path: condense it optimistically (before any round-trip), then persist it as
+// an anchor via /add. tier 1 — a typed word has no band of origin, so it takes
+// the neutral middle. An added word is a pin, so it advances the hint machine
+// like any pin.
+addForm.addEventListener('submit', e => {
+  e.preventDefault();
+  if (!session || !field) return;
+  const text = addInput.value.trim();
+  if (!text) return;
+  addInput.value = '';
+  const added = field.addOwnWord(text, 1); // condenses immediately, no network wait
+  if (!added) return; // already in the condensate — nothing to persist
+  hintDispatch('pin');
+  quietly(api('/add', { method: 'POST', body: { text, tier: 1 } }));
 });
 
 copyBtn.addEventListener('click', () => {
