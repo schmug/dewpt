@@ -665,6 +665,21 @@ describe("PoolCore axes", () => {
     expect(core.serializedAxes()[0]!.degraded).toBe(false);
   });
 
+  it("cannot be pushed past MAX_AXES through the array axes() returns", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    core.axes().push(makeAxis("smuggled", 2, 3));
+    expect(core.axes()).toHaveLength(1);
+  });
+
+  it("reports degraded when only the positive pole fell back", () => {
+    const core = new PoolCore();
+    const axis = makeAxis("a", 0, 1);
+    axis.pos.expanded = false;
+    core.addAxis(axis);
+    expect(core.serializedAxes()[0]!.degraded).toBe(true);
+  });
+
   it("reports an axis with an unembedded pole as not ready", () => {
     const core = new PoolCore();
     const axis = makeAxis("a", 0, 1);

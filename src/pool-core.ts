@@ -311,8 +311,15 @@ export class PoolCore {
     return this.axisList.length < before;
   }
 
+  /** Copy-on-read, matching `anchors()` one section above. A live reference
+   *  would let `core.axes().push(...)` add a fourth axis straight past the
+   *  MAX_AXES guard, and would alias into `serialize()`'s snapshot — `addAxis`
+   *  pushes in place, so an earlier snapshot's `axes` would grow after the
+   *  fact, breaking the point-in-time contract every other serialized field
+   *  honors. The hot path reads `this.axisList` directly, so this costs
+   *  nothing per draw. */
   axes(): Axis[] {
-    return this.axisList;
+    return this.axisList.map((a) => ({ ...a }));
   }
 
   /** Client-facing view. Embeddings are deliberately absent — they never go on
