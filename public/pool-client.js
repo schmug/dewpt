@@ -22,6 +22,11 @@ export function createPoolClient(sessionId) {
       const res = await fetch(`/api/session/${sessionId}/pool?bucket=${bucket}&count=${DRAW_COUNT}`);
       if (!res.ok) return;
       const { condensed } = await res.json();
+      // Buffered items are the server's Served objects: {text, tier, alt,
+      // seedDist, coords}. coords is one raw cosine per ready axis, needing
+      // normalizeCoords() against the visible set before use as layout
+      // positions. field.js currently keeps only {text, tier}; map mode
+      // (workstream A) is what consumes coords.
       buffers.get(bucket).push(...condensed);
     } catch (err) {
       console.error('pool refill failed', bucket, err);

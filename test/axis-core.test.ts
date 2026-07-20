@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { axisVector, coordsFor, normalizeCoords } from "../src/axis-core";
 
+// public/axes.js is plain JS served raw from public/ (no build step), so it
+// sits outside tsconfig's include; the cast pins it to the canonical module's
+// surface and the normalizeCoords suite runs against both to prevent drift.
+// @ts-expect-error — public/axes.js ships untyped
+import * as browserAxesUntyped from "../public/axes.js";
+const browserAxes = browserAxesUntyped as { normalizeCoords: typeof normalizeCoords };
+
 /** Unit vector along dimension i — mirrors the idiom in pool-core.test.ts. */
 function axisEmb(i: number, dim = 8): number[] {
   const v = new Array(dim).fill(0);
@@ -48,16 +55,19 @@ describe("coordsFor", () => {
   });
 });
 
-describe("normalizeCoords", () => {
+describe.each([
+  ["src/axis-core.ts", { normalizeCoords }],
+  ["public/axes.js (browser mirror)", browserAxes],
+])("normalizeCoords — %s", (_name, impl) => {
   it("maps the observed range onto 0..1", () => {
-    expect(normalizeCoords([-0.1, 0, 0.1])).toEqual([0, 0.5, 1]);
+    expect(impl.normalizeCoords([-0.1, 0, 0.1])).toEqual([0, 0.5, 1]);
   });
 
   it("centers a degenerate range instead of dividing by zero", () => {
-    expect(normalizeCoords([0.3, 0.3, 0.3])).toEqual([0.5, 0.5, 0.5]);
+    expect(impl.normalizeCoords([0.3, 0.3, 0.3])).toEqual([0.5, 0.5, 0.5]);
   });
 
   it("returns [] for an empty input", () => {
-    expect(normalizeCoords([])).toEqual([]);
+    expect(impl.normalizeCoords([])).toEqual([]);
   });
 });
