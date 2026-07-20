@@ -192,10 +192,13 @@ export class SessionDO extends DurableObject<Env> {
    *  phrase (mandatory — bare terms lose ~0.34 AUC to polysemy), embeds both
    *  phrases, then stores the axis. Slow and explicitly user-initiated; it must
    *  never sit in the pool-serving path. Returns null when the session is
-   *  unknown, or the unchanged axis list when already at MAX_AXES. */
-  async createAxis(negTerm: string, posTerm: string): Promise<SerializedAxis[] | null> {
+   *  unknown, or `{ axes, created: false }` when already at MAX_AXES. */
+  async createAxis(negTerm: string, posTerm: string): Promise<{ axes: SerializedAxis[]; created: boolean } | null> {
     if (!this.meta) return null;
-    if (this.core.axes().length >= MAX_AXES) return this.core.serializedAxes();
+    // At cap: report it rather than returning the unchanged list, which the
+    // route would otherwise answer with a 201 for a request it silently
+    // dropped — the same silent-failure shape identical poles are rejected for.
+    if (this.core.axes().length >= MAX_AXES) return { axes: this.core.serializedAxes(), created: false };
 
     const ai = this.aiRunner();
     const [neg, pos] = await Promise.all([
@@ -209,7 +212,7 @@ export class SessionDO extends DurableObject<Env> {
       pos: { term: posTerm, phrase: pos.phrase, expanded: pos.expanded, embedding: null },
       createdAt: Date.now(),
     };
-    this.core.addAxis(axis);
+    if (!this.core.addAxis(axis)) return { axes: this.core.serializedAxes(), created: false };
 
     // Embed both poles now so coordinates start flowing immediately. On failure
     // the axis persists unembedded and reports ready:false; the next pump picks
@@ -223,7 +226,7 @@ export class SessionDO extends DurableObject<Env> {
     }
 
     this.persistAxes();
-    return this.core.serializedAxes();
+    return { axes: this.core.serializedAxes(), created: true };
   }
 
   async removeAxis(id: string): Promise<SerializedAxis[] | null> {

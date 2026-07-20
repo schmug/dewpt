@@ -3,7 +3,7 @@
 // reaches this code (run_worker_first).
 
 import { parsePoleTerms } from "./axis-core";
-import { BUCKET_KEYS, MAX_POLE_TERM_CHARS, type BucketKey, type DewptParams, type Tier } from "./types";
+import { BUCKET_KEYS, MAX_AXES, MAX_POLE_TERM_CHARS, type BucketKey, type DewptParams, type Tier } from "./types";
 
 export { SessionDO } from "./session-do";
 
@@ -187,8 +187,13 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     if (!terms) {
       return badRequest(`negTerm and posTerm must be different non-empty strings of at most ${MAX_POLE_TERM_CHARS} characters`);
     }
-    const axes = await stub.createAxis(terms.negTerm, terms.posTerm);
-    return axes ? json({ axes }, 201) : json({ error: "no such session" }, 404);
+    const result = await stub.createAxis(terms.negTerm, terms.posTerm);
+    if (!result) return json({ error: "no such session" }, 404);
+    // 201 only when an axis was actually added. At cap the request was dropped,
+    // and answering 201 would report a silent failure as a success.
+    return result.created
+      ? json({ axes: result.axes }, 201)
+      : json({ error: `at most ${MAX_AXES} axes`, axes: result.axes }, 409);
   }
 
   const axisMatch = rest.match(/^\/axes\/([^/]+)$/);
