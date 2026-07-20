@@ -22,6 +22,11 @@ const { createPoolClient } = poolClientUntyped as {
 };
 
 const BUCKET = "w0a0";
+// Mirrors the module's BUCKETS constant and iteration order. prime() refills
+// buckets in this order, and (per this file's fetchMock) each bucket's fetch
+// resolves and shifts its response off `responses` in that same order — so
+// pushing responses in this order reaches buckets by position.
+const ALL_BUCKETS = ["w0a0", "w0a1", "w1a0", "w1a1", "w2a0", "w2a1"];
 const LOW_WATER = 8; // mirrors the module constant
 const REFILL_COOLDOWN_MS = 600; // mirrors the module constant
 
@@ -73,14 +78,30 @@ describe("pool client axis-set invalidation", () => {
     vi.setSystemTime(Date.now() + REFILL_COOLDOWN_MS + 1);
   }
 
+  /** Seed a `prime()` call so every bucket agrees on the same axis set — a
+   *  real session's six buckets all query one source of truth and would
+   *  never independently observe a DIFFERENT axis set from each other at
+   *  rest. Without this, an unseeded bucket's response would fall through to
+   *  the mock's empty default and look like a bogus reversion to zero axes,
+   *  which — now that the axis set is global to the client, not per bucket —
+   *  would spuriously flush every buffer. `content` maps specific buckets to
+   *  real batches; every other bucket gets an empty batch under the same
+   *  axisIds. */
+  function primeAll(axisIds: string[], content: Record<string, Served[]> = {}) {
+    for (const bucket of ALL_BUCKETS) {
+      responses.push({ condensed: content[bucket] ?? [], axisIds });
+    }
+  }
+
   it("discards buffered words when the axis set changes under them", async () => {
     const client = createPoolClient("session-1");
-    responses.push({ condensed: batch("one-axis", 12, [0.1]), axisIds: ["axis-a"] });
+    primeAll(["axis-a"], { [BUCKET]: batch("one-axis", 12, [0.1]) });
     client.prime();
     await settle();
 
     // Draw down to arm a refill. Whatever is left is shaped for ["axis-a"].
     const drawnBefore = drainToRefill(client, 12);
+    expect(drawnBefore.length).toBeGreaterThan(0);
     expect(drawnBefore.every((w) => w.coords.length === 1)).toBe(true);
 
     // The refill comes back scored against a second, newly-ready axis.
@@ -104,7 +125,7 @@ describe("pool client axis-set invalidation", () => {
 
   it("keeps buffered words when the axis set is unchanged", async () => {
     const client = createPoolClient("session-2");
-    responses.push({ condensed: batch("first", 12, [0.1]), axisIds: ["axis-a"] });
+    primeAll(["axis-a"], { [BUCKET]: batch("first", 12, [0.1]) });
     client.prime();
     await settle();
 
@@ -125,11 +146,64 @@ describe("pool client axis-set invalidation", () => {
     expect(remaining.some((w) => w.text.startsWith("second"))).toBe(true);
   });
 
+  it("flushes every bucket's buffer when a changed axis set is observed on just one bucket's refill", async () => {
+    // field.js drains all six buckets into one shared visible field, so the
+    // axis set must be global to the client: a change seen by BUCKET's
+    // refill has to invalidate OTHER_BUCKET's buffer too, even though
+    // OTHER_BUCKET never refills itself in this test.
+    const OTHER_BUCKET = "w0a1";
+    const client = createPoolClient("session-cross-bucket");
+
+    primeAll(["axis-a"], {
+      [BUCKET]: batch("a-one", 12, [0.1]),
+      [OTHER_BUCKET]: batch("b-one", 12, [0.1]),
+    });
+    client.prime();
+    await settle();
+
+    // Sanity-check OTHER_BUCKET actually holds pre-change words before we
+    // assert they're gone.
+    const beforeChange = client.draw(OTHER_BUCKET);
+    expect(beforeChange?.text.startsWith("b-one")).toBe(true);
+
+    // Drain BUCKET to arm its own refill, then answer with a new axis set.
+    drainToRefill(client, 12);
+    responses.push({ condensed: batch("a-two", 12, [0.1, 0.2]), axisIds: ["axis-a", "axis-b"] });
+    client.draw(BUCKET); // dips BUCKET below LOW_WATER, kicking ITS refill
+    await settle();
+
+    // OTHER_BUCKET never refilled, but its stale one-axis words must be gone
+    // regardless — the axis set is global, not scoped to whichever bucket
+    // happened to refill.
+    expect(client.draw(OTHER_BUCKET)).toBeNull();
+  });
+
+  it("flushes no bucket's buffer when the axis set is unchanged, regardless of which bucket refills", async () => {
+    const OTHER_BUCKET = "w0a1";
+    const client = createPoolClient("session-cross-bucket-unchanged");
+
+    primeAll(["axis-a"], {
+      [BUCKET]: batch("a-first", 12, [0.1]),
+      [OTHER_BUCKET]: batch("b-first", 12, [0.1]),
+    });
+    client.prime();
+    await settle();
+
+    drainToRefill(client, 12);
+    responses.push({ condensed: batch("a-second", 12, [0.3]), axisIds: ["axis-a"] });
+    client.draw(BUCKET);
+    await settle();
+
+    // OTHER_BUCKET was never touched by this refill and the axis set didn't
+    // change, so its original words must still be sitting there untouched.
+    expect(client.draw(OTHER_BUCKET)?.text.startsWith("b-first")).toBe(true);
+  });
+
   it("treats a reordered axis set as a different one", async () => {
     // Order is what indexes coords, so a reorder invalidates just as hard as a
     // membership change — and is easy to miss with a set-based comparison.
     const client = createPoolClient("session-3");
-    responses.push({ condensed: batch("ab", 12, [0.1, 0.2]), axisIds: ["axis-a", "axis-b"] });
+    primeAll(["axis-a", "axis-b"], { [BUCKET]: batch("ab", 12, [0.1, 0.2]) });
     client.prime();
     await settle();
 

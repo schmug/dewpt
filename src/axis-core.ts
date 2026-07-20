@@ -94,8 +94,9 @@ export function axisToRow(axis: Axis): AxisRow {
  *  and what it cannot (paraphrases that merely mean the same thing; cosine
  *  can't separate those from legitimate antonym axes). Pulled out of
  *  SessionDO.createAxis as a pure predicate so it is testable without a DO
- *  harness: dev-fake-ai's pseudo-embeddings are deterministic by text hash, so
- *  two identical pole phrases yield cosine exactly 1.0 here. */
+ *  harness: test/axis-core.test.ts drives it with synthetic unit vectors
+ *  (identical, orthogonal, and a measured near-threshold pair), no embedding
+ *  call of any kind required. */
 export function isDegeneratePole(negEmbedding: number[], posEmbedding: number[]): boolean {
   return cosineSim(negEmbedding, posEmbedding) > DEGENERATE_POLE_COSINE;
 }

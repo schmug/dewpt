@@ -58,10 +58,9 @@ describe("coordsFor", () => {
 
 // Guards pos - neg landing on the zero vector. Pulled out of
 // SessionDO.createAxis specifically so this is reachable without a DO
-// harness: dev-fake-ai's pseudo-embeddings are deterministic by text hash, so
-// two pole phrases that expand to the same literal text (the realistic
-// trigger — see DEGENERATE_POLE_COSINE in src/types.ts) produce cosine
-// exactly 1.0, no live AI call required.
+// harness: axisEmb below builds synthetic unit-vector embeddings directly, so
+// the identical/orthogonal/near-threshold cases are exercised as plain
+// arithmetic — no AI call, real or faked, required.
 describe("isDegeneratePole", () => {
   it("fires when both poles carry identical embeddings", () => {
     const v = axisEmb(3);

@@ -213,13 +213,12 @@ export class SessionDO extends DurableObject<Env> {
   async createAxis(
     negTerm: string,
     posTerm: string,
-  ): Promise<{
-    axes: SerializedAxis[];
-    created: boolean;
-    reason?: "cap" | "degenerate";
-    negPhrase?: string;
-    posPhrase?: string;
-  } | null> {
+  ): Promise<
+    | { created: true; axes: SerializedAxis[] }
+    | { created: false; reason: "cap"; axes: SerializedAxis[] }
+    | { created: false; reason: "degenerate"; axes: SerializedAxis[]; negPhrase: string; posPhrase: string }
+    | null
+  > {
     if (!this.meta) return null;
     // At cap: report it rather than returning the unchanged list, which the
     // route would otherwise answer with a 201 for a request it silently
@@ -259,6 +258,7 @@ export class SessionDO extends DurableObject<Env> {
       // degeneracy check below would let a throw there fall through to the
       // created:true return, resurrecting an axis this method just removed.
       let vecs: number[][] | null = null;
+      let embedFailed = false;
       try {
         vecs = await embedTexts(ai, this.env.EMBED_MODEL, [neg.phrase, pos.phrase]);
       } catch (error) {
@@ -268,8 +268,12 @@ export class SessionDO extends DurableObject<Env> {
         // genPlan() has work, so against a full pool nothing would ever wake it
         // and the axis would stay ready:false forever. Kick the pump explicitly.
         // Deliberately absent from the success path: a created axis does not
-        // invalidate the pool and must not trigger regeneration.
-        await this.ensurePump(0);
+        // invalidate the pool and must not trigger regeneration. Deferred until
+        // after persistAxes() below (not fired here) so that if ensurePump's
+        // alarm write throws, the axis this method reports failed is not
+        // simultaneously written to storage by it — storage state must match
+        // what the caller is told.
+        embedFailed = true;
       }
 
       if (vecs) {
@@ -299,6 +303,14 @@ export class SessionDO extends DurableObject<Env> {
       }
 
       this.persistAxes();
+      // Kicked here, after the axis is durably persisted, rather than inside
+      // the catch above: if ensurePump's alarm write were to throw there,
+      // createAxis would reject without ever reaching persistAxes(), while
+      // core.addAxis had already put the axis in memory — the caller would be
+      // told creation failed, yet a later unrelated persistAxes() call would
+      // still write it. Ordering the pump kick after persistAxes() keeps
+      // storage consistent with what this method reports either way.
+      if (embedFailed) await this.ensurePump(0);
       return { axes: this.core.serializedAxes(), created: true };
     } finally {
       this.axisCreationsInFlight--;
