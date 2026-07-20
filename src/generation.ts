@@ -2,6 +2,8 @@
 // is prompted with the plain word "strangeness" — the weather terms (dewpoint,
 // drizzle) exist only in the UI and API layers, never in prompts.
 
+import { MAX_POLE_PHRASE_CHARS } from "./types";
+
 /** Structural subset of the Workers AI binding — mockable in tests, and
  *  implementable over the REST API for scripts/calibrate.ts. */
 export interface AiRunner {
@@ -223,4 +225,74 @@ export async function embedTexts(ai: AiRunner, model: string, texts: string[]): 
     out.push(...(data as number[][]));
   }
   return out;
+}
+
+// ── pole expansion ─────────────────────────────────────────────────────────
+// A user types "concrete"; embedding that bare word drags the axis toward
+// cement, costing ~0.34 AUC. Expanding to "a physical object you can touch"
+// recovers it. This step is mandatory — see the spike table in
+// docs/latent-space-navigation-design.md.
+
+const POLE_SYSTEM_PROMPT = `You expand a single term into an unambiguous descriptive phrase naming one end of a semantic axis.
+
+The phrase gets embedded and used as a direction in vector space, so ambiguity is fatal: "concrete" on its own pulls toward cement rather than toward the opposite of abstract.
+
+Rules:
+- Respond with a JSON object of the form {"phrase": "..."} and nothing else. No prose, no code fences.
+- 4-8 words. A noun phrase naming the KIND of thing found at this pole.
+- Begin with an article: "a", "an", or "something".
+- Resolve the term's intended sense. Never return the bare term on its own.
+- Never define this pole by negating the other one — "not abstract" carries no direction.`;
+
+const POLE_FEWSHOT: [string, string][] = [
+  ["concrete", "a physical object you can touch"],
+  ["abstract", "an abstract idea or principle"],
+  ["practical", "a routine practical task"],
+  ["mystical", "a mystical or magical practice"],
+];
+
+export function buildPoleExpansionMessages(term: string): ChatMessage[] {
+  const messages: ChatMessage[] = [{ role: "system", content: POLE_SYSTEM_PROMPT }];
+  for (const [example, phrase] of POLE_FEWSHOT) {
+    messages.push({ role: "user", content: JSON.stringify({ term: example }) });
+    messages.push({ role: "assistant", content: JSON.stringify({ phrase }) });
+  }
+  messages.push({ role: "user", content: JSON.stringify({ term }) });
+  return messages;
+}
+
+/** Extract the phrase from whatever the model returned. Junk yields null so the
+ *  caller can fall back — axis creation must not throw into the UI. */
+export function parsePolePhrase(raw: unknown): string | null {
+  let value: unknown = raw;
+  if (typeof value === "string") {
+    let text = value.trim();
+    const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence?.[1]) text = fence[1].trim();
+    const parsed = tryParse(text);
+    if (parsed === undefined) return null;
+    value = parsed;
+  }
+  if (value !== null && typeof value === "object") {
+    value = (value as Record<string, unknown>).phrase;
+  }
+  if (typeof value !== "string") return null;
+  const phrase = value.trim().replace(/\s+/g, " ");
+  if (!phrase || phrase.length > MAX_POLE_PHRASE_CHARS) return null;
+  return phrase;
+}
+
+/** Expand a pole term, falling back to the bare term if the model or the
+ *  network fails. A degraded axis beats a failed one. */
+export async function expandPole(ai: AiRunner, model: string, term: string): Promise<string> {
+  try {
+    const result = await ai.run(model, {
+      messages: buildPoleExpansionMessages(term),
+      temperature: 0.2, // disambiguation is not a creative task
+      max_tokens: 64,
+    });
+    return parsePolePhrase(extractResponse(result)) ?? term;
+  } catch {
+    return term;
+  }
 }
