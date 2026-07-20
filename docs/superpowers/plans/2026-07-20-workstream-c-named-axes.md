@@ -724,9 +724,11 @@ In `migrate()` (`src/session-do.ts:291`), add to the `CREATE TABLE` block:
         id TEXT PRIMARY KEY,
         neg_term TEXT NOT NULL,
         neg_phrase TEXT NOT NULL,
+        neg_expanded INTEGER NOT NULL,
         neg_embedding BLOB,
         pos_term TEXT NOT NULL,
         pos_phrase TEXT NOT NULL,
+        pos_expanded INTEGER NOT NULL,
         pos_embedding BLOB,
         created_at INTEGER NOT NULL
       );
@@ -737,16 +739,16 @@ In `hydrate()` (`src/session-do.ts:312`), after the `anchors` block (`src/sessio
 ```typescript
     const axes: Axis[] = this.ctx.storage.sql
       .exec<{
-        id: string; neg_term: string; neg_phrase: string; neg_embedding: ArrayBuffer | null;
-        pos_term: string; pos_phrase: string; pos_embedding: ArrayBuffer | null; created_at: number;
+        id: string; neg_term: string; neg_phrase: string; neg_expanded: number; neg_embedding: ArrayBuffer | null;
+        pos_term: string; pos_phrase: string; pos_expanded: number; pos_embedding: ArrayBuffer | null; created_at: number;
       }>(
-        "SELECT id, neg_term, neg_phrase, neg_embedding, pos_term, pos_phrase, pos_embedding, created_at FROM axes",
+        "SELECT id, neg_term, neg_phrase, neg_expanded, neg_embedding, pos_term, pos_phrase, pos_expanded, pos_embedding, created_at FROM axes",
       )
       .toArray()
       .map((r) => ({
         id: r.id,
-        neg: { term: r.neg_term, phrase: r.neg_phrase, embedding: r.neg_embedding ? fromBlob(r.neg_embedding) : null },
-        pos: { term: r.pos_term, phrase: r.pos_phrase, embedding: r.pos_embedding ? fromBlob(r.pos_embedding) : null },
+        neg: { term: r.neg_term, phrase: r.neg_phrase, expanded: r.neg_expanded !== 0, embedding: r.neg_embedding ? fromBlob(r.neg_embedding) : null },
+        pos: { term: r.pos_term, phrase: r.pos_phrase, expanded: r.pos_expanded !== 0, embedding: r.pos_embedding ? fromBlob(r.pos_embedding) : null },
         createdAt: r.created_at,
       }));
 ```
@@ -760,13 +762,15 @@ Add a `persistAxes()` beside `persistAnchors()`, mirroring its delete-and-reinse
     this.ctx.storage.sql.exec("DELETE FROM axes");
     for (const a of this.core.axes()) {
       this.ctx.storage.sql.exec(
-        "INSERT INTO axes (id, neg_term, neg_phrase, neg_embedding, pos_term, pos_phrase, pos_embedding, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO axes (id, neg_term, neg_phrase, neg_expanded, neg_embedding, pos_term, pos_phrase, pos_expanded, pos_embedding, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         a.id,
         a.neg.term,
         a.neg.phrase,
+        a.neg.expanded ? 1 : 0,
         a.neg.embedding ? toBlob(a.neg.embedding) : null,
         a.pos.term,
         a.pos.phrase,
+        a.pos.expanded ? 1 : 0,
         a.pos.embedding ? toBlob(a.pos.embedding) : null,
         a.createdAt,
       );
@@ -788,7 +792,7 @@ In `src/session-do.ts`, import `expandPole` alongside the existing `embedTexts` 
     if (!this.meta) return null;
     if (this.core.axes().length >= MAX_AXES) return this.core.serializedAxes();
 
-    const ai = this.env.AI as unknown as AiRunner;
+    const ai = this.aiRunner(); // not env.AI directly — aiRunner() honors DEV_FAKE_AI
     const [neg, pos] = await Promise.all([
       expandPole(ai, this.env.GEN_MODEL, negTerm),
       expandPole(ai, this.env.GEN_MODEL, posTerm),
