@@ -796,9 +796,17 @@ In `src/session-do.ts`, import `expandPole` alongside the existing `embedTexts` 
     // At cap: report it rather than returning the unchanged list, which the
     // route would otherwise answer with a 201 for a request it silently
     // dropped — the same silent-failure shape identical poles are rejected for.
-    if (this.core.axes().length >= MAX_AXES) {
+    //
+    // Counts in-flight creations too. Durable Objects are single-threaded per
+    // slice but not atomic across awaits that aren't storage-gated, and the
+    // expandPole calls below are two such awaits. Without the reservation, a
+    // double-tap at 2/3 axes lets both requests clear this guard and pay for
+    // LLM calls before the loser discovers the cap at addAxis().
+    if (this.core.axes().length + this.axisCreationsInFlight >= MAX_AXES) {
       return { axes: this.core.serializedAxes(), created: false };
     }
+    this.axisCreationsInFlight++;
+    try {
 
     const ai = this.aiRunner(); // not env.AI directly — aiRunner() honors DEV_FAKE_AI
     const [neg, pos] = await Promise.all([
@@ -825,8 +833,11 @@ In `src/session-do.ts`, import `expandPole` alongside the existing `embedTexts` 
       console.error(JSON.stringify({ level: "error", message: "axis pole embed failed", axisId: axis.id, error: String(error) }));
     }
 
-    this.persistAxes();
-    return { axes: this.core.serializedAxes(), created: true };
+      this.persistAxes();
+      return { axes: this.core.serializedAxes(), created: true };
+    } finally {
+      this.axisCreationsInFlight--;
+    }
   }
 
   async removeAxis(id: string): Promise<SerializedAxis[] | null> {
