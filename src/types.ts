@@ -42,6 +42,7 @@ export interface Served {
   tier: Tier;
   alt: Alt;
   seedDist: number;
+  coords: number[]; // one raw cosine per ready axis, in axis order; [] when none
 }
 
 export interface SessionInfo {
@@ -82,3 +83,31 @@ export function bucketTier(bucket: BucketKey): Tier {
 export function bucketAlt(bucket: BucketKey): Alt {
   return Number(bucket[3]) as Alt;
 }
+
+/** One end of a user-named axis. `term` is what the user typed; `phrase` is the
+ *  LLM-expanded descriptive form that actually gets embedded — bare terms lose
+ *  ~0.34 AUC to polysemy, so `phrase` is never optional. */
+export interface AxisPole {
+  term: string;
+  phrase: string;
+  embedding: number[] | null; // filled in lazily, like Anchor.embedding
+}
+
+export interface Axis {
+  id: string;
+  neg: AxisPole;
+  pos: AxisPole;
+  createdAt: number;
+}
+
+/** Axis as sent to the client — no embeddings on the wire, ever. */
+export interface SerializedAxis {
+  id: string;
+  neg: { term: string; phrase: string };
+  pos: { term: string; phrase: string };
+  ready: boolean; // both poles embedded, so coordinates are being served
+}
+
+export const MAX_AXES = 3; // one per spatial dimension
+export const MAX_POLE_TERM_CHARS = 48;
+export const MAX_POLE_PHRASE_CHARS = 120;
