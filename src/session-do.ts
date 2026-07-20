@@ -68,6 +68,9 @@ export class SessionDO extends DurableObject<Env> {
   private pumping = false;
   private pumpFailures = 0;
   private devFakeAi: AiRunner | null = null;
+  /** Axis creations past the cap guard but not yet added to the core. See the
+   *  comment in createAxis for why the guard cannot rely on axes().length alone. */
+  private axisCreationsInFlight = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -198,35 +201,50 @@ export class SessionDO extends DurableObject<Env> {
     // At cap: report it rather than returning the unchanged list, which the
     // route would otherwise answer with a 201 for a request it silently
     // dropped — the same silent-failure shape identical poles are rejected for.
-    if (this.core.axes().length >= MAX_AXES) return { axes: this.core.serializedAxes(), created: false };
-
-    const ai = this.aiRunner();
-    const [neg, pos] = await Promise.all([
-      expandPole(ai, this.env.GEN_MODEL, negTerm),
-      expandPole(ai, this.env.GEN_MODEL, posTerm),
-    ]);
-
-    const axis = {
-      id: crypto.randomUUID(),
-      neg: { term: negTerm, phrase: neg.phrase, expanded: neg.expanded, embedding: null },
-      pos: { term: posTerm, phrase: pos.phrase, expanded: pos.expanded, embedding: null },
-      createdAt: Date.now(),
-    };
-    if (!this.core.addAxis(axis)) return { axes: this.core.serializedAxes(), created: false };
-
-    // Embed both poles now so coordinates start flowing immediately. On failure
-    // the axis persists unembedded and reports ready:false; the next pump picks
-    // up the pending poles.
-    try {
-      const vecs = await embedTexts(ai, this.env.EMBED_MODEL, [neg.phrase, pos.phrase]);
-      this.core.setPoleEmbedding(axis.id, "neg", vecs[0]!);
-      this.core.setPoleEmbedding(axis.id, "pos", vecs[1]!);
-    } catch (error) {
-      console.error(JSON.stringify({ level: "error", message: "axis pole embed failed", axisId: axis.id, error: String(error) }));
+    //
+    // Counts in-flight creations too. Durable Objects are single-threaded per
+    // slice but not atomic across awaits that aren't storage-gated, and the
+    // expandPole calls below are two such awaits. Without the reservation, a
+    // double-tap at 2/3 axes lets both requests clear this guard and pay for
+    // LLM calls before the loser discovers the cap at addAxis().
+    if (this.core.axes().length + this.axisCreationsInFlight >= MAX_AXES) {
+      return { axes: this.core.serializedAxes(), created: false };
     }
+    this.axisCreationsInFlight++;
+    try {
+      const ai = this.aiRunner();
+      const [neg, pos] = await Promise.all([
+        expandPole(ai, this.env.GEN_MODEL, negTerm),
+        expandPole(ai, this.env.GEN_MODEL, posTerm),
+      ]);
 
-    this.persistAxes();
-    return { axes: this.core.serializedAxes(), created: true };
+      const axis = {
+        id: crypto.randomUUID(),
+        neg: { term: negTerm, phrase: neg.phrase, expanded: neg.expanded, embedding: null },
+        pos: { term: posTerm, phrase: pos.phrase, expanded: pos.expanded, embedding: null },
+        createdAt: Date.now(),
+      };
+      // Belt-and-braces: the reservation above should make this unreachable in
+      // practice, but addAxis's own cap check stays as a second line of
+      // defense in case the reservation is ever removed or miscounted.
+      if (!this.core.addAxis(axis)) return { axes: this.core.serializedAxes(), created: false };
+
+      // Embed both poles now so coordinates start flowing immediately. On failure
+      // the axis persists unembedded and reports ready:false; the next pump picks
+      // up the pending poles.
+      try {
+        const vecs = await embedTexts(ai, this.env.EMBED_MODEL, [neg.phrase, pos.phrase]);
+        this.core.setPoleEmbedding(axis.id, "neg", vecs[0]!);
+        this.core.setPoleEmbedding(axis.id, "pos", vecs[1]!);
+      } catch (error) {
+        console.error(JSON.stringify({ level: "error", message: "axis pole embed failed", axisId: axis.id, error: String(error) }));
+      }
+
+      this.persistAxes();
+      return { axes: this.core.serializedAxes(), created: true };
+    } finally {
+      this.axisCreationsInFlight--;
+    }
   }
 
   async removeAxis(id: string): Promise<SerializedAxis[] | null> {

@@ -191,6 +191,10 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     if (!result) return json({ error: "no such session" }, 404);
     // 201 only when an axis was actually added. At cap the request was dropped,
     // and answering 201 would report a silent failure as a success.
+    //
+    // This 409 is the only non-2xx response in this file that pairs `error`
+    // with payload data rather than a bare `{ error }`. That's deliberate: it
+    // lets the client repaint current axis state without a follow-up GET.
     return result.created
       ? json({ axes: result.axes }, 201)
       : json({ error: `at most ${MAX_AXES} axes`, axes: result.axes }, 409);
