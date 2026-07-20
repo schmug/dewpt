@@ -103,6 +103,9 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     if (!isBucketKey(bucket)) return badRequest(`bucket must be one of ${BUCKET_KEYS.join(", ")}`);
     const count = Math.min(MAX_DRAW_COUNT, Math.max(1, Number(url.searchParams.get("count")) || 12));
     const result = await stub.drawPool(bucket, count);
+    // Forwarded whole: { condensed, depths, axisIds }. axisIds must travel with
+    // the words it describes — a client buffering draws over time has no other
+    // way to know which axis set a given word's coords were scored against.
     return result ? json(result) : json({ error: "no such session" }, 404);
   }
 
@@ -189,15 +192,27 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     }
     const result = await stub.createAxis(terms.negTerm, terms.posTerm);
     if (!result) return json({ error: "no such session" }, 404);
-    // 201 only when an axis was actually added. At cap the request was dropped,
+    // 201 only when an axis was actually added. A refused request was dropped,
     // and answering 201 would report a silent failure as a success.
     //
-    // This 409 is the only non-2xx response in this file that pairs `error`
-    // with payload data rather than a bare `{ error }`. That's deliberate: it
-    // lets the client repaint current axis state without a follow-up GET.
-    return result.created
-      ? json({ axes: result.axes }, 201)
-      : json({ error: `at most ${MAX_AXES} axes`, axes: result.axes }, 409);
+    // These are the only non-2xx responses in this file that pair `error` with
+    // payload data rather than a bare `{ error }`. That's deliberate: it lets
+    // the client repaint current axis state without a follow-up GET.
+    if (result.created) return json({ axes: result.axes }, 201);
+    // 422, not 409: the request was well-formed and nothing conflicted — the two
+    // terms just collapsed onto the same phrase once expanded. Naming both
+    // phrases is the whole point, since the collision is invisible from the
+    // terms the user typed.
+    if (result.reason === "degenerate") {
+      return json(
+        {
+          error: `poles expanded to nearly the same phrase: "${result.negPhrase}" / "${result.posPhrase}"`,
+          axes: result.axes,
+        },
+        422,
+      );
+    }
+    return json({ error: `at most ${MAX_AXES} axes`, axes: result.axes }, 409);
   }
 
   const axisMatch = rest.match(/^\/axes\/([^/]+)$/);

@@ -700,6 +700,64 @@ describe("PoolCore axes", () => {
   });
 });
 
+describe("PoolCore readyAxisIds", () => {
+  it("names the ready axes in axis order", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    core.addAxis(makeAxis("b", 2, 3));
+    expect(core.readyAxisIds()).toEqual(["a", "b"]);
+  });
+
+  it("omits an axis with a pending pole, preserving the order of the rest", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    const pending = makeAxis("b", 2, 3);
+    pending.pos.embedding = null;
+    core.addAxis(pending);
+    core.addAxis(makeAxis("c", 4, 5));
+    expect(core.readyAxisIds()).toEqual(["a", "c"]);
+  });
+
+  it("adds the axis to the list once its last pole embeds", () => {
+    const core = new PoolCore();
+    const pending = makeAxis("a", 0, 1);
+    pending.neg.embedding = null;
+    core.addAxis(pending);
+    expect(core.readyAxisIds()).toEqual([]);
+    core.setPoleEmbedding("a", "neg", axisEmb(0));
+    expect(core.readyAxisIds()).toEqual(["a"]);
+  });
+
+  it("corresponds positionally with the coords served by draw", () => {
+    // The contract the client depends on: coords[i] is the coordinate along the
+    // axis named by axisIds[i]. A middle axis going pending must shift BOTH
+    // lists identically, which is what pins them together.
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    const pending = makeAxis("b", 2, 3);
+    pending.pos.embedding = null;
+    core.addAxis(pending);
+    core.addAxis(makeAxis("c", 4, 5));
+    core.addCandidates("w1a0", entries(["alpha"], 6), 1);
+
+    const ids = core.readyAxisIds();
+    const served = core.draw("w1a0", 1, 2)[0]!;
+    expect(ids).toEqual(["a", "c"]);
+    expect(served.coords).toHaveLength(ids.length);
+
+    // and the value at each index really is that axis's coordinate
+    const soloA = new PoolCore();
+    soloA.addAxis(makeAxis("a", 0, 1));
+    soloA.addCandidates("w1a0", entries(["alpha"], 6), 1);
+    expect(soloA.draw("w1a0", 1, 2)[0]!.coords[0]).toBeCloseTo(served.coords[0]!, 10);
+
+    const soloC = new PoolCore();
+    soloC.addAxis(makeAxis("c", 4, 5));
+    soloC.addCandidates("w1a0", entries(["alpha"], 6), 1);
+    expect(soloC.draw("w1a0", 1, 2)[0]!.coords[0]).toBeCloseTo(served.coords[1]!, 10);
+  });
+});
+
 describe("PoolCore draw with axes", () => {
   it("serves [] coords when no axis is defined", () => {
     const core = new PoolCore();

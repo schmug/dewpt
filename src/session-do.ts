@@ -4,12 +4,14 @@
 // answers from whatever is pooled and the alarm pump refills behind it.
 
 import { DurableObject } from "cloudflare:workers";
+import { axisFromRow, axisToRow } from "./axis-core";
 import { fakeAiRunner } from "./dev-fake-ai";
 import { embedTexts, expandPole, generateCandidates, type AiRunner } from "./generation";
-import { PoolCore } from "./pool-core";
+import { PoolCore, cosineSim } from "./pool-core";
 import {
   ALT_ABSTRACTION,
   BUCKET_KEYS,
+  DEGENERATE_POLE_COSINE,
   MAX_AXES,
   TIER_STRANGENESS,
   bucketAlt,
@@ -100,13 +102,23 @@ export class SessionDO extends DurableObject<Env> {
     return this.meta ? this.info() : null;
   }
 
-  /** Serve candidates from a bucket. Never generates inline. */
+  /** Serve candidates from a bucket. Never generates inline.
+   *
+   *  `axisIds` names the axes each word's `coords` are indexed by. It is not
+   *  redundant with the axis list from /axes: coords cover only the READY axes,
+   *  so the two lists differ whenever an axis is still embedding, and a client
+   *  buffering words across time needs to know which set a given word was
+   *  scored under. */
   async drawPool(
     bucket: BucketKey,
     count: number,
-  ): Promise<{ condensed: Served[]; depths: SessionInfo["depths"] } | null> {
+  ): Promise<{ condensed: Served[]; depths: SessionInfo["depths"]; axisIds: string[] } | null> {
     if (!this.meta) return null;
     const served = this.core.draw(bucket, count, Date.now());
+    // Read in the same synchronous slice as the draw. Taken after the await
+    // below, a concurrent pump could have embedded another pole in between and
+    // we would label these coords with an axis set they were not scored against.
+    const axisIds = this.core.readyAxisIds();
     if (served.length > 0) {
       const texts = served.map((s) => s.text);
       this.ctx.storage.sql.exec(
@@ -122,7 +134,7 @@ export class SessionDO extends DurableObject<Env> {
       );
     }
     if (this.core.genPlan(Date.now())) await this.ensurePump(0);
-    return { condensed: served, depths: this.core.depths() };
+    return { condensed: served, depths: this.core.depths(), axisIds };
   }
 
   /** M1 prospecting: the client serves the burst from its local buffers; this
@@ -195,8 +207,20 @@ export class SessionDO extends DurableObject<Env> {
    *  phrase (mandatory — bare terms lose ~0.34 AUC to polysemy), embeds both
    *  phrases, then stores the axis. Slow and explicitly user-initiated; it must
    *  never sit in the pool-serving path. Returns null when the session is
-   *  unknown, or `{ axes, created: false }` when already at MAX_AXES. */
-  async createAxis(negTerm: string, posTerm: string): Promise<{ axes: SerializedAxis[]; created: boolean } | null> {
+   *  unknown, or `{ axes, created: false, reason }` when the axis was refused —
+   *  "cap" at MAX_AXES, "degenerate" when the two expansions collapsed onto
+   *  each other. `negPhrase`/`posPhrase` accompany "degenerate" so the route can
+   *  show the user the phrases that collided; the axis itself is gone by then. */
+  async createAxis(
+    negTerm: string,
+    posTerm: string,
+  ): Promise<{
+    axes: SerializedAxis[];
+    created: boolean;
+    reason?: "cap" | "degenerate";
+    negPhrase?: string;
+    posPhrase?: string;
+  } | null> {
     if (!this.meta) return null;
     // At cap: report it rather than returning the unchanged list, which the
     // route would otherwise answer with a 201 for a request it silently
@@ -208,7 +232,7 @@ export class SessionDO extends DurableObject<Env> {
     // double-tap at 2/3 axes lets both requests clear this guard and pay for
     // LLM calls before the loser discovers the cap at addAxis().
     if (this.core.axes().length + this.axisCreationsInFlight >= MAX_AXES) {
-      return { axes: this.core.serializedAxes(), created: false };
+      return { axes: this.core.serializedAxes(), created: false, reason: "cap" };
     }
     this.axisCreationsInFlight++;
     try {
@@ -227,17 +251,48 @@ export class SessionDO extends DurableObject<Env> {
       // Belt-and-braces: the reservation above should make this unreachable in
       // practice, but addAxis's own cap check stays as a second line of
       // defense in case the reservation is ever removed or miscounted.
-      if (!this.core.addAxis(axis)) return { axes: this.core.serializedAxes(), created: false };
+      if (!this.core.addAxis(axis)) return { axes: this.core.serializedAxes(), created: false, reason: "cap" };
 
       // Embed both poles now so coordinates start flowing immediately. On failure
       // the axis persists unembedded and reports ready:false; the next pump picks
       // up the pending poles.
+      // The catch wraps the embed call ONLY. Widening it to cover the
+      // degeneracy check below would let a throw there fall through to the
+      // created:true return, resurrecting an axis this method just removed.
+      let vecs: number[][] | null = null;
       try {
-        const vecs = await embedTexts(ai, this.env.EMBED_MODEL, [neg.phrase, pos.phrase]);
-        this.core.setPoleEmbedding(axis.id, "neg", vecs[0]!);
-        this.core.setPoleEmbedding(axis.id, "pos", vecs[1]!);
+        vecs = await embedTexts(ai, this.env.EMBED_MODEL, [neg.phrase, pos.phrase]);
       } catch (error) {
         console.error(JSON.stringify({ level: "error", message: "axis pole embed failed", axisId: axis.id, error: String(error) }));
+        // The axis is persisted unembedded, and only the pump's unembeddedPoles()
+        // pass can finish it — but the alarm reschedules itself only while
+        // genPlan() has work, so against a full pool nothing would ever wake it
+        // and the axis would stay ready:false forever. Kick the pump explicitly.
+        // Deliberately absent from the success path: a created axis does not
+        // invalidate the pool and must not trigger regeneration.
+        await this.ensurePump(0);
+      }
+
+      if (vecs) {
+        // Reject a degenerate pair here rather than at parse time: distinct terms
+        // can still expand onto the same phrase, and only the embeddings show it.
+        // pos - neg would be ~zero, scoring every word 0 while the axis reported
+        // itself ready and healthy — the silent-dead-axis failure the
+        // identical-term check exists to prevent. Only this branch removes the
+        // axis; the embed-failure path above must keep it for the pump to retry.
+        if (cosineSim(vecs[0]!, vecs[1]!) > DEGENERATE_POLE_COSINE) {
+          this.core.removeAxis(axis.id);
+          this.persistAxes();
+          return {
+            axes: this.core.serializedAxes(),
+            created: false,
+            reason: "degenerate",
+            negPhrase: neg.phrase,
+            posPhrase: pos.phrase,
+          };
+        }
+        this.core.setPoleEmbedding(axis.id, "neg", vecs[0]!);
+        this.core.setPoleEmbedding(axis.id, "pos", vecs[1]!);
       }
 
       this.persistAxes();
@@ -452,22 +507,15 @@ export class SessionDO extends DurableObject<Env> {
         "SELECT id, neg_term, neg_phrase, neg_expanded, neg_embedding, pos_term, pos_phrase, pos_expanded, pos_embedding, created_at FROM axes",
       )
       .toArray()
-      .map((r) => ({
-        id: r.id,
-        neg: {
-          term: r.neg_term,
-          phrase: r.neg_phrase,
-          expanded: r.neg_expanded !== 0,
-          embedding: r.neg_embedding ? fromBlob(r.neg_embedding) : null,
-        },
-        pos: {
-          term: r.pos_term,
-          phrase: r.pos_phrase,
-          expanded: r.pos_expanded !== 0,
-          embedding: r.pos_embedding ? fromBlob(r.pos_embedding) : null,
-        },
-        createdAt: r.created_at,
-      }));
+      // Blobs decode here; the column <-> Axis mapping itself lives in
+      // axis-core.ts, where it is round-trip tested without a DO harness.
+      .map((r) =>
+        axisFromRow({
+          ...r,
+          neg_embedding: r.neg_embedding ? fromBlob(r.neg_embedding) : null,
+          pos_embedding: r.pos_embedding ? fromBlob(r.pos_embedding) : null,
+        }),
+      );
 
     this.core = new PoolCore({
       params: meta.has("params") ? JSON.parse(meta.get("params")!) : undefined,
@@ -520,18 +568,19 @@ export class SessionDO extends DurableObject<Env> {
   private persistAxes(): void {
     this.ctx.storage.sql.exec("DELETE FROM axes");
     for (const a of this.core.axes()) {
+      const row = axisToRow(a);
       this.ctx.storage.sql.exec(
         "INSERT INTO axes (id, neg_term, neg_phrase, neg_expanded, neg_embedding, pos_term, pos_phrase, pos_expanded, pos_embedding, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        a.id,
-        a.neg.term,
-        a.neg.phrase,
-        a.neg.expanded ? 1 : 0,
-        a.neg.embedding ? toBlob(a.neg.embedding) : null,
-        a.pos.term,
-        a.pos.phrase,
-        a.pos.expanded ? 1 : 0,
-        a.pos.embedding ? toBlob(a.pos.embedding) : null,
-        a.createdAt,
+        row.id,
+        row.neg_term,
+        row.neg_phrase,
+        row.neg_expanded,
+        row.neg_embedding ? toBlob(row.neg_embedding) : null,
+        row.pos_term,
+        row.pos_phrase,
+        row.pos_expanded,
+        row.pos_embedding ? toBlob(row.pos_embedding) : null,
+        row.created_at,
       );
     }
   }

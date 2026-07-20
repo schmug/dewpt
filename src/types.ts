@@ -113,6 +113,13 @@ export interface SerializedAxis {
   degraded: boolean; // at least one pole fell back to its bare term
 }
 
+/** Two pole embeddings this similar make `pos - neg` a near-zero vector, so
+ *  cosineSim returns ~0 for every word and the axis silently sorts nothing —
+ *  while still reporting ready:true, degraded:false. Distinct terms can land
+ *  here after expansion ("sea" and "ocean" both expanding to "a large body of
+ *  salt water"), which is why the identical-term check alone is not enough. */
+export const DEGENERATE_POLE_COSINE = 0.98;
+
 export const MAX_AXES = 3; // one per spatial dimension
 export const MAX_POLE_TERM_CHARS = 48;
 export const MAX_POLE_PHRASE_CHARS = 120;

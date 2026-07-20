@@ -8,8 +8,18 @@ const LOW_WATER = 8; // refill a bucket's buffer below this
 const DRAW_COUNT = 12; // words per refill request
 const REFILL_COOLDOWN_MS = 600;
 
+/** Ordered comparison — axis order is what indexes coords, so a reorder is as
+ *  much a mismatch as a different membership. */
+function sameAxisIds(a, b) {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 export function createPoolClient(sessionId) {
   const buffers = new Map(BUCKETS.map(b => [b, []]));
+  // The axisIds each bucket's buffered words were drawn under. Buffers span
+  // time, so words drawn before an axis went ready sit next to words drawn
+  // after, with differently shaped coords and nothing else to tell them apart.
+  const bufferAxisIds = new Map(BUCKETS.map(b => [b, []]));
   const inflight = new Set();
   const lastAttempt = new Map();
 
@@ -21,13 +31,22 @@ export function createPoolClient(sessionId) {
     try {
       const res = await fetch(`/api/session/${sessionId}/pool?bucket=${bucket}&count=${DRAW_COUNT}`);
       if (!res.ok) return;
-      const { condensed } = await res.json();
+      const { condensed, axisIds = [] } = await res.json();
       // Buffered items are the server's Served objects: {text, tier, alt,
       // seedDist, coords}. coords is one raw cosine per ready axis, needing
       // normalizeCoords() against the visible set before use as layout
       // positions. field.js currently keeps only {text, tier}; map mode
       // (workstream A) is what consumes coords.
-      buffers.get(bucket).push(...condensed);
+      const buffer = buffers.get(bucket);
+      if (!sameAxisIds(bufferAxisIds.get(bucket), axisIds)) {
+        // The axis set changed under us. Old coords are shaped for the old set
+        // and cannot be reconciled — coords[i] no longer names the same axis —
+        // so the stale words go rather than silently mixing into layout. Losing
+        // a few buffered words is free: they are ephemeral by design.
+        buffer.length = 0;
+        bufferAxisIds.set(bucket, axisIds);
+      }
+      buffer.push(...condensed);
     } catch (err) {
       console.error('pool refill failed', bucket, err);
     } finally {

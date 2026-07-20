@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { axisVector, coordsFor, normalizeCoords } from "../src/axis-core";
+import { axisFromRow, axisToRow, axisVector, coordsFor, normalizeCoords } from "../src/axis-core";
+import type { Axis } from "../src/types";
 
 // public/axes.js is plain JS served raw from public/ (no build step), so it
 // sits outside tsconfig's include; the cast pins it to the canonical module's
@@ -52,6 +53,55 @@ describe("coordsFor", () => {
 
   it("returns 0 rather than NaN for a zero-length axis vector", () => {
     expect(coordsFor(axisEmb(0), [[0, 0, 0]])).toEqual([0]);
+  });
+});
+
+// The persist/hydrate round-trip. neg_expanded/pos_expanded are INTEGER columns
+// standing in for booleans, and inverting either direction flips `degraded` for
+// every axis on session resume — a silent regression with no other coverage,
+// since the DO itself has no test harness.
+describe("axis row round-trip", () => {
+  function makeAxis(overrides: Partial<Axis> = {}): Axis {
+    return {
+      id: "axis-1",
+      neg: { term: "sea", phrase: "a large body of salt water", expanded: true, embedding: axisEmb(0) },
+      pos: { term: "desert", phrase: "an arid expanse of sand", expanded: true, embedding: axisEmb(1) },
+      createdAt: 1234,
+      ...overrides,
+    };
+  }
+
+  it("returns an axis unchanged through toRow and back", () => {
+    const axis = makeAxis();
+    expect(axisFromRow(axisToRow(axis))).toEqual(axis);
+  });
+
+  it("keeps expanded:false false rather than flipping it", () => {
+    // The case that matters: a degraded pole must survive resume as degraded.
+    // An inverted `? 1 : 0` or `!== 0` passes every other test here.
+    const axis = makeAxis();
+    axis.neg.expanded = false;
+    const back = axisFromRow(axisToRow(axis));
+    expect(back.neg.expanded).toBe(false);
+    expect(back.pos.expanded).toBe(true);
+  });
+
+  it("stores expanded as the integers the column expects", () => {
+    const axis = makeAxis();
+    axis.pos.expanded = false;
+    const row = axisToRow(axis);
+    expect(row.neg_expanded).toBe(1);
+    expect(row.pos_expanded).toBe(0);
+  });
+
+  it("round-trips a null embedding as null, not as an empty vector", () => {
+    // A pole still waiting on the pump. Coerced to [], readyAxisVectors would
+    // treat the axis as ready and project every word onto a zero vector.
+    const axis = makeAxis();
+    axis.pos.embedding = null;
+    const back = axisFromRow(axisToRow(axis));
+    expect(back.pos.embedding).toBeNull();
+    expect(back.neg.embedding).toEqual(axisEmb(0));
   });
 });
 

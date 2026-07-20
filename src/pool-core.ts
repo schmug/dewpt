@@ -349,12 +349,25 @@ export class PoolCore {
     if (axis) axis[pole].embedding = embedding;
   }
 
+  /** Fully-embedded axes, in axis order. The single source both readyAxisVectors
+   *  and readyAxisIds derive from, so the vectors a draw is scored against and
+   *  the ids reported alongside it cannot drift out of correspondence. */
+  private readyAxes(): Axis[] {
+    return this.axisList.filter((a) => a.neg.embedding !== null && a.pos.embedding !== null);
+  }
+
   /** Axis vectors for every fully-embedded axis, in axis order. An axis with a
    *  pending pole contributes no coordinate rather than a wrong one. */
   private readyAxisVectors(): number[][] {
-    return this.axisList
-      .filter((a) => a.neg.embedding !== null && a.pos.embedding !== null)
-      .map((a) => axisVector(a.neg.embedding!, a.pos.embedding!));
+    return this.readyAxes().map((a) => axisVector(a.neg.embedding!, a.pos.embedding!));
+  }
+
+  /** Ids of the axes `Served.coords` is indexed by, in the same order. Without
+   *  this the client cannot tell which axis `coords[i]` belongs to: coords index
+   *  the READY subset while serializedAxes() reports every axis, so one pending
+   *  axis shifts the whole mapping. Ships with every draw for that reason. */
+  readyAxisIds(): string[] {
+    return this.readyAxes().map((a) => a.id);
   }
 
   // ---- evaporated ring buffer ----------------------------------------------

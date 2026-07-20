@@ -19,10 +19,23 @@ export function createAxisClient(sessionId) {
   let current = [];
 
   async function call(path, options) {
+    // No try/catch around fetch, unlike pool-client.js's refill: that is a
+    // background top-up that swallows errors to protect the render loop, while
+    // axis creation is a foreground user action whose failure must surface.
     const res = await fetch(`/api/session/${sessionId}${path}`, options);
-    if (!res.ok) throw new Error(`axis request failed: ${res.status}`);
-    const { axes } = await res.json();
-    current = axes ?? [];
+    // Read the body either way. The server's 409 (cap) and 422 (degenerate
+    // poles) both carry `error` plus the current `axes`, specifically so a
+    // client can explain the refusal and repaint without a follow-up GET.
+    // .catch() covers a non-JSON body — a platform 500 is not JSON, and the
+    // error path must not itself throw.
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) {
+      const error = new Error(payload?.error ?? `axis request failed: ${res.status}`);
+      error.status = res.status;
+      error.payload = payload; // callers reach payload.axes to repaint
+      throw error;
+    }
+    current = payload?.axes ?? [];
     return current;
   }
 
