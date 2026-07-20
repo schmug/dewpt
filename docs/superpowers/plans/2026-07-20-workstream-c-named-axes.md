@@ -18,7 +18,8 @@
 - **Maximum 3 axes** (`MAX_AXES = 3`) — one per spatial dimension.
 - **The field must never block on AI.** Axis creation is an explicit user action and may await; it must never stall the pool-serving path.
 - **Weather vocabulary in user-facing copy and API params; plain concepts in prompts** ([CLAUDE.md](../../../CLAUDE.md)). "Axis" and "pole" are neutral engineering terms and are fine in both.
-- **Gates:** `npm run typecheck` and `npm test` must pass before every commit. Report counts.
+- **Gates:** `npm run typecheck` and `npm test` must pass before every commit. Report counts. **One documented exception:** Task 1 adds `coords` to `Served` without populating it, so its commit lands with a red suite that Task 3 turns green. This was raised in pre-flight and accepted deliberately (2026-07-20) — it is not an oversight, and Task 1's reviewer should not treat it as one. No other task may commit red.
+- **`normalizeCoords` is mirrored** in `src/axis-core.ts` (canonical) and `public/axes.js` (browser). The repo's existing precedent for this — `src/hint-machine.ts` / `public/hint-machine.js` — guards the copy with a shared suite that runs against both, so drift fails CI. Task 6 must do the same; an unguarded copy is not the precedent.
 - **Commits:** conventional prefixes (`feat:`, `test:`, `refactor:`). Never push to `main`; this work belongs on a feature branch.
 
 ---
@@ -1055,7 +1056,46 @@ export function createAxisClient(sessionId) {
 }
 ```
 
-- [ ] **Step 2: Carry coords through the pool buffer**
+- [ ] **Step 2: Guard the mirror against drift**
+
+`normalizeCoords` now exists twice. The repo already has this situation and solves it by running one suite against both copies — see [test/hint-machine.test.ts:1-24](../../../test/hint-machine.test.ts). Do the same here.
+
+In `test/axis-core.test.ts`, add the browser import below the existing one:
+
+```typescript
+// public/axes.js is plain JS served raw from public/ (no build step), so it
+// sits outside tsconfig's include; the cast pins it to the canonical module's
+// surface and the normalizeCoords suite runs against both to prevent drift.
+// @ts-expect-error — public/axes.js ships untyped
+import * as browserAxesUntyped from "../public/axes.js";
+const browserAxes = browserAxesUntyped as { normalizeCoords: typeof normalizeCoords };
+```
+
+Then replace the existing `describe("normalizeCoords", ...)` block with a parameterized version running the identical assertions against both:
+
+```typescript
+describe.each([
+  ["src/axis-core.ts", { normalizeCoords }],
+  ["public/axes.js (browser mirror)", browserAxes],
+])("normalizeCoords — %s", (_name, impl) => {
+  it("maps the observed range onto 0..1", () => {
+    expect(impl.normalizeCoords([-0.1, 0, 0.1])).toEqual([0, 0.5, 1]);
+  });
+
+  it("centers a degenerate range instead of dividing by zero", () => {
+    expect(impl.normalizeCoords([0.3, 0.3, 0.3])).toEqual([0.5, 0.5, 0.5]);
+  });
+
+  it("returns [] for an empty input", () => {
+    expect(impl.normalizeCoords([])).toEqual([]);
+  });
+});
+```
+
+Run: `npx vitest run test/axis-core.test.ts`
+Expected: PASS, with each `normalizeCoords` case reported twice — once per implementation. Deliberately break one copy (change `0.5` to `0.4` in `public/axes.js`) and confirm the suite goes red, then revert. A guard that cannot fail is not a guard.
+
+- [ ] **Step 3: Carry coords through the pool buffer**
 
 `public/pool-client.js:25` pushes served words into per-bucket buffers and `draw()` shifts them out. Those objects are passed through by reference, so `coords` already survives — but `public/field.js:50` reconstructs a new object (`return { text: pick.text, tier };`) and drops everything else.
 
@@ -1070,7 +1110,7 @@ Leave `field.js` alone (workstream A rewrites that path). Instead add a comment 
       buffers.get(bucket).push(...condensed);
 ```
 
-- [ ] **Step 3: Verify in the browser**
+- [ ] **Step 4: Verify in the browser**
 
 Start the dev server via the `dewpt` config in [.claude/launch.json](../../../.claude/launch.json) (never `npm run dev` from Bash). In the console:
 
@@ -1088,12 +1128,12 @@ await (await fetch(`/api/session/${SID}/pool?bucket=w1a0&count=5`)).json();
 
 Expected: each `condensed` entry has a `coords` array of length 1, values roughly in −0.2…0.2. Values all exactly 0 mean the axis is not ready or the poles were identical.
 
-- [ ] **Step 4: Run the gates**
+- [ ] **Step 5: Run the gates**
 
 Run: `npm run typecheck && npm test`
 Expected: typecheck exits 0, all tests pass.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add public/axes.js public/pool-client.js
