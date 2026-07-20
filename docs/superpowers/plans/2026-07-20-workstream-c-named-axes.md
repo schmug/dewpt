@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **Pole phrases are mandatory, not optional.** Bare terms score AUC 0.640 vs 0.980 for descriptive phrases ([docs/latent-space-navigation-design.md](../../latent-space-navigation-design.md#evidence-the-axis-spike)). Never embed a raw user term as an axis pole.
+- **Pole phrases are mandatory, not optional.** Bare terms score AUC 0.640 vs 0.980 for descriptive phrases ([docs/latent-space-navigation-design.md](../../latent-space-navigation-design.md#evidence-the-axis-spike)). Never embed a raw user term as an axis pole. **When expansion fails the fallback is allowed but must be visible:** `expandPole` returns `{phrase, expanded}`, `AxisPole` records `expanded`, and `SerializedAxis` surfaces `degraded`. A silent fallback would violate this constraint invisibly (adjudicated 2026-07-20).
 - **Axis construction is `pos − neg` (a pole *pair*).** Single-term axes score 0.763 vs 0.843 mean AUC. Never build an axis from one term.
 - **Do not mean-center.** Measured at 0.850 vs 0.843 — noise. Not worth the code.
 - **Never put embeddings on the wire.** `/pool` sends coordinates (a few floats), never the 1024-dim vectors. There is an explicit regression test for this.
@@ -67,6 +67,10 @@ Append to `src/types.ts`:
 export interface AxisPole {
   term: string;
   phrase: string;
+  /** False when expansion failed and `phrase` is just the bare term. A bare
+   *  pole scores AUC 0.640 against 0.980 for an expanded one, so a degraded
+   *  pole must stay visible rather than passing as a normal axis. */
+  expanded: boolean;
   embedding: number[] | null; // filled in lazily, like Anchor.embedding
 }
 
@@ -83,6 +87,7 @@ export interface SerializedAxis {
   neg: { term: string; phrase: string };
   pos: { term: string; phrase: string };
   ready: boolean; // both poles embedded, so coordinates are being served
+  degraded: boolean; // at least one pole fell back to its bare term
 }
 
 export const MAX_AXES = 3; // one per spatial dimension
@@ -312,19 +317,30 @@ describe("parsePolePhrase", () => {
 });
 
 describe("expandPole", () => {
-  it("returns the expanded phrase", async () => {
+  it("reports a real expansion as expanded", async () => {
     const ai = new MockRunner(['{"phrase":"a mystical or magical practice"}']);
-    expect(await expandPole(ai, "m", "mystical")).toBe("a mystical or magical practice");
+    expect(await expandPole(ai, "m", "mystical")).toEqual({
+      phrase: "a mystical or magical practice",
+      expanded: true,
+    });
   });
 
-  it("falls back to the bare term when the model returns junk", async () => {
+  it("flags the fallback when the model returns junk", async () => {
     const ai = new MockRunner(["no."]);
-    expect(await expandPole(ai, "m", "mystical")).toBe("mystical");
+    expect(await expandPole(ai, "m", "mystical")).toEqual({ phrase: "mystical", expanded: false });
   });
 
-  it("falls back to the bare term when the call throws", async () => {
+  it("flags the fallback when the call throws", async () => {
     const ai: AiRunner = { async run() { throw new Error("upstream down"); } };
-    expect(await expandPole(ai, "m", "mystical")).toBe("mystical");
+    expect(await expandPole(ai, "m", "mystical")).toEqual({ phrase: "mystical", expanded: false });
+  });
+
+  it("does not report a degraded pole as expanded even when the model echoes the term", async () => {
+    // The model legitimately returning the bare term must still count as an
+    // expansion — `expanded` tracks whether parsing succeeded, not whether the
+    // text changed. Otherwise the flag would be guesswork at the call site.
+    const ai = new MockRunner(['{"phrase":"mystical"}']);
+    expect(await expandPole(ai, "m", "mystical")).toEqual({ phrase: "mystical", expanded: true });
   });
 });
 ```
@@ -393,18 +409,27 @@ export function parsePolePhrase(raw: unknown): string | null {
   return phrase;
 }
 
+export interface ExpandedPole {
+  phrase: string;
+  /** False when expansion failed and `phrase` is the bare term. */
+  expanded: boolean;
+}
+
 /** Expand a pole term, falling back to the bare term if the model or the
- *  network fails. A degraded axis beats a failed one. */
-export async function expandPole(ai: AiRunner, model: string, term: string): Promise<string> {
+ *  network fails. A degraded axis beats a failed one — but the caller is told,
+ *  because a bare pole scores AUC 0.640 against 0.980 and would otherwise
+ *  violate "never embed a raw user term" invisibly. */
+export async function expandPole(ai: AiRunner, model: string, term: string): Promise<ExpandedPole> {
   try {
     const result = await ai.run(model, {
       messages: buildPoleExpansionMessages(term),
       temperature: 0.2, // disambiguation is not a creative task
       max_tokens: 64,
     });
-    return parsePolePhrase(extractResponse(result)) ?? term;
+    const phrase = parsePolePhrase(extractResponse(result));
+    return phrase === null ? { phrase: term, expanded: false } : { phrase, expanded: true };
   } catch {
-    return term;
+    return { phrase: term, expanded: false };
   }
 }
 ```
@@ -601,6 +626,7 @@ and initialize it in the constructor immediately after the `anchorList` line (`s
       neg: { term: a.neg.term, phrase: a.neg.phrase },
       pos: { term: a.pos.term, phrase: a.pos.phrase },
       ready: a.neg.embedding !== null && a.pos.embedding !== null,
+      degraded: !a.neg.expanded || !a.pos.expanded,
     }));
   }
 
@@ -754,15 +780,15 @@ In `src/session-do.ts`, import `expandPole` alongside the existing `embedTexts` 
     if (this.core.axes().length >= MAX_AXES) return this.core.serializedAxes();
 
     const ai = this.env.AI as unknown as AiRunner;
-    const [negPhrase, posPhrase] = await Promise.all([
+    const [neg, pos] = await Promise.all([
       expandPole(ai, this.env.GEN_MODEL, negTerm),
       expandPole(ai, this.env.GEN_MODEL, posTerm),
     ]);
 
     const axis = {
       id: crypto.randomUUID(),
-      neg: { term: negTerm, phrase: negPhrase, embedding: null },
-      pos: { term: posTerm, phrase: posPhrase, embedding: null },
+      neg: { term: negTerm, phrase: neg.phrase, expanded: neg.expanded, embedding: null },
+      pos: { term: posTerm, phrase: pos.phrase, expanded: pos.expanded, embedding: null },
       createdAt: Date.now(),
     };
     this.core.addAxis(axis);
@@ -771,7 +797,7 @@ In `src/session-do.ts`, import `expandPole` alongside the existing `embedTexts` 
     // the axis persists unembedded and reports ready:false; the next pump picks
     // up the pending poles.
     try {
-      const vecs = await embedTexts(ai, this.env.EMBED_MODEL, [negPhrase, posPhrase]);
+      const vecs = await embedTexts(ai, this.env.EMBED_MODEL, [neg.phrase, pos.phrase]);
       this.core.setPoleEmbedding(axis.id, "neg", vecs[0]!);
       this.core.setPoleEmbedding(axis.id, "pos", vecs[1]!);
     } catch (error) {
