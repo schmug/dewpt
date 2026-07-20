@@ -481,8 +481,8 @@ Append to `test/pool-core.test.ts` (import `MAX_AXES` and `type Axis` from `../s
 function makeAxis(id: string, negAxis: number, posAxis: number): Axis {
   return {
     id,
-    neg: { term: `n${id}`, phrase: `a ${id} negative pole`, embedding: axisEmb(negAxis) },
-    pos: { term: `p${id}`, phrase: `a ${id} positive pole`, embedding: axisEmb(posAxis) },
+    neg: { term: `n${id}`, phrase: `a ${id} negative pole`, expanded: true, embedding: axisEmb(negAxis) },
+    pos: { term: `p${id}`, phrase: `a ${id} positive pole`, expanded: true, embedding: axisEmb(posAxis) },
     createdAt: 1,
   };
 }
@@ -597,7 +597,9 @@ and initialize it in the constructor immediately after the `anchorList` line (`s
     this.axisList = [...(state?.axes ?? [])];
 ```
 
-`PoolCore` has no whole-state dump — the `SessionDO` reads individual getters (`anchors()`, `getInvalidatedAt()`) and writes its own tables. So `axes()` below is the only export the persistence layer needs, and nothing else in the constructor or serialization path changes.
+`PoolCore.serialize(): PoolCoreState` **does** exist and must gain `axes: this.axes()`, or it no longer satisfies `PoolCoreState` once `axes` is a required field. (Round-trip tests construct a `PoolCore` from a `serialize()` result, so this is load-bearing.)
+
+It is not, however, a whole-state persistence dump: `src/session-do.ts:377` calls it only to read `.candidates` for one bucket. Axis persistence is therefore still Task 4's own SQLite table — `serialize()` and the `axes` table are independent, and neither makes the other redundant.
 
 4. Add these methods to the `PoolCore` class:
 
