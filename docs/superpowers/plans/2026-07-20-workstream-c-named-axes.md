@@ -788,9 +788,17 @@ In `src/session-do.ts`, import `expandPole` alongside the existing `embedTexts` 
    *  phrases, then stores the axis. Slow and explicitly user-initiated; it must
    *  never sit in the pool-serving path. Returns null when the session is
    *  unknown, or the unchanged axis list when already at MAX_AXES. */
-  async createAxis(negTerm: string, posTerm: string): Promise<SerializedAxis[] | null> {
+  async createAxis(
+    negTerm: string,
+    posTerm: string,
+  ): Promise<{ axes: SerializedAxis[]; created: boolean } | null> {
     if (!this.meta) return null;
-    if (this.core.axes().length >= MAX_AXES) return this.core.serializedAxes();
+    // At cap: report it rather than returning the unchanged list, which the
+    // route would otherwise answer with a 201 for a request it silently
+    // dropped — the same silent-failure shape identical poles are rejected for.
+    if (this.core.axes().length >= MAX_AXES) {
+      return { axes: this.core.serializedAxes(), created: false };
+    }
 
     const ai = this.aiRunner(); // not env.AI directly — aiRunner() honors DEV_FAKE_AI
     const [neg, pos] = await Promise.all([
@@ -818,7 +826,7 @@ In `src/session-do.ts`, import `expandPole` alongside the existing `embedTexts` 
     }
 
     this.persistAxes();
-    return this.core.serializedAxes();
+    return { axes: this.core.serializedAxes(), created: true };
   }
 
   async removeAxis(id: string): Promise<SerializedAxis[] | null> {
@@ -911,6 +919,17 @@ describe("parsePoleTerms", () => {
     expect(parsePoleTerms({ negTerm: "x".repeat(MAX_POLE_TERM_CHARS + 1), posTerm: "abstract" })).toBeNull();
   });
 
+  it("measures length after trimming, not before", () => {
+    // Padding a legal term past the cap with whitespace must still be accepted;
+    // a cap applied to the raw string would reject it. Without this case the
+    // suite cannot tell the two implementations apart.
+    const padded = `  ${"x".repeat(MAX_POLE_TERM_CHARS)}  `;
+    expect(parsePoleTerms({ negTerm: padded, posTerm: "abstract" })).toEqual({
+      negTerm: "x".repeat(MAX_POLE_TERM_CHARS),
+      posTerm: "abstract",
+    });
+  });
+
   it("rejects two identical poles, which would give a zero-length axis", () => {
     expect(parsePoleTerms({ negTerm: "concrete", posTerm: " Concrete " })).toBeNull();
   });
@@ -965,8 +984,13 @@ and add `MAX_POLE_TERM_CHARS` to the existing `./types` import. Add the routes i
     if (!terms) {
       return badRequest(`negTerm and posTerm must be different non-empty strings of at most ${MAX_POLE_TERM_CHARS} characters`);
     }
-    const axes = await stub.createAxis(terms.negTerm, terms.posTerm);
-    return axes ? json({ axes }, 201) : json({ error: "no such session" }, 404);
+    const result = await stub.createAxis(terms.negTerm, terms.posTerm);
+    if (!result) return json({ error: "no such session" }, 404);
+    // 201 only when an axis was actually added. At cap the request was dropped,
+    // and answering 201 would report a silent failure as a success.
+    return result.created
+      ? json({ axes: result.axes }, 201)
+      : json({ error: `at most ${MAX_AXES} axes`, axes: result.axes }, 409);
   }
 
   const axisMatch = rest.match(/^\/axes\/([^/]+)$/);
