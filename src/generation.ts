@@ -282,17 +282,26 @@ export function parsePolePhrase(raw: unknown): string | null {
   return phrase;
 }
 
+export interface ExpandedPole {
+  phrase: string;
+  /** False when expansion failed and `phrase` is the bare term. */
+  expanded: boolean;
+}
+
 /** Expand a pole term, falling back to the bare term if the model or the
- *  network fails. A degraded axis beats a failed one. */
-export async function expandPole(ai: AiRunner, model: string, term: string): Promise<string> {
+ *  network fails. A degraded axis beats a failed one — but the caller is told,
+ *  because a bare pole scores AUC 0.640 against 0.980 and would otherwise
+ *  violate "never embed a raw user term" invisibly. */
+export async function expandPole(ai: AiRunner, model: string, term: string): Promise<ExpandedPole> {
   try {
     const result = await ai.run(model, {
       messages: buildPoleExpansionMessages(term),
       temperature: 0.2, // disambiguation is not a creative task
       max_tokens: 64,
     });
-    return parsePolePhrase(extractResponse(result)) ?? term;
+    const phrase = parsePolePhrase(extractResponse(result));
+    return phrase === null ? { phrase: term, expanded: false } : { phrase, expanded: true };
   } catch {
-    return term;
+    return { phrase: term, expanded: false };
   }
 }

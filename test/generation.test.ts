@@ -247,18 +247,29 @@ describe("parsePolePhrase", () => {
 });
 
 describe("expandPole", () => {
-  it("returns the expanded phrase", async () => {
+  it("reports a real expansion as expanded", async () => {
     const ai = new MockRunner(['{"phrase":"a mystical or magical practice"}']);
-    expect(await expandPole(ai, "m", "mystical")).toBe("a mystical or magical practice");
+    expect(await expandPole(ai, "m", "mystical")).toEqual({
+      phrase: "a mystical or magical practice",
+      expanded: true,
+    });
   });
 
-  it("falls back to the bare term when the model returns junk", async () => {
+  it("flags the fallback when the model returns junk", async () => {
     const ai = new MockRunner(["no."]);
-    expect(await expandPole(ai, "m", "mystical")).toBe("mystical");
+    expect(await expandPole(ai, "m", "mystical")).toEqual({ phrase: "mystical", expanded: false });
   });
 
-  it("falls back to the bare term when the call throws", async () => {
+  it("flags the fallback when the call throws", async () => {
     const ai: AiRunner = { async run() { throw new Error("upstream down"); } };
-    expect(await expandPole(ai, "m", "mystical")).toBe("mystical");
+    expect(await expandPole(ai, "m", "mystical")).toEqual({ phrase: "mystical", expanded: false });
+  });
+
+  it("does not report a degraded pole as expanded even when the model echoes the term", async () => {
+    // The model legitimately returning the bare term must still count as an
+    // expansion — `expanded` tracks whether parsing succeeded, not whether the
+    // text changed. Otherwise the flag would be guesswork at the call site.
+    const ai = new MockRunner(['{"phrase":"mystical"}']);
+    expect(await expandPole(ai, "m", "mystical")).toEqual({ phrase: "mystical", expanded: true });
   });
 });

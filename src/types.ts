@@ -90,6 +90,10 @@ export function bucketAlt(bucket: BucketKey): Alt {
 export interface AxisPole {
   term: string;
   phrase: string;
+  /** False when expansion failed and `phrase` is just the bare term. A bare
+   *  pole scores AUC 0.640 against 0.980 for an expanded one, so a degraded
+   *  pole must stay visible rather than passing as a normal axis. */
+  expanded: boolean;
   embedding: number[] | null; // filled in lazily, like Anchor.embedding
 }
 
@@ -106,6 +110,7 @@ export interface SerializedAxis {
   neg: { term: string; phrase: string };
   pos: { term: string; phrase: string };
   ready: boolean; // both poles embedded, so coordinates are being served
+  degraded: boolean; // at least one pole fell back to its bare term
 }
 
 export const MAX_AXES = 3; // one per spatial dimension
