@@ -9,7 +9,9 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json --noEmit",
     "types": "wrangler types",
-    "calibrate": "tsx scripts/calibrate.ts"
+    "calibrate": "tsx scripts/calibrate.ts",
+    "axis-spike": "tsx scripts/axis-spike.ts",
+    "axis-phrasing-spike": "tsx scripts/axis-phrasing-spike.ts"
   },
   "devDependencies": {
     "@types/node": "^22",
