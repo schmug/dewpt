@@ -4,14 +4,13 @@
 // answers from whatever is pooled and the alarm pump refills behind it.
 
 import { DurableObject } from "cloudflare:workers";
-import { axisFromRow, axisToRow } from "./axis-core";
+import { axisFromRow, axisToRow, isDegeneratePole } from "./axis-core";
 import { fakeAiRunner } from "./dev-fake-ai";
 import { embedTexts, expandPole, generateCandidates, type AiRunner } from "./generation";
-import { PoolCore, cosineSim } from "./pool-core";
+import { PoolCore } from "./pool-core";
 import {
   ALT_ABSTRACTION,
   BUCKET_KEYS,
-  DEGENERATE_POLE_COSINE,
   MAX_AXES,
   TIER_STRANGENESS,
   bucketAlt,
@@ -275,12 +274,16 @@ export class SessionDO extends DurableObject<Env> {
 
       if (vecs) {
         // Reject a degenerate pair here rather than at parse time: distinct terms
-        // can still expand onto the same phrase, and only the embeddings show it.
-        // pos - neg would be ~zero, scoring every word 0 while the axis reported
-        // itself ready and healthy — the silent-dead-axis failure the
-        // identical-term check exists to prevent. Only this branch removes the
-        // axis; the embed-failure path above must keep it for the pump to retry.
-        if (cosineSim(vecs[0]!, vecs[1]!) > DEGENERATE_POLE_COSINE) {
+        // can still expand onto the same (or near-identical) phrase, and only the
+        // embeddings show it. pos - neg would be ~zero, scoring every word 0 while
+        // the axis reported itself ready and healthy — the silent-dead-axis
+        // failure the identical-term check exists to prevent. This is a narrower
+        // guard than "poles that mean the same thing": see isDegeneratePole in
+        // axis-core.ts and DEGENERATE_POLE_COSINE in types.ts for why cosine
+        // cannot detect general semantic collapse, only literal-text collisions.
+        // Only this branch removes the axis; the embed-failure path above must
+        // keep it for the pump to retry.
+        if (isDegeneratePole(vecs[0]!, vecs[1]!)) {
           this.core.removeAxis(axis.id);
           this.persistAxes();
           return {

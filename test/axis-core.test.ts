@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisFromRow, axisToRow, axisVector, coordsFor, normalizeCoords } from "../src/axis-core";
+import { axisFromRow, axisToRow, axisVector, coordsFor, isDegeneratePole, normalizeCoords } from "../src/axis-core";
 import type { Axis } from "../src/types";
 
 // public/axes.js is plain JS served raw from public/ (no build step), so it
@@ -53,6 +53,34 @@ describe("coordsFor", () => {
 
   it("returns 0 rather than NaN for a zero-length axis vector", () => {
     expect(coordsFor(axisEmb(0), [[0, 0, 0]])).toEqual([0]);
+  });
+});
+
+// Guards pos - neg landing on the zero vector. Pulled out of
+// SessionDO.createAxis specifically so this is reachable without a DO
+// harness: dev-fake-ai's pseudo-embeddings are deterministic by text hash, so
+// two pole phrases that expand to the same literal text (the realistic
+// trigger — see DEGENERATE_POLE_COSINE in src/types.ts) produce cosine
+// exactly 1.0, no live AI call required.
+describe("isDegeneratePole", () => {
+  it("fires when both poles carry identical embeddings", () => {
+    const v = axisEmb(3);
+    expect(isDegeneratePole(v, v)).toBe(true);
+  });
+
+  it("does not fire for two distinct (orthogonal) embeddings", () => {
+    expect(isDegeneratePole(axisEmb(0), axisEmb(1))).toBe(false);
+  });
+
+  it("does not fire for a highly similar but non-identical pair below threshold", () => {
+    // A legitimate narrow axis ("a warm colour" vs "a cool colour" measured at
+    // 0.9201 cosine against real embeddings) must survive. 0.95 sits above
+    // that measured value and still clears the guard, showing the threshold
+    // does not bite on realistically similar antonym pairs.
+    const neg = [1, 0];
+    const theta = Math.acos(0.95);
+    const pos = [Math.cos(theta), Math.sin(theta)];
+    expect(isDegeneratePole(neg, pos)).toBe(false);
   });
 });
 

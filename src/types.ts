@@ -113,11 +113,27 @@ export interface SerializedAxis {
   degraded: boolean; // at least one pole fell back to its bare term
 }
 
-/** Two pole embeddings this similar make `pos - neg` a near-zero vector, so
- *  cosineSim returns ~0 for every word and the axis silently sorts nothing —
- *  while still reporting ready:true, degraded:false. Distinct terms can land
- *  here after expansion ("sea" and "ocean" both expanding to "a large body of
- *  salt water"), which is why the identical-term check alone is not enough. */
+/** Guards the case where `pos - neg` lands on (or near) the zero vector: every
+ *  word would score ~0 on this axis while it still reports ready:true,
+ *  degraded:false. Distinct pole terms can land here because the few-shot
+ *  expansion prompt in generation.ts pins phrasing tightly — "sea" and
+ *  "ocean" both expanding to the literal string "a large body of salt water"
+ *  is plausible, and identical text embeds to cosine 1.0.
+ *
+ *  What this does NOT do: detect two poles that merely *mean* the same thing
+ *  while worded differently. Measured against real bge-m3 embeddings, pairs
+ *  that are genuine paraphrase collisions ("a physical object you can touch"
+ *  vs "a tangible object you can hold", "a feeling of happiness" vs "a sense
+ *  of joy and gladness", ...) scored 0.79-0.92 cosine — and legitimate,
+ *  useful antonym axes ("a warm colour" vs "a cool colour", "a slightly
+ *  formal tone" vs "a slightly casual tone", ...) scored 0.59-0.92, the same
+ *  range. "a warm colour"/"a cool colour" landed at 0.9201 cosine — identical
+ *  to the top paraphrase collision. No cosine threshold separates the two
+ *  sets: antonym poles sit close together in embedding space precisely
+ *  because sharing topic and context is what lets `pos - neg` isolate an axis
+ *  at all. Lowering this constant would reject valid narrow axes without
+ *  catching any more paraphrase collisions — it is not a dial worth turning.
+ *  What it reliably catches is the narrower, literal-text case above. */
 export const DEGENERATE_POLE_COSINE = 0.98;
 
 export const MAX_AXES = 3; // one per spatial dimension

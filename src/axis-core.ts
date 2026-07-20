@@ -5,7 +5,7 @@
 // 0.843 vs 0.763. See docs/latent-space-navigation-design.md.
 
 import { cosineSim } from "./pool-core";
-import { MAX_POLE_TERM_CHARS, type Axis } from "./types";
+import { DEGENERATE_POLE_COSINE, MAX_POLE_TERM_CHARS, type Axis } from "./types";
 
 /** Direction from the negative pole to the positive pole. */
 export function axisVector(neg: number[], pos: number[]): number[] {
@@ -86,6 +86,18 @@ export function axisToRow(axis: Axis): AxisRow {
     pos_embedding: axis.pos.embedding,
     created_at: axis.createdAt,
   };
+}
+
+/** True when two pole embeddings are similar enough that `pos - neg` is
+ *  effectively the zero vector — see DEGENERATE_POLE_COSINE in types.ts for
+ *  what this catches (poles that expanded to identical/near-identical text)
+ *  and what it cannot (paraphrases that merely mean the same thing; cosine
+ *  can't separate those from legitimate antonym axes). Pulled out of
+ *  SessionDO.createAxis as a pure predicate so it is testable without a DO
+ *  harness: dev-fake-ai's pseudo-embeddings are deterministic by text hash, so
+ *  two identical pole phrases yield cosine exactly 1.0 here. */
+export function isDegeneratePole(negEmbedding: number[], posEmbedding: number[]): boolean {
+  return cosineSim(negEmbedding, posEmbedding) > DEGENERATE_POLE_COSINE;
 }
 
 /** Both poles of an axis. Identical poles are rejected: pos - neg would be the

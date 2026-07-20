@@ -16,6 +16,20 @@
 - **Never put embeddings on the wire.** `/pool` sends coordinates (a few floats), never the 1024-dim vectors. There is an explicit regression test for this.
 - **Coordinates are served raw; normalization is the client's job.** Raw cosines occupy a narrow band (sd 0.05–0.07 near zero) and must be min-max normalized against the *visible* set, which only the client knows.
 - **Maximum 3 axes** (`MAX_AXES = 3`) — one per spatial dimension.
+- **`DEGENERATE_POLE_COSINE` (0.98) catches identical/near-identical expanded
+  *text*, not semantic collapse.** Measured against real `bge-m3` embeddings
+  (post-implementation, corrected from the original in-code rationale):
+  genuine paraphrase collisions ("a physical object you can touch" vs "a
+  tangible object you can hold", etc.) scored 0.79-0.92 cosine, and
+  legitimate antonym-pole axes ("a warm colour" vs "a cool colour", etc.)
+  scored 0.59-0.92 — the *same* range, with "a warm colour"/"a cool colour"
+  landing at 0.9201, identical to the top paraphrase collision. No threshold
+  separates the two sets, so the guard cannot detect general semantic
+  collapse; it only fires when both poles collapse onto the same (or
+  near-identical) literal expanded text, which is realistic because the
+  few-shot prompt in `generation.ts` pins phrasing tightly. Do not lower the
+  threshold to try to catch paraphrase collisions — it would only reject
+  valid narrow axes.
 - **The field must never block on AI.** Axis creation is an explicit user action and may await; it must never stall the pool-serving path.
 - **Weather vocabulary in user-facing copy and API params; plain concepts in prompts** ([CLAUDE.md](../../../CLAUDE.md)). "Axis" and "pole" are neutral engineering terms and are fine in both.
 - **Gates:** `npm run typecheck` and `npm test` must pass before every commit. Report counts. **One documented exception:** Task 1 adds `coords` to `Served` without populating it, so its commit lands with a failing `npm run typecheck` that Task 3 turns green. (`npm test` still passes at that commit — vitest does not typecheck, so the breakage is visible only to `tsc`.) This was raised in pre-flight and accepted deliberately (2026-07-20) — it is not an oversight, and Task 1's reviewer should not treat it as one. No other task may commit red.
