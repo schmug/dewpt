@@ -5,19 +5,22 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { fakeAiRunner } from "./dev-fake-ai";
-import { embedTexts, generateCandidates, type AiRunner } from "./generation";
+import { embedTexts, expandPole, generateCandidates, type AiRunner } from "./generation";
 import { PoolCore } from "./pool-core";
 import {
   ALT_ABSTRACTION,
   BUCKET_KEYS,
+  MAX_AXES,
   TIER_STRANGENESS,
   bucketAlt,
   bucketTier,
   type Anchor,
+  type Axis,
   type BucketKey,
   type Candidate,
   type DewptParams,
   type EvaporatedWord,
+  type SerializedAxis,
   type Served,
   type SessionInfo,
   type Tier,
@@ -185,6 +188,55 @@ export class SessionDO extends DurableObject<Env> {
     return result;
   }
 
+  /** Create an axis from two pole terms. Expands each term to a descriptive
+   *  phrase (mandatory — bare terms lose ~0.34 AUC to polysemy), embeds both
+   *  phrases, then stores the axis. Slow and explicitly user-initiated; it must
+   *  never sit in the pool-serving path. Returns null when the session is
+   *  unknown, or the unchanged axis list when already at MAX_AXES. */
+  async createAxis(negTerm: string, posTerm: string): Promise<SerializedAxis[] | null> {
+    if (!this.meta) return null;
+    if (this.core.axes().length >= MAX_AXES) return this.core.serializedAxes();
+
+    const ai = this.aiRunner();
+    const [neg, pos] = await Promise.all([
+      expandPole(ai, this.env.GEN_MODEL, negTerm),
+      expandPole(ai, this.env.GEN_MODEL, posTerm),
+    ]);
+
+    const axis = {
+      id: crypto.randomUUID(),
+      neg: { term: negTerm, phrase: neg.phrase, expanded: neg.expanded, embedding: null },
+      pos: { term: posTerm, phrase: pos.phrase, expanded: pos.expanded, embedding: null },
+      createdAt: Date.now(),
+    };
+    this.core.addAxis(axis);
+
+    // Embed both poles now so coordinates start flowing immediately. On failure
+    // the axis persists unembedded and reports ready:false; the next pump picks
+    // up the pending poles.
+    try {
+      const vecs = await embedTexts(ai, this.env.EMBED_MODEL, [neg.phrase, pos.phrase]);
+      this.core.setPoleEmbedding(axis.id, "neg", vecs[0]!);
+      this.core.setPoleEmbedding(axis.id, "pos", vecs[1]!);
+    } catch (error) {
+      console.error(JSON.stringify({ level: "error", message: "axis pole embed failed", axisId: axis.id, error: String(error) }));
+    }
+
+    this.persistAxes();
+    return this.core.serializedAxes();
+  }
+
+  async removeAxis(id: string): Promise<SerializedAxis[] | null> {
+    if (!this.meta) return null;
+    if (this.core.removeAxis(id)) this.persistAxes();
+    return this.core.serializedAxes();
+  }
+
+  async listAxes(): Promise<SerializedAxis[] | null> {
+    if (!this.meta) return null;
+    return this.core.serializedAxes();
+  }
+
   // ---- generation pump --------------------------------------------------------
 
   async alarm(): Promise<void> {
@@ -210,6 +262,13 @@ export class SessionDO extends DurableObject<Env> {
           if (vecs[i]) this.core.setAnchorEmbedding(a.text, vecs[i]!);
         });
         this.persistAnchors();
+      }
+
+      const pendingPoles = this.core.unembeddedPoles();
+      if (pendingPoles.length > 0) {
+        const vecs = await embedTexts(ai, this.env.EMBED_MODEL, pendingPoles.map((p) => p.phrase));
+        pendingPoles.forEach((p, i) => this.core.setPoleEmbedding(p.axisId, p.pole, vecs[i]!));
+        this.persistAxes();
       }
 
       const plan = this.core.genPlan(Date.now());
@@ -306,6 +365,18 @@ export class SessionDO extends DurableObject<Env> {
       );
       CREATE TABLE IF NOT EXISTS exclude (text TEXT PRIMARY KEY, served_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS evaporated (text TEXT PRIMARY KEY, tier INTEGER NOT NULL, evaporated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS axes (
+        id TEXT PRIMARY KEY,
+        neg_term TEXT NOT NULL,
+        neg_phrase TEXT NOT NULL,
+        neg_expanded INTEGER NOT NULL,
+        neg_embedding BLOB,
+        pos_term TEXT NOT NULL,
+        pos_phrase TEXT NOT NULL,
+        pos_expanded INTEGER NOT NULL,
+        pos_embedding BLOB,
+        created_at INTEGER NOT NULL
+      );
     `);
   }
 
@@ -352,6 +423,31 @@ export class SessionDO extends DurableObject<Env> {
       .toArray()
       .map((r) => ({ text: r.text, tier: r.tier as Tier, evaporatedAt: r.evaporated_at }));
 
+    const axes: Axis[] = this.ctx.storage.sql
+      .exec<{
+        id: string; neg_term: string; neg_phrase: string; neg_expanded: number; neg_embedding: ArrayBuffer | null;
+        pos_term: string; pos_phrase: string; pos_expanded: number; pos_embedding: ArrayBuffer | null; created_at: number;
+      }>(
+        "SELECT id, neg_term, neg_phrase, neg_expanded, neg_embedding, pos_term, pos_phrase, pos_expanded, pos_embedding, created_at FROM axes",
+      )
+      .toArray()
+      .map((r) => ({
+        id: r.id,
+        neg: {
+          term: r.neg_term,
+          phrase: r.neg_phrase,
+          expanded: r.neg_expanded !== 0,
+          embedding: r.neg_embedding ? fromBlob(r.neg_embedding) : null,
+        },
+        pos: {
+          term: r.pos_term,
+          phrase: r.pos_phrase,
+          expanded: r.pos_expanded !== 0,
+          embedding: r.pos_embedding ? fromBlob(r.pos_embedding) : null,
+        },
+        createdAt: r.created_at,
+      }));
+
     this.core = new PoolCore({
       params: meta.has("params") ? JSON.parse(meta.get("params")!) : undefined,
       seedEmbedding: meta.has("seedEmbedding") ? JSON.parse(meta.get("seedEmbedding")!) : null,
@@ -360,6 +456,7 @@ export class SessionDO extends DurableObject<Env> {
       anchors,
       exclude,
       evaporated,
+      axes,
     });
   }
 
@@ -395,6 +492,25 @@ export class SessionDO extends DurableObject<Env> {
         a.tier,
         a.embedding ? toBlob(a.embedding) : null,
         a.pinnedAt,
+      );
+    }
+  }
+
+  private persistAxes(): void {
+    this.ctx.storage.sql.exec("DELETE FROM axes");
+    for (const a of this.core.axes()) {
+      this.ctx.storage.sql.exec(
+        "INSERT INTO axes (id, neg_term, neg_phrase, neg_expanded, neg_embedding, pos_term, pos_phrase, pos_expanded, pos_embedding, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        a.id,
+        a.neg.term,
+        a.neg.phrase,
+        a.neg.expanded ? 1 : 0,
+        a.neg.embedding ? toBlob(a.neg.embedding) : null,
+        a.pos.term,
+        a.pos.phrase,
+        a.pos.expanded ? 1 : 0,
+        a.pos.embedding ? toBlob(a.pos.embedding) : null,
+        a.createdAt,
       );
     }
   }
