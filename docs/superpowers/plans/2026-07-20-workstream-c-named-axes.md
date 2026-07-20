@@ -1198,7 +1198,9 @@ Start the dev server via the `dewpt` config in [.claude/launch.json](../../../.c
 
 ```javascript
 const { createAxisClient } = await import('/axes.js');
-const ax = createAxisClient(new URLSearchParams(location.search).get('s'));
+// The session id is not in location.search — read it off a /api/session/<id>/…
+// request in the network panel, or from whatever the page holds it in.
+const ax = createAxisClient(SESSION_ID);
 await ax.create('concrete', 'abstract');
 ```
 
@@ -1218,7 +1220,7 @@ Expected: typecheck exits 0, all tests pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add public/axes.js public/pool-client.js
+git add public/axes.js public/pool-client.js test/axis-core.test.ts
 git commit -m "feat: client axis data path
 
 createAxisClient wraps the axis routes; normalizeCoords mirrors
