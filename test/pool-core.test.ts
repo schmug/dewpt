@@ -729,3 +729,15 @@ describe("PoolCore draw with axes", () => {
     expect(core.draw("w1a0", 1, 2)[0]!.coords).toHaveLength(1);
   });
 });
+
+describe("wire format", () => {
+  it("never leaks embeddings into served words", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    core.addCandidates("w1a0", entries(["alpha"], 4), 1);
+    const served = core.draw("w1a0", 1, 2);
+    expect(JSON.stringify(served)).not.toContain("embedding");
+    // coords must be a short list of numbers, not a 1024-dim vector
+    expect(served[0]!.coords.length).toBeLessThanOrEqual(MAX_AXES);
+  });
+});

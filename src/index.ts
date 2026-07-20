@@ -2,7 +2,8 @@
 // Static client is served from ./public via the assets binding; only /api/*
 // reaches this code (run_worker_first).
 
-import { BUCKET_KEYS, type BucketKey, type DewptParams, type Tier } from "./types";
+import { parsePoleTerms } from "./axis-core";
+import { BUCKET_KEYS, MAX_POLE_TERM_CHARS, type BucketKey, type DewptParams, type Tier } from "./types";
 
 export { SessionDO } from "./session-do";
 
@@ -172,6 +173,28 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     if (!text) return badRequest("expected text");
     const result = await stub.restore(text);
     return result ? json(result) : json({ error: "no such session" }, 404);
+  }
+
+  if (rest === "/axes" && method === "GET") {
+    const axes = await stub.listAxes();
+    return axes ? json({ axes }) : json({ error: "no such session" }, 404);
+  }
+
+  if (rest === "/axes" && method === "POST") {
+    const body = await readBody(request);
+    if (!body) return badRequest("expected a JSON object body");
+    const terms = parsePoleTerms(body);
+    if (!terms) {
+      return badRequest(`negTerm and posTerm must be different non-empty strings of at most ${MAX_POLE_TERM_CHARS} characters`);
+    }
+    const axes = await stub.createAxis(terms.negTerm, terms.posTerm);
+    return axes ? json({ axes }, 201) : json({ error: "no such session" }, 404);
+  }
+
+  const axisMatch = rest.match(/^\/axes\/([^/]+)$/);
+  if (axisMatch && method === "DELETE") {
+    const axes = await stub.removeAxis(axisMatch[1]!);
+    return axes ? json({ axes }) : json({ error: "no such session" }, 404);
   }
 
   return json({ error: "not found" }, 404);

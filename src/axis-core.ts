@@ -5,6 +5,7 @@
 // 0.843 vs 0.763. See docs/latent-space-navigation-design.md.
 
 import { cosineSim } from "./pool-core";
+import { MAX_POLE_TERM_CHARS } from "./types";
 
 /** Direction from the negative pole to the positive pole. */
 export function axisVector(neg: number[], pos: number[]): number[] {
@@ -31,4 +32,20 @@ export function normalizeCoords(values: number[]): number[] {
   const span = hi - lo;
   if (span === 0) return values.map(() => 0.5);
   return values.map((v) => (v - lo) / span);
+}
+
+/** Both poles of an axis. Identical poles are rejected: pos - neg would be the
+ *  zero vector, which projects everything to 0 — a silently dead axis. Lives
+ *  here rather than in index.ts so it is testable without pulling in the
+ *  Durable Object and its cloudflare:workers import. */
+export function parsePoleTerms(body: Record<string, unknown>): { negTerm: string; posTerm: string } | null {
+  const neg = body.negTerm;
+  const pos = body.posTerm;
+  if (typeof neg !== "string" || typeof pos !== "string") return null;
+  const negTerm = neg.trim();
+  const posTerm = pos.trim();
+  if (!negTerm || !posTerm) return null;
+  if (negTerm.length > MAX_POLE_TERM_CHARS || posTerm.length > MAX_POLE_TERM_CHARS) return null;
+  if (negTerm.toLowerCase() === posTerm.toLowerCase()) return null;
+  return { negTerm, posTerm };
 }
