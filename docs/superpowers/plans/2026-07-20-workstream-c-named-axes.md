@@ -18,7 +18,7 @@
 - **Maximum 3 axes** (`MAX_AXES = 3`) — one per spatial dimension.
 - **The field must never block on AI.** Axis creation is an explicit user action and may await; it must never stall the pool-serving path.
 - **Weather vocabulary in user-facing copy and API params; plain concepts in prompts** ([CLAUDE.md](../../../CLAUDE.md)). "Axis" and "pole" are neutral engineering terms and are fine in both.
-- **Gates:** `npm run typecheck` and `npm test` must pass before every commit. Report counts. **One documented exception:** Task 1 adds `coords` to `Served` without populating it, so its commit lands with a red suite that Task 3 turns green. This was raised in pre-flight and accepted deliberately (2026-07-20) — it is not an oversight, and Task 1's reviewer should not treat it as one. No other task may commit red.
+- **Gates:** `npm run typecheck` and `npm test` must pass before every commit. Report counts. **One documented exception:** Task 1 adds `coords` to `Served` without populating it, so its commit lands with a failing `npm run typecheck` that Task 3 turns green. (`npm test` still passes at that commit — vitest does not typecheck, so the breakage is visible only to `tsc`.) This was raised in pre-flight and accepted deliberately (2026-07-20) — it is not an oversight, and Task 1's reviewer should not treat it as one. No other task may commit red.
 - **`normalizeCoords` is mirrored** in `src/axis-core.ts` (canonical) and `public/axes.js` (browser). The repo's existing precedent for this — `src/hint-machine.ts` / `public/hint-machine.js` — guards the copy with a shared suite that runs against both, so drift fails CI. Task 6 must do the same; an unguarded copy is not the precedent.
 - **Commits:** conventional prefixes (`feat:`, `test:`, `refactor:`). Never push to `main`; this work belongs on a feature branch.
 
@@ -225,8 +225,16 @@ Expected: PASS, 10 tests.
 
 - [ ] **Step 6: Run the full gates**
 
-Run: `npm run typecheck && npm test`
-Expected: typecheck exits 0. Tests fail — adding `coords` to `Served` breaks `src/pool-core.ts:98` (`draw()` does not populate it) and any test constructing a `Served`. **This is expected**; Task 3 fixes it. Do not patch `pool-core.ts` here.
+Run: `npm run typecheck; npm test`
+
+Expected — note which gate goes red, it is the opposite of what you might assume:
+
+- **`npm run typecheck` FAILS**, with exactly one error: `src/pool-core.ts(121,5): error TS2322 ... Property 'coords' is missing`. `draw()` returns objects without `coords` but is declared `Served[]`.
+- **`npm test` PASSES** (130/130). Vitest transpiles without typechecking, so a missing property is invisible to it.
+
+**This is expected**; Task 3 fixes it. Do not patch `pool-core.ts` here.
+
+Beware `grep`-ing this output for errors: `tsc` writes to stdout and a sloppy pattern can hide the failure. Check the exit code — `npx tsc --noEmit; echo $?` should print `2`.
 
 - [ ] **Step 7: Commit**
 
