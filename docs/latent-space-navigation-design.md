@@ -66,6 +66,31 @@ Like `calibrate`, both talk to Workers AI over REST from node, so they are unaff
 
 ---
 
+## Legibility: answering open question #2
+
+A correct *ordering* is not the same as a legible *map*. The worry was clumping: most words are neutral on most axes, so a 3-axis projection might pile everything into the middle. Tested with [scripts/axis-layout-prototype.ts](../scripts/axis-layout-prototype.ts) (`npm run axis-layout`), which generates real candidates through the app's own generation path, projects them onto three phrase-named axes, and emits a self-contained HTML explorer plus distribution stats.
+
+**Density is the legibility mechanism, and the field already has the right cap.**
+
+| words rendered | midShare (middle fifth of range) | result |
+| --- | --- | --- |
+| 116 | 0.33 / 0.34 / 0.51 | centre is an illegible pile of overprinted words |
+| ~20 | 0.28 / 0.28 / 0.28 | legible; reads as terrain |
+
+`midShare` is the fraction of words sitting in the middle fifth of the observed range — ~0.20 is even spread, >0.40 is clumping. At realistic density the distribution is close to even on all three axes.
+
+At ~20 words the terrain is unmistakable: `note taking apps`, `argument mapping tools`, `critical thinking exercises` along the concrete edge; `counterfactual ritual`, `memory palaces`, `inverse problem museums` at the abstract/mystical pole. The depth axis driving blur and size gives real parallax.
+
+Three consequences for implementation:
+
+- **`CAP = 14` at [field.js:20](../public/field.js) is load-bearing for map mode too**, not just a performance guard. Raising it breaks legibility before it breaks frame rate.
+- **Coordinates must be min-max normalised to the viewport, never used raw.** Cosine projections occupy a narrow band (observed sd 0.05–0.07, range ~0.23–0.33, centred near zero). Rendered raw, every word lands in a few central pixels.
+- **A small collision-avoidance nudge is still needed.** Even at 20 words, ~2 pairs overprinted. Jitter along the *least-informative* axis is the cheapest fix, since displacement there costs the least meaning.
+
+The prototype is committed rather than thrown away: it is the fastest way to re-check legibility when the pole-expansion prompt or the candidate mix changes.
+
+---
+
 ## Core mechanic: position is the query
 
 The single idea that unifies all four workstreams:
@@ -177,7 +202,7 @@ Existing suites are `vitest` over pure core logic ([test/pool-core.test.ts](../t
 ## Open questions
 
 1. **What are the axes before the user names any?** Options: default to seed-distance × altitude (reuses existing concepts, always available), lock map mode until an axis is named (clean, but a dead-end empty state), or auto-propose axes from the corpus. Leaning toward the first as a default with the third as a later affordance.
-2. **Does a 2–3 axis layout read as a *place*?** The spike proved one axis orders correctly. It did not prove three axes produce a legible map — words may clump in the middle since most words are neutral on most axes. This is a visual-legibility question best answered by a rendered prototype, not another offline script. **Biggest remaining unknown.**
+2. ~~**Does a 2–3 axis layout read as a *place*?**~~ **Answered — yes, at the field's existing density cap.** See [Legibility](#legibility-answering-open-question-2).
 3. **How is the third axis navigated?** A z-slider, or actual 3D camera orbit? Neuronpedia does orbit; dewpt's aesthetic may be better served by depth-of-field on a 2D plane. Affects whether this needs WebGL at all — everything today is DOM spans.
 4. **Fog under re-projection.** See workstream D.
 5. **Does the corpus condense as words?** Current answer: no, chunks are terrain only. But "surface a phrase from my own notes I'd forgotten" is arguably the strongest brainstorming feature on offer, and it contradicts that answer.

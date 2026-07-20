@@ -11,7 +11,8 @@
     "types": "wrangler types",
     "calibrate": "tsx scripts/calibrate.ts",
     "axis-spike": "tsx scripts/axis-spike.ts",
-    "axis-phrasing-spike": "tsx scripts/axis-phrasing-spike.ts"
+    "axis-phrasing-spike": "tsx scripts/axis-phrasing-spike.ts",
+    "axis-layout": "tsx scripts/axis-layout-prototype.ts"
   },
   "devDependencies": {
     "@types/node": "^22",
