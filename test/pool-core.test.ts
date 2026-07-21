@@ -7,7 +7,9 @@ import {
   EXCLUDE_CAP,
   FRESH_TARGET,
   GEN_BATCH,
+  MAX_AXES,
   TARGET_DEPTH,
+  type Axis,
   type BucketKey,
 } from "../src/types";
 
@@ -612,5 +614,188 @@ describe("per-bucket invalidation (issue #3)", () => {
     core.addCandidates("w1a0", entries(["before"], 1), 4000); // generated before the stamp
     expect(core.depths().w0a0.fresh).toBe(1);
     expect(core.depths().w1a0.fresh).toBe(0);
+  });
+});
+
+function makeAxis(id: string, negAxis: number, posAxis: number): Axis {
+  return {
+    id,
+    neg: { term: `n${id}`, phrase: `a ${id} negative pole`, expanded: true, embedding: axisEmb(negAxis) },
+    pos: { term: `p${id}`, phrase: `a ${id} positive pole`, expanded: true, embedding: axisEmb(posAxis) },
+    createdAt: 1,
+  };
+}
+
+describe("PoolCore axes", () => {
+  it("accepts axes up to MAX_AXES and refuses beyond it", () => {
+    const core = new PoolCore();
+    for (let i = 0; i < MAX_AXES; i++) {
+      expect(core.addAxis(makeAxis(`a${i}`, i * 2, i * 2 + 1))).toBe(true);
+    }
+    expect(core.addAxis(makeAxis("overflow", 12, 13))).toBe(false);
+    expect(core.axes()).toHaveLength(MAX_AXES);
+  });
+
+  it("removes an axis by id and reports whether it existed", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    expect(core.removeAxis("a")).toBe(true);
+    expect(core.removeAxis("a")).toBe(false);
+    expect(core.axes()).toHaveLength(0);
+  });
+
+  it("never exposes embeddings through serializedAxes", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    expect(JSON.stringify(core.serializedAxes())).not.toContain("embedding");
+    expect(core.serializedAxes()[0]!.ready).toBe(true);
+  });
+
+  it("reports degraded when a pole's LLM expansion fell back to its bare term", () => {
+    const core = new PoolCore();
+    const axis = makeAxis("a", 0, 1);
+    axis.neg.expanded = false;
+    core.addAxis(axis);
+    expect(core.serializedAxes()[0]!.degraded).toBe(true);
+  });
+
+  it("reports not degraded when both poles expanded successfully", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    expect(core.serializedAxes()[0]!.degraded).toBe(false);
+  });
+
+  it("cannot be pushed past MAX_AXES through the array axes() returns", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    core.axes().push(makeAxis("smuggled", 2, 3));
+    expect(core.axes()).toHaveLength(1);
+  });
+
+  it("reports degraded when only the positive pole fell back", () => {
+    const core = new PoolCore();
+    const axis = makeAxis("a", 0, 1);
+    axis.pos.expanded = false;
+    core.addAxis(axis);
+    expect(core.serializedAxes()[0]!.degraded).toBe(true);
+  });
+
+  it("reports an axis with an unembedded pole as not ready", () => {
+    const core = new PoolCore();
+    const axis = makeAxis("a", 0, 1);
+    axis.pos.embedding = null;
+    core.addAxis(axis);
+    expect(core.serializedAxes()[0]!.ready).toBe(false);
+    expect(core.unembeddedPoles()).toEqual([{ axisId: "a", pole: "pos", phrase: "a a positive pole" }]);
+  });
+
+  it("fills a pole embedding in place", () => {
+    const core = new PoolCore();
+    const axis = makeAxis("a", 0, 1);
+    axis.neg.embedding = null;
+    core.addAxis(axis);
+    core.setPoleEmbedding("a", "neg", axisEmb(0));
+    expect(core.unembeddedPoles()).toEqual([]);
+    expect(core.serializedAxes()[0]!.ready).toBe(true);
+  });
+});
+
+describe("PoolCore readyAxisIds", () => {
+  it("names the ready axes in axis order", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    core.addAxis(makeAxis("b", 2, 3));
+    expect(core.readyAxisIds()).toEqual(["a", "b"]);
+  });
+
+  it("omits an axis with a pending pole, preserving the order of the rest", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    const pending = makeAxis("b", 2, 3);
+    pending.pos.embedding = null;
+    core.addAxis(pending);
+    core.addAxis(makeAxis("c", 4, 5));
+    expect(core.readyAxisIds()).toEqual(["a", "c"]);
+  });
+
+  it("adds the axis to the list once its last pole embeds", () => {
+    const core = new PoolCore();
+    const pending = makeAxis("a", 0, 1);
+    pending.neg.embedding = null;
+    core.addAxis(pending);
+    expect(core.readyAxisIds()).toEqual([]);
+    core.setPoleEmbedding("a", "neg", axisEmb(0));
+    expect(core.readyAxisIds()).toEqual(["a"]);
+  });
+
+  it("corresponds positionally with the coords served by draw", () => {
+    // The contract the client depends on: coords[i] is the coordinate along the
+    // axis named by axisIds[i]. A middle axis going pending must shift BOTH
+    // lists identically, which is what pins them together.
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    const pending = makeAxis("b", 2, 3);
+    pending.pos.embedding = null;
+    core.addAxis(pending);
+    core.addAxis(makeAxis("c", 4, 5));
+    core.addCandidates("w1a0", entries(["alpha"], 6), 1);
+
+    const ids = core.readyAxisIds();
+    const served = core.draw("w1a0", 1, 2)[0]!;
+    expect(ids).toEqual(["a", "c"]);
+    expect(served.coords).toHaveLength(ids.length);
+
+    // and the value at each index really is that axis's coordinate
+    const soloA = new PoolCore();
+    soloA.addAxis(makeAxis("a", 0, 1));
+    soloA.addCandidates("w1a0", entries(["alpha"], 6), 1);
+    expect(soloA.draw("w1a0", 1, 2)[0]!.coords[0]).toBeCloseTo(served.coords[0]!, 10);
+
+    const soloC = new PoolCore();
+    soloC.addAxis(makeAxis("c", 4, 5));
+    soloC.addCandidates("w1a0", entries(["alpha"], 6), 1);
+    expect(soloC.draw("w1a0", 1, 2)[0]!.coords[0]).toBeCloseTo(served.coords[1]!, 10);
+  });
+});
+
+describe("PoolCore draw with axes", () => {
+  it("serves [] coords when no axis is defined", () => {
+    const core = new PoolCore();
+    core.addCandidates("w1a0", entries(["alpha"]), 1);
+    expect(core.draw("w1a0", 1, 2)[0]!.coords).toEqual([]);
+  });
+
+  it("orders words along the axis by their position on it", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    // "near-pos" sits on the positive pole, "near-neg" on the negative pole
+    core.addCandidates("w1a0", [
+      { text: "near-pos", embedding: axisEmb(1) },
+      { text: "near-neg", embedding: axisEmb(0) },
+    ], 1);
+    const byText = new Map(core.draw("w1a0", 2, 2).map((s) => [s.text, s.coords[0]!]));
+    expect(byText.get("near-pos")).toBeGreaterThan(byText.get("near-neg")!);
+  });
+
+  it("emits one coordinate per ready axis and skips unready ones", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    const pending = makeAxis("b", 2, 3);
+    pending.pos.embedding = null;
+    core.addAxis(pending);
+    core.addCandidates("w1a0", entries(["alpha"], 4), 1);
+    expect(core.draw("w1a0", 1, 2)[0]!.coords).toHaveLength(1);
+  });
+});
+
+describe("wire format", () => {
+  it("never leaks embeddings into served words", () => {
+    const core = new PoolCore();
+    core.addAxis(makeAxis("a", 0, 1));
+    core.addCandidates("w1a0", entries(["alpha"], 4), 1);
+    const served = core.draw("w1a0", 1, 2);
+    expect(JSON.stringify(served)).not.toContain("embedding");
+    // coords must be a short list of numbers, not a 1024-dim vector
+    expect(served[0]!.coords.length).toBeLessThanOrEqual(MAX_AXES);
   });
 });

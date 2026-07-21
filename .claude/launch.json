@@ -9,6 +9,12 @@
         "source ~/.zshenv 2>/dev/null; export CLOUDFLARE_ACCESS_CLIENT_ID CLOUDFLARE_ACCESS_CLIENT_SECRET; exec npx wrangler dev --port 8787"
       ],
       "port": 8787
+    },
+    {
+      "name": "static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8788"],
+      "port": 8788
     }
   ]
 }

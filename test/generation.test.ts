@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   bandTemperature,
   buildGenerationMessages,
+  buildPoleExpansionMessages,
   embedTexts,
+  expandPole,
   generateCandidates,
   parseCandidateList,
+  parsePolePhrase,
   type AiRunner,
   type GenerationInputs,
 } from "../src/generation";
@@ -198,5 +201,75 @@ describe("bandTemperature", () => {
     expect(mid).toBeLessThan(high);
     expect(low).toBeGreaterThanOrEqual(0.5);
     expect(high).toBeLessThanOrEqual(1.3);
+  });
+});
+
+describe("buildPoleExpansionMessages", () => {
+  it("shows the model the disambiguation it must perform", () => {
+    const text = allText(buildPoleExpansionMessages("concrete")).toLowerCase();
+    expect(text).toContain("a physical object you can touch");
+    expect(text).toContain("concrete");
+  });
+
+  it("puts the term to expand in the final user message", () => {
+    const messages = buildPoleExpansionMessages("liminal");
+    expect(messages[messages.length - 1]!.role).toBe("user");
+    expect(messages[messages.length - 1]!.content).toContain("liminal");
+  });
+});
+
+describe("parsePolePhrase", () => {
+  it("reads the phrase out of a JSON object", () => {
+    expect(parsePolePhrase('{"phrase":"a physical object you can touch"}')).toBe("a physical object you can touch");
+  });
+
+  it("survives code fences", () => {
+    expect(parsePolePhrase('```json\n{"phrase":"an abstract idea"}\n```')).toBe("an abstract idea");
+  });
+
+  it("accepts a bare string", () => {
+    expect(parsePolePhrase('"a routine practical task"')).toBe("a routine practical task");
+  });
+
+  it("collapses whitespace", () => {
+    expect(parsePolePhrase('{"phrase":"a  physical\\n object"}')).toBe("a physical object");
+  });
+
+  it("rejects an over-long phrase rather than truncating it", () => {
+    expect(parsePolePhrase(`{"phrase":"${"x".repeat(200)}"}`)).toBeNull();
+  });
+
+  it("returns null for junk", () => {
+    expect(parsePolePhrase("I'm sorry, I can't help with that.")).toBeNull();
+    expect(parsePolePhrase(null)).toBeNull();
+    expect(parsePolePhrase('{"phrase":""}')).toBeNull();
+  });
+});
+
+describe("expandPole", () => {
+  it("reports a real expansion as expanded", async () => {
+    const ai = new MockRunner(['{"phrase":"a mystical or magical practice"}']);
+    expect(await expandPole(ai, "m", "mystical")).toEqual({
+      phrase: "a mystical or magical practice",
+      expanded: true,
+    });
+  });
+
+  it("flags the fallback when the model returns junk", async () => {
+    const ai = new MockRunner(["no."]);
+    expect(await expandPole(ai, "m", "mystical")).toEqual({ phrase: "mystical", expanded: false });
+  });
+
+  it("flags the fallback when the call throws", async () => {
+    const ai: AiRunner = { async run() { throw new Error("upstream down"); } };
+    expect(await expandPole(ai, "m", "mystical")).toEqual({ phrase: "mystical", expanded: false });
+  });
+
+  it("does not report a degraded pole as expanded even when the model echoes the term", async () => {
+    // The model legitimately returning the bare term must still count as an
+    // expansion — `expanded` tracks whether parsing succeeded, not whether the
+    // text changed. Otherwise the flag would be guesswork at the call site.
+    const ai = new MockRunner(['{"phrase":"mystical"}']);
+    expect(await expandPole(ai, "m", "mystical")).toEqual({ phrase: "mystical", expanded: true });
   });
 });

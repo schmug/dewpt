@@ -2,7 +2,8 @@
 // Static client is served from ./public via the assets binding; only /api/*
 // reaches this code (run_worker_first).
 
-import { BUCKET_KEYS, type BucketKey, type DewptParams, type Tier } from "./types";
+import { parsePoleTerms } from "./axis-core";
+import { BUCKET_KEYS, MAX_AXES, MAX_POLE_TERM_CHARS, type BucketKey, type DewptParams, type Tier } from "./types";
 
 export { SessionDO } from "./session-do";
 
@@ -102,6 +103,9 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     if (!isBucketKey(bucket)) return badRequest(`bucket must be one of ${BUCKET_KEYS.join(", ")}`);
     const count = Math.min(MAX_DRAW_COUNT, Math.max(1, Number(url.searchParams.get("count")) || 12));
     const result = await stub.drawPool(bucket, count);
+    // Forwarded whole: { condensed, depths, axisIds }. axisIds must travel with
+    // the words it describes — a client buffering draws over time has no other
+    // way to know which axis set a given word's coords were scored against.
     return result ? json(result) : json({ error: "no such session" }, 404);
   }
 
@@ -172,6 +176,49 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     if (!text) return badRequest("expected text");
     const result = await stub.restore(text);
     return result ? json(result) : json({ error: "no such session" }, 404);
+  }
+
+  if (rest === "/axes" && method === "GET") {
+    const axes = await stub.listAxes();
+    return axes ? json({ axes }) : json({ error: "no such session" }, 404);
+  }
+
+  if (rest === "/axes" && method === "POST") {
+    const body = await readBody(request);
+    if (!body) return badRequest("expected a JSON object body");
+    const terms = parsePoleTerms(body);
+    if (!terms) {
+      return badRequest(`negTerm and posTerm must be different non-empty strings of at most ${MAX_POLE_TERM_CHARS} characters`);
+    }
+    const result = await stub.createAxis(terms.negTerm, terms.posTerm);
+    if (!result) return json({ error: "no such session" }, 404);
+    // 201 only when an axis was actually added. A refused request was dropped,
+    // and answering 201 would report a silent failure as a success.
+    //
+    // These are the only non-2xx responses in this file that pair `error` with
+    // payload data rather than a bare `{ error }`. That's deliberate: it lets
+    // the client repaint current axis state without a follow-up GET.
+    if (result.created) return json({ axes: result.axes }, 201);
+    // 422, not 409: the request was well-formed and nothing conflicted — the two
+    // terms just collapsed onto the same phrase once expanded. Naming both
+    // phrases is the whole point, since the collision is invisible from the
+    // terms the user typed.
+    if (result.reason === "degenerate") {
+      return json(
+        {
+          error: `poles expanded to nearly the same phrase: "${result.negPhrase}" / "${result.posPhrase}"`,
+          axes: result.axes,
+        },
+        422,
+      );
+    }
+    return json({ error: `at most ${MAX_AXES} axes`, axes: result.axes }, 409);
+  }
+
+  const axisMatch = rest.match(/^\/axes\/([^/]+)$/);
+  if (axisMatch && method === "DELETE") {
+    const axes = await stub.removeAxis(axisMatch[1]!);
+    return axes ? json({ axes }) : json({ error: "no such session" }, 404);
   }
 
   return json({ error: "not found" }, 404);

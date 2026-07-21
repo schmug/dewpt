@@ -2,6 +2,7 @@
 // invalidation, embedding dedupe, exclude LRU, evaporated ring buffer.
 // No bindings, no storage, no I/O — the SessionDO hydrates and persists this.
 
+import { axisVector, coordsFor } from "./axis-core";
 import {
   BUCKET_KEYS,
   DEDUPE_COSINE,
@@ -11,14 +12,17 @@ import {
   FRESH_TARGET,
   GEN_BATCH,
   HOT_AFFINITY_FRAC,
+  MAX_AXES,
   TARGET_DEPTH,
   bucketAlt,
   bucketTier,
   type Anchor,
+  type Axis,
   type BucketKey,
   type Candidate,
   type DewptParams,
   type EvaporatedWord,
+  type SerializedAxis,
   type Served,
   type Tier,
 } from "./types";
@@ -65,6 +69,7 @@ export interface PoolCoreState {
   invalidatedAt: InvalidationStamps;
   candidates: Candidate[];
   anchors: Anchor[];
+  axes: Axis[];
   exclude: ExcludeEntry[]; // oldest-served first
   evaporated: EvaporatedWord[]; // most recent first
 }
@@ -75,6 +80,7 @@ export class PoolCore {
   private invalidatedAt: InvalidationStamps;
   private buckets: Map<BucketKey, Candidate[]>;
   private anchorList: Anchor[];
+  private axisList: Axis[];
   private excludeMap: Map<string, ExcludeEntry>; // insertion order = oldest first
   private evaporatedList: EvaporatedWord[];
 
@@ -86,6 +92,7 @@ export class PoolCore {
     this.buckets = new Map(BUCKET_KEYS.map((k) => [k, []]));
     for (const c of state?.candidates ?? []) this.buckets.get(c.bucket)?.push(c);
     this.anchorList = [...(state?.anchors ?? [])];
+    this.axisList = [...(state?.axes ?? [])];
     this.excludeMap = new Map();
     for (const e of state?.exclude ?? []) this.excludeMap.set(norm(e.text), e);
     this.evaporatedList = [...(state?.evaporated ?? [])];
@@ -118,7 +125,14 @@ export class PoolCore {
 
     const tier = bucketTier(bucket);
     const alt = bucketAlt(bucket);
-    return picked.map((c) => ({ text: c.text, tier, alt, seedDist: c.seedDist }));
+    const axisVecs = this.readyAxisVectors();
+    return picked.map((c) => ({
+      text: c.text,
+      tier,
+      alt,
+      seedDist: c.seedDist,
+      coords: coordsFor(c.embedding, axisVecs),
+    }));
   }
 
   depths(): Record<BucketKey, { total: number; fresh: number }> {
@@ -283,6 +297,79 @@ export class PoolCore {
     return this.seedEmbedding;
   }
 
+  // ---- axes -----------------------------------------------------------------
+
+  addAxis(axis: Axis): boolean {
+    if (this.axisList.length >= MAX_AXES) return false;
+    this.axisList.push(axis);
+    return true;
+  }
+
+  removeAxis(id: string): boolean {
+    const before = this.axisList.length;
+    this.axisList = this.axisList.filter((a) => a.id !== id);
+    return this.axisList.length < before;
+  }
+
+  /** Copy-on-read, matching `anchors()` one section above. A live reference
+   *  would let `core.axes().push(...)` add a fourth axis straight past the
+   *  MAX_AXES guard, and would alias into `serialize()`'s snapshot — `addAxis`
+   *  pushes in place, so an earlier snapshot's `axes` would grow after the
+   *  fact, breaking the point-in-time contract every other serialized field
+   *  honors. The hot path reads `this.axisList` directly, so this costs
+   *  nothing per draw. */
+  axes(): Axis[] {
+    return this.axisList.map((a) => ({ ...a }));
+  }
+
+  /** Client-facing view. Embeddings are deliberately absent — they never go on
+   *  the wire (1024 dims x 60 candidates would be ~245 KB per bucket). */
+  serializedAxes(): SerializedAxis[] {
+    return this.axisList.map((a) => ({
+      id: a.id,
+      neg: { term: a.neg.term, phrase: a.neg.phrase },
+      pos: { term: a.pos.term, phrase: a.pos.phrase },
+      ready: a.neg.embedding !== null && a.pos.embedding !== null,
+      degraded: !a.neg.expanded || !a.pos.expanded,
+    }));
+  }
+
+  unembeddedPoles(): { axisId: string; pole: "neg" | "pos"; phrase: string }[] {
+    const out: { axisId: string; pole: "neg" | "pos"; phrase: string }[] = [];
+    for (const axis of this.axisList) {
+      for (const pole of ["neg", "pos"] as const) {
+        if (axis[pole].embedding === null) out.push({ axisId: axis.id, pole, phrase: axis[pole].phrase });
+      }
+    }
+    return out;
+  }
+
+  setPoleEmbedding(axisId: string, pole: "neg" | "pos", embedding: number[]): void {
+    const axis = this.axisList.find((a) => a.id === axisId);
+    if (axis) axis[pole].embedding = embedding;
+  }
+
+  /** Fully-embedded axes, in axis order. The single source both readyAxisVectors
+   *  and readyAxisIds derive from, so the vectors a draw is scored against and
+   *  the ids reported alongside it cannot drift out of correspondence. */
+  private readyAxes(): Axis[] {
+    return this.axisList.filter((a) => a.neg.embedding !== null && a.pos.embedding !== null);
+  }
+
+  /** Axis vectors for every fully-embedded axis, in axis order. An axis with a
+   *  pending pole contributes no coordinate rather than a wrong one. */
+  private readyAxisVectors(): number[][] {
+    return this.readyAxes().map((a) => axisVector(a.neg.embedding!, a.pos.embedding!));
+  }
+
+  /** Ids of the axes `Served.coords` is indexed by, in the same order. Without
+   *  this the client cannot tell which axis `coords[i]` belongs to: coords index
+   *  the READY subset while serializedAxes() reports every axis, so one pending
+   *  axis shifts the whole mapping. Ships with every draw for that reason. */
+  readyAxisIds(): string[] {
+    return this.readyAxes().map((a) => a.id);
+  }
+
   // ---- evaporated ring buffer ----------------------------------------------
 
   evaporate(text: string, tier: Tier, now: number): EvaporatedWord[] {
@@ -360,6 +447,7 @@ export class PoolCore {
       invalidatedAt: this.getInvalidatedAt(),
       candidates: this.allCandidates().map((c) => ({ ...c })),
       anchors: this.anchors(),
+      axes: this.axes(),
       exclude: [...this.excludeMap.values()].map((e) => ({ ...e })),
       evaporated: this.evaporated(),
     };
