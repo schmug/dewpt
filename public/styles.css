@@ -1,8 +1,24 @@
 /* Demo CSS carried over verbatim from dewpt-demo.html; additions for the seed
    form, stage layout, and evaporated sidebar are marked at the bottom. */
+/* dewpt's theme: Press's tonal architecture re-keyed cold. The concept is
+   condensation, so the ground stays blue-black rather than pear.no's warm
+   press. Tier hues survive at much lower chroma — tier encodes strangeness,
+   so it cannot collapse to one colour. See test/contrast.test.ts: these
+   values are gated on composited contrast at the opacity floor, which is the
+   only measurement that reflects what a viewer actually sees. */
 :root{
-  --ink:#14121f; --field:#1a1830; --label:#7d7a99; --hair:#2c2947;
-  --t0:#cfd4e8; --t1:#b8a6e8; --t2:#e8a68f; --pin:#f0d98c;
+  /* Press token overrides */
+  --press-ground:#0d0c14;
+  --press-paper:#e8e9f0;
+  --press-hair:rgb(232 233 240 / 0.14);
+  --press-accent:#f0d98c;
+  --press-face-display:'Fraunces',serif;
+  --press-face-text:'Space Grotesk',sans-serif;
+  --press-label-size:10px;
+
+  /* dewpt's own names, kept so existing rules keep working */
+  --ink:#0d0c14; --field:#151327; --label:#9a97b0; --hair:rgb(232 233 240 / 0.14);
+  --t0:#dcdeea; --t1:#cdc7dd; --t2:#e0c8bc; --pin:#f0d98c;
 }
 *{box-sizing:border-box; margin:0; padding:0;}
 body{background:var(--ink); color:var(--t0); font-family:'Space Grotesk',sans-serif; min-height:100vh; min-height:100dvh; display:flex; flex-direction:column; align-items:center; padding:28px 20px 40px;
@@ -18,9 +34,9 @@ h1{font-family:'Fraunces',serif; font-weight:400; font-size:26px; letter-spacing
 h1 em{font-style:italic; color:var(--t1);}
 .seed{font-size:12px; color:var(--label); letter-spacing:0.06em; text-transform:lowercase;}
 .seed b{color:var(--t0); font-weight:400; border-bottom:1px dotted var(--label);}
-#field{position:relative; width:100%; max-width:960px; height:480px; background:radial-gradient(ellipse at 50% 42%, #201d3d 0%, var(--field) 62%, #171528 100%); border:1px solid var(--hair); border-radius:14px; overflow:hidden; cursor:crosshair; touch-action:manipulation;}
+#field{position:relative; width:100%; max-width:960px; height:480px; background:radial-gradient(ellipse at 50% 42%, #1b1934 0%, var(--field) 62%, #100f1e 100%); border:1px solid var(--hair); border-radius:14px; overflow:hidden; cursor:crosshair; touch-action:manipulation;}
 #field:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
-.hint{position:absolute; bottom:10px; left:14px; font-size:11px; color:#565378; letter-spacing:0.05em; pointer-events:none;}
+.hint{position:absolute; bottom:10px; left:14px; font-size:11px; color:#6f6c86; letter-spacing:0.05em; pointer-events:none;}
 .word{position:absolute; font-family:'Fraunces',serif; white-space:nowrap; cursor:pointer; user-select:none; opacity:0; transition:opacity 1.4s ease, transform 9s linear, filter 0.4s; will-change:opacity,transform;}
 .word.t1{color:var(--t1);}
 .word.t2{color:var(--t2); font-style:italic;}
@@ -47,10 +63,10 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #copyBtn:hover{border-color:var(--label);}
 #copyBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #chips{display:flex; flex-wrap:wrap; gap:8px; min-height:32px;}
-.chip{display:inline-flex; align-items:center; gap:7px; font-family:'Fraunces',serif; font-size:15px; color:var(--pin); border:1px solid #4a4222; background:#1e1b2e; padding:4px 10px; border-radius:999px;}
+.chip{display:inline-flex; align-items:center; gap:7px; font-family:'Fraunces',serif; font-size:15px; color:var(--pin); border:1px solid rgb(240 217 140 / 0.3); background:#17162a; padding:4px 10px; border-radius:999px;}
 .chip button{background:none; border:none; color:var(--label); cursor:pointer; font-size:13px; line-height:1; padding:0;}
 .chip button:hover{color:var(--t2);}
-.empty{font-size:13px; color:#565378; font-style:italic;}
+.empty{font-size:13px; color:#6f6c86; font-style:italic;}
 @media (prefers-reduced-motion: reduce){
   .word{transition:opacity 0.5s ease;}
   .pulse{animation:none; opacity:0;}
@@ -60,9 +76,9 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 
 /* seed entry form */
 #seedForm{display:flex; gap:8px; align-items:center;}
-#seedForm input{background:#1e1b2e; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:13px; padding:7px 12px; border-radius:8px; width:min(340px, 60vw); outline:none;}
+#seedForm input{background:#17162a; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:13px; padding:7px 12px; border-radius:8px; width:min(340px, 60vw); outline:none;}
 #seedForm input:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
-#seedForm input::placeholder{color:#565378; font-style:italic;}
+#seedForm input::placeholder{color:#6f6c86; font-style:italic;}
 #seedForm button{background:none; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;}
 #seedForm button:hover{border-color:var(--label);}
 #seedForm button:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
@@ -71,9 +87,9 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 /* add-your-own-word form in the condensate tray (issue #20): mirrors the seed
    form's register — the same quiet inputs, one at intake, one mid-session */
 #addForm{display:flex; gap:8px; align-items:center; margin-bottom:12px;}
-#addForm input{background:#1e1b2e; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:13px; padding:7px 12px; border-radius:8px; width:min(300px, 60vw); outline:none;}
+#addForm input{background:#17162a; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:13px; padding:7px 12px; border-radius:8px; width:min(300px, 60vw); outline:none;}
 #addForm input:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
-#addForm input::placeholder{color:#565378; font-style:italic;}
+#addForm input::placeholder{color:#6f6c86; font-style:italic;}
 #addForm input:disabled{opacity:0.5; cursor:not-allowed;}
 #addForm button{background:none; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;}
 #addForm button:hover{border-color:var(--label);}
@@ -82,10 +98,10 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 /* stage: field + evaporated sidebar */
 #stage{width:100%; max-width:1170px; display:flex; gap:14px; align-items:stretch;}
 #stage #field{flex:1 1 auto; min-width:0;}
-#evaporated{width:196px; flex:0 0 196px; border:1px solid var(--hair); border-radius:14px; background:#171528; padding:12px 14px; overflow-y:auto; max-height:480px;}
+#evaporated{width:196px; flex:0 0 196px; border:1px solid var(--hair); border-radius:14px; background:#121124; padding:12px 14px; overflow-y:auto; max-height:480px;}
 #evaporated h2{font-size:12px; font-weight:400; color:var(--label); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:10px;}
 #ghosts{display:flex; flex-direction:column; gap:7px;}
-.ghost{font-family:'Fraunces',serif; font-size:14px; font-style:italic; color:#565378; background:none; border:none; padding:0; text-align:left; cursor:pointer; transition:color 0.3s ease;}
+.ghost{font-family:'Fraunces',serif; font-size:14px; font-style:italic; color:#6f6c86; background:none; border:none; padding:0; text-align:left; cursor:pointer; transition:color 0.3s ease;}
 .ghost:hover{color:var(--t0);}
 .ghost:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 @media (max-width: 760px){
@@ -102,7 +118,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 
 /* teaching layer 1 (#8): slider endpoint words + evaporated recover sub-line */
 .ctl .ends{display:flex; justify-content:space-between; font-size:10px; color:var(--label); letter-spacing:0.06em; margin-top:6px;}
-#evaporated .subline{font-size:11px; color:#565378; font-style:italic; margin:-4px 0 10px;}
+#evaporated .subline{font-size:11px; color:#6f6c86; font-style:italic; margin:-4px 0 10px;}
 
 /* teaching layer 2 (#9): the hint line crossfades between states (opacity only) */
 .hint{opacity:1; transition:opacity 0.45s ease;}
@@ -118,7 +134,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #legendBtn{width:24px; height:24px; background:none; border:1px solid var(--hair); color:var(--label); font-family:inherit; font-size:12px; line-height:1; border-radius:50%; cursor:pointer;}
 #legendBtn:hover, #legendBtn[aria-expanded="true"]{border-color:var(--label); color:var(--t0);}
 #legendBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
-#legend{position:absolute; top:calc(100% + 8px); right:0; z-index:10; width:min(440px, calc(100vw - 48px)); background:#171528; border:1px solid var(--hair); border-radius:10px; padding:14px 16px; box-shadow:0 8px 28px rgba(0,0,0,0.45);}
+#legend{position:absolute; top:calc(100% + 8px); right:0; z-index:10; width:min(440px, calc(100vw - 48px)); background:#121124; border:1px solid var(--hair); border-radius:10px; padding:14px 16px; box-shadow:0 8px 28px rgba(0,0,0,0.45);}
 #legend[hidden]{display:none;}
 #legend:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #legend dl{display:grid; grid-template-columns:auto 1fr; gap:7px 12px;}
@@ -141,7 +157,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #aboutBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #aboutBtn .q{display:inline-block; width:18px; height:18px; line-height:16px; border:1px solid var(--hair); border-radius:50%; text-align:center; margin-right:4px;}
 #aboutBtn:hover .q, #aboutBtn[aria-expanded="true"] .q{border-color:var(--label);}
-#about{position:absolute; top:calc(100% + 10px); right:0; z-index:40; width:min(420px, calc(100vw - 48px)); max-height:calc(100vh - 130px); overflow-y:auto; background:#171528; border:1px solid var(--hair); border-radius:14px; padding:16px 18px 18px; box-shadow:0 14px 40px rgba(0,0,0,0.5); animation:aboutIn 0.35s ease;}
+#about{position:absolute; top:calc(100% + 10px); right:0; z-index:40; width:min(420px, calc(100vw - 48px)); max-height:calc(100vh - 130px); overflow-y:auto; background:#121124; border:1px solid var(--hair); border-radius:14px; padding:16px 18px 18px; box-shadow:0 14px 40px rgba(0,0,0,0.5); animation:aboutIn 0.35s ease;}
 #about[hidden]{display:none;}
 @keyframes aboutIn{from{opacity:0; transform:translateY(-8px);} to{opacity:1; transform:none;}}
 #about .abouthead{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px;}
