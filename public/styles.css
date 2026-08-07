@@ -59,7 +59,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #tray{width:100%; max-width:1170px; margin-top:22px; border-top:1px solid var(--hair); padding-top:14px;}
 #tray .trayhead{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;}
 #tray h2{font-weight:400; color:var(--label);}
-#copyBtn{background:none; border:1px solid var(--hair); color:var(--t0); font-family:inherit; padding:5px 12px; border-radius:var(--press-radius); cursor:pointer;}
+#copyBtn{background:none; border:1px solid var(--hair); color:var(--t0); padding:5px 12px; border-radius:var(--press-radius); cursor:pointer;}
 #copyBtn:hover{border-color:var(--label);}
 #copyBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #chips{display:flex; flex-wrap:wrap; gap:8px; min-height:32px;}
@@ -79,7 +79,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #seedForm input{background:#17162a; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:13px; padding:7px 12px; border-radius:var(--press-radius); width:min(340px, 60vw); outline:none;}
 #seedForm input:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #seedForm input::placeholder{color:#6f6c86; font-style:italic;}
-#seedForm button{background:none; border:1px solid var(--hair); color:var(--t0); font-family:inherit; padding:6px 12px; border-radius:var(--press-radius); cursor:pointer;}
+#seedForm button{background:none; border:1px solid var(--hair); color:var(--t0); padding:6px 12px; border-radius:var(--press-radius); cursor:pointer;}
 #seedForm button:hover{border-color:var(--label);}
 #seedForm button:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #seedForm[hidden]{display:none;}
@@ -91,7 +91,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #addForm input:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #addForm input::placeholder{color:#6f6c86; font-style:italic;}
 #addForm input:disabled{opacity:0.5; cursor:not-allowed;}
-#addForm button{background:none; border:1px solid var(--hair); color:var(--t0); font-family:inherit; padding:6px 12px; border-radius:var(--press-radius); cursor:pointer;}
+#addForm button{background:none; border:1px solid var(--hair); color:var(--t0); padding:6px 12px; border-radius:var(--press-radius); cursor:pointer;}
 #addForm button:hover{border-color:var(--label);}
 #addForm button:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 
