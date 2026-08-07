@@ -26,10 +26,10 @@
 <body>
 <header>
   <h1>dew<em>pt</em></h1>
-  <div class="seed" id="seedDisplay" hidden>seed: <b id="seedText"></b></div>
+  <div class="seed press-label" id="seedDisplay" hidden>seed: <b id="seedText"></b></div>
   <form id="seedForm">
     <input id="seedInput" type="text" placeholder="seed the field with a topic…" maxlength="200" autocomplete="off" aria-label="Seed topic">
-    <button type="submit">condense</button>
+    <button type="submit" class="press-label">condense</button>
   </form>
   <div id="aboutWrap">
     <button id="aboutBtn" type="button" aria-expanded="false" aria-controls="about"><span class="q" aria-hidden="true">?</span> what is this?</button>
@@ -72,7 +72,7 @@
     <div class="hint" id="fieldHint" aria-hidden="true">enter a seed to begin condensation</div>
   </div>
   <aside id="evaporated" aria-label="Evaporated words, most recent first. Click one to condense it again.">
-    <h2>evaporated</h2>
+    <h2 class="press-label">evaporated</h2>
     <!-- aria-hidden: verbatim promotion of the aside's aria-label guidance,
          made visible for sighted users without double-announcing -->
     <p class="subline" aria-hidden="true">click a word to condense it again</p>
@@ -86,21 +86,21 @@
 
 <div id="controls">
   <div class="ctl">
-    <label>dewpoint <span id="sVal">35</span></label>
+    <label class="press-label">dewpoint <span id="sVal">35</span></label>
     <input type="range" id="strange" min="0" max="100" value="35" step="1" aria-label="dewpoint" aria-describedby="strangeGloss">
-    <div class="ends" aria-hidden="true"><span>obvious</span><span>surreal</span></div>
+    <div class="ends press-label" aria-hidden="true"><span>obvious</span><span>surreal</span></div>
     <span class="vh" id="strangeGloss">how far from the seed the vapor condenses: low, only the obvious; high, far-field and surreal.</span>
   </div>
   <div class="ctl">
-    <label>altitude <span id="aVal">25</span></label>
+    <label class="press-label">altitude <span id="aVal">25</span></label>
     <input type="range" id="alt" min="0" max="100" value="25" step="1" aria-label="altitude" aria-describedby="altGloss">
-    <div class="ends" aria-hidden="true"><span>concrete</span><span>abstract</span></div>
+    <div class="ends press-label" aria-hidden="true"><span>concrete</span><span>abstract</span></div>
     <span class="vh" id="altGloss">what kind of words condense: low, concrete and specific; high, underlying concepts.</span>
   </div>
   <div class="ctl">
-    <label>drizzle <span id="fVal">50</span></label>
+    <label class="press-label">drizzle <span id="fVal">50</span></label>
     <input type="range" id="flux" min="0" max="100" value="50" step="1" aria-label="drizzle" aria-describedby="fluxGloss">
-    <div class="ends" aria-hidden="true"><span>sparse</span><span>dense</span></div>
+    <div class="ends press-label" aria-hidden="true"><span>sparse</span><span>dense</span></div>
     <span class="vh" id="fluxGloss">how fast new words condense — pace only, it doesn't change what appears.</span>
   </div>
   <div id="legendWrap">
@@ -123,15 +123,15 @@
 
 <div id="tray">
   <div class="trayhead">
-    <h2>condensate</h2>
-    <button id="copyBtn">Copy list</button>
+    <h2 class="press-label">condensate</h2>
+    <button id="copyBtn" class="press-label">Copy list</button>
   </div>
   <!-- add your own word (issue #20): inject a word/phrase the AI hasn't offered.
        It condenses immediately as a pinned anchor and steers what comes next.
        Disabled until a session exists; the placeholder self-teaches (layer 1). -->
   <form id="addForm">
     <input id="addInput" type="text" placeholder="add your own word or phrase…" maxlength="64" autocomplete="off" aria-label="Add your own word or phrase to the condensate" disabled>
-    <button type="submit">condense</button>
+    <button type="submit" class="press-label">condense</button>
   </form>
   <div id="chips"><span class="empty">nothing has condensed yet — click words that catch you</span></div>
 </div>
