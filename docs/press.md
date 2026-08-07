@@ -99,7 +99,10 @@ record for a consumer that layers depth in CSS. dewpt's field does not read
 them: `public/field.js`'s blur is driven by `public/depth.js`'s own
 `BLUR_BANDS` constants (`{ fine: [4, 1.5, 0], coarse: [1.7, 0.65, 0] }`),
 which happen to carry the same fine-pointer numbers. Nothing binds the two
-together — see "Known caveats" for why that matters.
+together, so the agreement is a coincidence that a future edit to either side
+can quietly end — the same shape of problem the frame's marks and the field's
+words used to have (see "`.press-cross`" for how that one was made
+structural).
 
 ### Form
 
@@ -199,6 +202,29 @@ together after the rules have drawn:
 #fieldFrame .press-cross[data-corner="tl"]{top:0; left:0;}
 #fieldFrame .press-cross[data-corner="tr"]{top:0; right:0; margin-right:-4.5px;}
 ```
+
+**The frame's `z-index` values are scoped against the field, not against its
+contents.** `#field` carries `isolation: isolate`, which makes it a stacking
+context, so the rules' `2` and the marks' `3` are only ever compared with each
+other — never with a word inside the field. Every word, pinned or not, paints
+as part of `#field` and therefore below all frame furniture; the frame is
+chrome, unconditionally.
+
+That is structural, and it replaces a coincidence. Before `isolation` was
+declared, `#field` was `position:relative` with `z-index:auto` — not a stacking
+context — so words competed with the frame directly in the root context.
+`.word.pinned` carried `z-index:3`, tying with `.press-cross` and winning on
+DOM order, while an ordinary word (`z-index:auto`) lost: two different answers
+for one spatial relationship, invisible only because `field.js` clamps word
+placement 12px inside the field while the marks reach ~4.5px past its edge. A
+pinned word's `z-index` is now `1` and means only "above the drift," ordered
+against sibling words inside the field's own context.
+
+`isolation` is a paint-order property that computes no box, so none of this
+moves `#field`'s rect — which matters, because `field.js`'s `spawnPick` reads
+that rect via `getBoundingClientRect()` on every spawn and places words against
+its width and height. It measures 960×480 at desktop and 335×560 in a 375px
+viewport, unchanged.
 
 ### `.press-label`
 
@@ -364,9 +390,15 @@ block in `index.html`.
 
 ## Known caveats
 
-Two things were found during review of this restyle and deliberately
-deferred rather than fixed. Both are safe today; neither is guarded by a
-test, so a future change could silently cross the line.
+One thing was found during review of this restyle and deliberately deferred
+rather than fixed. It is safe today and is not guarded by a test, so a future
+change could silently cross the line.
+
+A second caveat used to sit here — the frame's marks and the field's words
+were only coincidentally non-overlapping, held apart by two unrelated
+constants in two different files. That one is fixed rather than deferred:
+`#field` now isolates its own stacking context, so the separation is
+structural. See "`.press-cross`" above for the mechanism.
 
 ### The contrast gate composites against a flat ground
 
@@ -383,23 +415,6 @@ flat-ground gate in CI while actually dipping under 3.0 near the gradient's
 centre in the browser. Fixing this would mean gating against the gradient's
 lightest stop instead of `--ink`; that's a real option for whoever touches
 this next, just not done here.
-
-### Frame marks and words are only coincidentally non-overlapping
-
-The frame's rules and corner marks are positioned as CSS siblings of `#field`
-with explicit stacking (`#fieldFrame .press-rule{z-index:2;}`,
-`#fieldFrame .press-cross{z-index:3;}`), while ordinary drifting words inside
-`#field` have `z-index: auto`. Nothing today makes a word overlap a mark, but
-that's a numeric coincidence, not a rule: `public/field.js` clamps every
-word's spawn position to at least 12px from every edge of the field
-(`Math.max(12, ...)` / `Math.min(rect.width - reserve, ...)` on `left`,
-similarly on `top`), while the corner marks reach about 4.5px into the field
-(the `-4.5px` centring margin on `.press-cross`) and the rules sit exactly on
-the 0px edge. The 12px clamp and the ~4.5px mark reach are two independent
-constants in two different files with nothing tying them together, and no
-test asserts the gap between them. A future change to either constant — a
-tighter word clamp, a bigger mark — could start painting words under the
-frame furniture with no warning.
 
 ## Where to look next
 
