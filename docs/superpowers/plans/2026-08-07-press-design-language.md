@@ -13,7 +13,7 @@
 - **No new dependencies, no build step, no new webfonts.** `public/` is served raw.
 - **`src/` is never touched.** No Worker, Durable Object, generation or pool changes.
 - **Every existing accessibility affordance survives:** `:focus-visible` outlines on all interactive elements; `prefers-reduced-motion` branches; `.vh` live regions (`#hintLive`, `#manifestoSr`); `env(safe-area-inset-*)` padding and the `svh`/`dvh` fallbacks; the coarse-pointer legibility floor; the non-modal about panel's focus behaviour.
-- **Easing is `cubic-bezier(0.22, 1, 0.36, 1)` everywhere.** No other curve.
+- **Every entrance, exit and state change uses `cubic-bezier(0.22, 1, 0.36, 1)`** — referenced as `var(--press-ease)`, never re-typed. Continuous ambient motion may stay `linear`: the field's 9s word drift is a constant translation, and easing it would make words accelerate and settle, which fights the drifting-vapour read. pear.no does the same for its continuous rotations.
 - **Contrast bar:** opaque chrome and labels ≥ 4.5:1. Field words at their opacity floor must be ≥ 3.0:1 — and must never regress below the current design's measured values (t0 3.43:1, t1 2.68:1, t2 2.77:1).
 - `npm test` and `npm run typecheck` pass after every task.
 
