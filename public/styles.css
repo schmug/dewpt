@@ -7,9 +7,10 @@
    values are gated on composited contrast at the opacity floor, which is the
    only measurement that reflects what a viewer actually sees. */
 :root{
-  /* Press token overrides */
+  /* Press token overrides — each colour lives here once; dewpt's own names
+     below reference it via var() rather than retyping the literal. */
   --press-ground:#0d0c14;
-  --press-paper:#e8e9f0;
+  --press-paper:#dcdeea;   /* corrected to the tone dewpt actually paints */
   --press-hair:rgb(232 233 240 / 0.14);
   --press-accent:#f0d98c;
   --press-face-display:'Fraunces',serif;
@@ -17,8 +18,8 @@
   --press-label-size:10px;
 
   /* dewpt's own names, kept so existing rules keep working */
-  --ink:#0d0c14; --field:#151327; --label:#9a97b0; --hair:rgb(232 233 240 / 0.14);
-  --t0:#dcdeea; --t1:#cdc7dd; --t2:#e0c8bc; --pin:#f0d98c;
+  --ink:var(--press-ground); --field:#151327; --label:#9a97b0; --hair:rgb(232 233 240 / 0.14);
+  --t0:var(--press-paper); --t1:#cdc7dd; --t2:#e0c8bc; --pin:var(--press-accent);
 }
 *{box-sizing:border-box; margin:0; padding:0;}
 body{background:var(--ink); color:var(--t0); font-family:var(--press-face-text); min-height:100vh; min-height:100dvh; display:flex; flex-direction:column; align-items:center; padding:28px 20px 40px;

@@ -7,6 +7,7 @@
 // a separate animation system. Static pool only: no network, no AI.
 
 import { drawMetaWord } from '/preseed-pool.js';
+import { blurBand, wordOpacity } from './depth.js';
 
 export function createPreseed({ fieldEl, sliders, onWordClick }) {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -40,7 +41,7 @@ export function createPreseed({ fieldEl, sliders, onWordClick }) {
     el.setAttribute('aria-hidden', 'true');
     el.textContent = pick.text;
     el.style.fontSize = ((coarse ? 18 : 14) + depth * (coarse ? 11 : 15)) + 'px';
-    el.style.filter = 'blur(' + ((1 - depth) * (coarse ? 0.6 : 1.4)).toFixed(1) + 'px)';
+    el.style.filter = 'blur(' + blurBand(depth, coarse).toFixed(2) + 'px)';
     // width-relative band, mirroring field.js (gap #10); desktop unchanged
     const reserve = Math.min(160, rect.width * 0.42);
     const startPad = Math.min(30, rect.width * 0.08);
@@ -56,7 +57,7 @@ export function createPreseed({ fieldEl, sliders, onWordClick }) {
     visible.add(pick.text);
     requestAnimationFrame(() => {
       if (torn) return; // teardown raced the fade-in: stay at opacity 0
-      el.style.opacity = ((coarse ? 0.7 : 0.45) + depth * (coarse ? 0.3 : 0.55)).toFixed(2);
+      el.style.opacity = wordOpacity(depth, coarse).toFixed(2);
       if (!reduced) el.style.transform = 'translate(' + ((Math.random() - 0.5) * 30).toFixed(0) + 'px,' + ((Math.random() - 0.5) * 24).toFixed(0) + 'px)';
     });
     const ttl = 5000 + Math.random() * 5000; // field.js's decay window

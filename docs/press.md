@@ -289,11 +289,11 @@ The real, verified example from this exact palette: `#cdc7dd` (dewpt's `--t1`)
 reads **11.86:1** against the ground as an opaque swatch, but only **3.19:1**
 once composited at the `0.45` fine-pointer opacity floor — the gap between
 "looks obviously fine" and "actually barely clears the bar" is nearly 4×.
-(A different figure — "10.65:1 opaque, 2.97:1 composited" — was given as this
-example in the task brief for this document; it doesn't match any value
-found in `public/styles.css`, `test/contrast.test.ts`, or the task history
-for this palette, so this document reports the verified number instead. See
-the report accompanying this doc for that discrepancy.)
+(A different figure — "10.65:1 opaque, 2.97:1 composited" — appeared in the
+controller's dispatch message during palette selection. It doesn't belong to
+`--t1`: it describes `#c3bcd8`, a candidate rejected for that role because it
+fails the `0.45`-floor large-text bar. The shipped `--t1` is `#cdc7dd`,
+measured above.)
 
 `test/contrast.test.ts` is the gate:
 

@@ -6,10 +6,19 @@ import { DEPTH_OPACITY } from "../public/depth.js";
 
 const css = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
 
+// (?<![\w-]) anchors the start of the name so e.g. "--ink" cannot match inside
+// a longer custom property like "--press-ink" — CSS custom-property names are
+// built from word chars and hyphens throughout, so a plain unanchored search
+// could silently resolve to the tail of an unrelated, longer-named token.
 function token(name: string): string {
-  const match = css.match(new RegExp(`${name}\\s*:\\s*(#[0-9a-fA-F]{6})`));
-  if (!match) throw new Error(`token ${name} not found in styles.css`);
-  return match[1];
+  const direct = css.match(new RegExp(`(?<![\\w-])${name}\\s*:\\s*(#[0-9a-fA-F]{6})`));
+  if (direct) return direct[1];
+  // One level of var(--x) indirection: dewpt's own names (--ink, --t0, --pin)
+  // reference a Press token rather than retyping its literal (see Fix 3 in
+  // the press-design-language review) — follow that single hop to the hex.
+  const indirect = css.match(new RegExp(`(?<![\\w-])${name}\\s*:\\s*var\\((--[\\w-]+)\\)`));
+  if (indirect) return token(indirect[1]);
+  throw new Error(`token ${name} not found in styles.css`);
 }
 
 function channels(hex: string): [number, number, number] {
