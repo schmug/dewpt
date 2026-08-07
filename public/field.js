@@ -5,6 +5,8 @@
 // drawWord(bucket) (the pool client), and hooks report pins, evaporations and
 // prospects so the session can persist them.
 
+import { blurBand, wordOpacity } from './depth.js';
+
 export function createField({ fieldEl, chipsEl, sliders, onPin, onUnpin, onEvaporate, onProspect, drawWord }) {
   const field = fieldEl;
   const chips = chipsEl;
@@ -64,7 +66,7 @@ export function createField({ fieldEl, chipsEl, sliders, onPin, onUnpin, onEvapo
     el.className = 'word t' + pick.tier;
     el.textContent = pick.text;
     el.style.fontSize = ((coarse ? 18 : 14) + depth * (coarse ? 11 : 15)) + 'px';
-    el.style.filter = 'blur(' + ((1 - depth) * (coarse ? 0.6 : 1.4)).toFixed(1) + 'px)';
+    el.style.filter = 'blur(' + blurBand(depth, coarse).toFixed(2) + 'px)';
     // width-relative placement band: the desktop 220/160px reserves collapse on
     // a narrow phone field and cluster words at the left (gap #10). Scale the
     // reserve to the field width — it equals the original 160/30 for any field
@@ -78,7 +80,7 @@ export function createField({ fieldEl, chipsEl, sliders, onPin, onUnpin, onEvapo
     field.appendChild(el);
     visible.add(pick.text);
     requestAnimationFrame(() => {
-      el.style.opacity = ((coarse ? 0.7 : 0.45) + depth * (coarse ? 0.3 : 0.55)).toFixed(2);
+      el.style.opacity = wordOpacity(depth, coarse).toFixed(2);
       if (!reduced) el.style.transform = 'translate(' + ((Math.random() - 0.5) * 30).toFixed(0) + 'px,' + ((Math.random() - 0.5) * 24).toFixed(0) + 'px)';
     });
     const ttl = 5000 + Math.random() * 5000;
