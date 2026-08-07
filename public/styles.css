@@ -106,9 +106,6 @@ header{transition-delay:calc(var(--press-stagger) * 1);}
 @media (prefers-reduced-motion: reduce){
   /* Degrade to the finished state, never to invisible content. */
   header, #controls, #tray{opacity:1; transform:none; transition:none;}
-}
-
-@media (prefers-reduced-motion: reduce){
   .word{transition:opacity var(--press-dur-base) var(--press-ease);}
   .pulse{animation:none; opacity:0;}
 }

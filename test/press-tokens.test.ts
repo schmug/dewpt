@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const css = readFileSync(new URL("../public/press.css", import.meta.url), "utf8");
+const stylesCss = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
 
 const REQUIRED_TOKENS = [
   "--press-ground", "--press-paper", "--press-ink", "--press-hair", "--press-accent",
@@ -98,5 +99,31 @@ describe("press.css", () => {
     const crossBody = bodyForExactSelector(rules, ".press-cross");
     expect(crossBody).toMatch(/opacity:\s*0\.9/);
     expect(crossBody).toMatch(/transform:\s*scale\(1\)/);
+  });
+});
+
+describe("styles.css press-go entrance gate (task 6)", () => {
+  it("prefers-reduced-motion restores header/#controls/#tray to the finished, static state", () => {
+    // The entrance-gate override sits in the first
+    // `@media (prefers-reduced-motion: reduce)` block in public/styles.css
+    // (right after the header/#controls/#tray transition rule it degrades).
+    // extractBlockBody grabs the first match by design, same as the
+    // press.css test above — if this rule ever moves to a later block in the
+    // file, this test fails loudly (selector not found) rather than quietly
+    // passing against the wrong block.
+    const reducedMotionBody = extractBlockBody(stylesCss, "@media (prefers-reduced-motion: reduce)");
+    const rules = parseFlatRules(reducedMotionBody);
+
+    // header/#controls/#tray are declared together as one comma-joined
+    // selector list (not one rule per selector), so bodyForExactSelector's
+    // single-selector match doesn't apply — find the rule that covers all
+    // three instead.
+    const rule = rules.find(
+      (r) => r.selectors.includes("header") && r.selectors.includes("#controls") && r.selectors.includes("#tray"),
+    );
+    expect(rule, "no combined header/#controls/#tray rule inside the reduced-motion block").toBeDefined();
+    expect(rule!.body).toMatch(/opacity:\s*1\b/);
+    expect(rule!.body).toMatch(/transform:\s*none/);
+    expect(rule!.body).toMatch(/transition:\s*none/);
   });
 });

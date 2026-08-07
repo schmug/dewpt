@@ -22,6 +22,12 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Space+Grotesk:wght@300..500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/press.css">
 <link rel="stylesheet" href="/styles.css">
+<!-- No-JS fallback: header/#controls/#tray start at opacity:0 in styles.css,
+     released by .press-go once app.js's entrance gate runs. With scripting
+     off, that gate never fires, so restore the finished state here — same
+     principle as the prefers-reduced-motion override, same rule, just gated
+     on <noscript> instead of the media feature. -->
+<noscript><style>header, #controls, #tray{opacity:1; transform:none;}</style></noscript>
 </head>
 <body>
 <header>
@@ -146,6 +152,19 @@
   <div id="chips"><span class="empty">nothing has condensed yet — click words that catch you</span></div>
 </div>
 
+<!-- Press entrance gate, deliberately standalone: no imports, no getElementById
+     lookups, nothing that can throw before it reaches document.body. It runs
+     (and releases header/#controls/#tray) even if app.js 404s, throws on a
+     missing element, or fails for any other reason — the previous version
+     lived at the end of app.js, where a single throw anywhere earlier in that
+     module meant the gate line was never reached and the chrome stayed
+     invisible forever. Double rAF so the transitions actually run instead of
+     being the initial state; runs once, so it cannot double-fire the entrance. -->
+<script>
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => document.body.classList.add('press-go'));
+  });
+</script>
 <script type="module" src="/app.js"></script>
 </body>
 </html>

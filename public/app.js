@@ -347,8 +347,12 @@ resume().then(resumed => {
   if (!resumed && !session) preseed.start();
 });
 
-// Press entrance gate: release the chrome one frame after first paint, so the
-// staggered transitions actually run instead of being the initial state.
-requestAnimationFrame(() => {
-  requestAnimationFrame(() => document.body.classList.add('press-go'));
-});
+// The Press entrance gate (adding .press-go to <body>) does NOT live here.
+// It used to, but this module's top-level imports and its getElementById-based
+// listener wiring can throw before reaching the bottom of the file — and a
+// module that throws never finishes evaluating, so a gate placed anywhere in
+// it (start, middle, or end) would silently strand header/#controls/#tray at
+// opacity:0 forever for anyone without prefers-reduced-motion. The gate is a
+// standalone inline <script> in public/index.html instead, with zero imports
+// and zero DOM lookups beyond document.body, so it runs (and the chrome
+// becomes visible) independently of whether this module loads at all.
