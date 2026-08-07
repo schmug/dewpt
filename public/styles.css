@@ -55,7 +55,7 @@ h1 em{font-style:italic; color:var(--t1);}
 #fieldFrame .press-cross[data-corner="bl"]{bottom:0; left:0; margin-bottom:-4.5px;}
 #fieldFrame .press-cross[data-corner="br"]{bottom:0; right:0; margin-right:-4.5px; margin-bottom:-4.5px;}
 .hint{position:absolute; bottom:10px; left:14px; font-size:11px; color:#6f6c86; letter-spacing:0.05em; pointer-events:none;}
-.word{position:absolute; font-family:var(--press-face-display); white-space:nowrap; cursor:pointer; user-select:none; opacity:0; transition:opacity 1.4s ease, transform 9s linear, filter 0.4s; will-change:opacity,transform;}
+.word{position:absolute; font-family:var(--press-face-display); white-space:nowrap; cursor:pointer; user-select:none; opacity:0; transition:opacity 1.4s var(--press-ease), transform 9s linear, filter var(--press-dur-fast) var(--press-ease); will-change:opacity,transform;}
 .word.t1{color:var(--t1);}
 .word.t2{color:var(--t2); font-style:italic;}
 .word.t0{color:var(--t0);}
@@ -65,7 +65,7 @@ h1 em{font-style:italic; color:var(--t1);}
 @media (hover: hover){
   .word:hover{filter:none !important; opacity:1 !important;}
 }
-.pulse{position:absolute; border:1px solid var(--t1); border-radius:50%; width:12px; height:12px; pointer-events:none; animation:pulse 0.9s ease-out forwards;}
+.pulse{position:absolute; border:1px solid var(--t1); border-radius:50%; width:12px; height:12px; pointer-events:none; animation:pulse 0.9s var(--press-ease) forwards;}
 @keyframes pulse{from{opacity:0.9; transform:translate(-50%,-50%) scale(1);} to{opacity:0; transform:translate(-50%,-50%) scale(9);}}
 #controls{width:100%; max-width:1170px; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px 32px; margin-top:18px;}
 .ctl label{display:flex; justify-content:space-between; color:var(--label); margin-bottom:7px;}
@@ -85,8 +85,31 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 .chip button{background:none; border:none; color:var(--label); cursor:pointer; font-size:13px; line-height:1; padding:0;}
 .chip button:hover{color:var(--t2);}
 .empty{font-size:13px; color:#6f6c86; font-style:italic;}
+
+/* Deferred entrance: the header and controls settle once .press-go lands on
+   <body>, one step apart. The field is always moving, so the chrome enters
+   quietly and only once. */
+header, #controls, #tray{
+  opacity:0;
+  transform:translateY(6px);
+  transition:opacity var(--press-dur-base) var(--press-ease),
+             transform var(--press-dur-base) var(--press-ease);
+}
+header{transition-delay:calc(var(--press-stagger) * 1);}
+#controls{transition-delay:calc(var(--press-stagger) * 2);}
+#tray{transition-delay:calc(var(--press-stagger) * 3);}
+.press-go header, .press-go #controls, .press-go #tray{
+  opacity:1;
+  transform:none;
+}
+
 @media (prefers-reduced-motion: reduce){
-  .word{transition:opacity 0.5s ease;}
+  /* Degrade to the finished state, never to invisible content. */
+  header, #controls, #tray{opacity:1; transform:none; transition:none;}
+}
+
+@media (prefers-reduced-motion: reduce){
+  .word{transition:opacity var(--press-dur-base) var(--press-ease);}
   .pulse{animation:none; opacity:0;}
 }
 
@@ -119,7 +142,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #evaporated{width:196px; flex:0 0 196px; border:1px solid var(--hair); border-radius:14px; background:#121124; padding:12px 14px; overflow-y:auto; max-height:480px;}
 #evaporated h2{font-weight:400; color:var(--label); margin-bottom:10px;}
 #ghosts{display:flex; flex-direction:column; gap:7px;}
-.ghost{font-family:var(--press-face-display); font-size:14px; font-style:italic; color:#6f6c86; background:none; border:none; padding:0; text-align:left; cursor:pointer; transition:color 0.3s ease;}
+.ghost{font-family:var(--press-face-display); font-size:14px; font-style:italic; color:#6f6c86; background:none; border:none; padding:0; text-align:left; cursor:pointer; transition:color var(--press-dur-fast) var(--press-ease);}
 .ghost:hover{color:var(--t0);}
 .ghost:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 @media (max-width: 760px){
@@ -139,7 +162,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #evaporated .subline{font-size:11px; color:#6f6c86; font-style:italic; margin:-4px 0 10px;}
 
 /* teaching layer 2 (#9): the hint line crossfades between states (opacity only) */
-.hint{opacity:1; transition:opacity 0.45s ease;}
+.hint{opacity:1; transition:opacity var(--press-dur-base) var(--press-ease);}
 @media (prefers-reduced-motion: reduce){
   .hint{transition:none;}
 }
@@ -161,7 +184,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 
 /* explainer layer (#11): pre-seed manifesto, centered under the drifting
    meta-words (which are ordinary .word t0/t1/t2 spans from preseed.js) */
-#manifesto{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; text-align:center; padding:0 48px; pointer-events:none; opacity:1; transition:opacity 0.45s ease;}
+#manifesto{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; text-align:center; padding:0 48px; pointer-events:none; opacity:1; transition:opacity var(--press-dur-base) var(--press-ease);}
 #manifesto[hidden]{display:none;}
 #manifesto p{font-family:var(--press-face-display); font-size:18px; color:var(--t0); letter-spacing:0.01em;}
 #manifesto p + p{font-size:14px; color:var(--label); font-style:italic;}
@@ -175,7 +198,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #aboutBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #aboutBtn .q{display:inline-block; width:18px; height:18px; line-height:16px; border:1px solid var(--hair); border-radius:50%; text-align:center; margin-right:4px;}
 #aboutBtn:hover .q, #aboutBtn[aria-expanded="true"] .q{border-color:var(--label);}
-#about{position:absolute; top:calc(100% + 10px); right:0; z-index:40; width:min(420px, calc(100vw - 48px)); max-height:calc(100vh - 130px); overflow-y:auto; background:#121124; border:1px solid var(--hair); border-radius:14px; padding:16px 18px 18px; box-shadow:0 14px 40px rgba(0,0,0,0.5); animation:aboutIn 0.35s ease;}
+#about{position:absolute; top:calc(100% + 10px); right:0; z-index:40; width:min(420px, calc(100vw - 48px)); max-height:calc(100vh - 130px); overflow-y:auto; background:#121124; border:1px solid var(--hair); border-radius:14px; padding:16px 18px 18px; box-shadow:0 14px 40px rgba(0,0,0,0.5); animation:aboutIn 0.35s var(--press-ease);}
 #about[hidden]{display:none;}
 @keyframes aboutIn{from{opacity:0; transform:translateY(-8px);} to{opacity:1; transform:none;}}
 #about .abouthead{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px;}

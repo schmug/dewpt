@@ -346,3 +346,9 @@ resume().then(resumed => {
   // The !session guard covers a seed submitted while the resume fetch flew.
   if (!resumed && !session) preseed.start();
 });
+
+// Press entrance gate: release the chrome one frame after first paint, so the
+// staggered transitions actually run instead of being the initial state.
+requestAnimationFrame(() => {
+  requestAnimationFrame(() => document.body.classList.add('press-go'));
+});
