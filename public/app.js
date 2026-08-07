@@ -346,3 +346,13 @@ resume().then(resumed => {
   // The !session guard covers a seed submitted while the resume fetch flew.
   if (!resumed && !session) preseed.start();
 });
+
+// The Press entrance gate (adding .press-go to <body>) does NOT live here.
+// It used to, but this module's top-level imports and its getElementById-based
+// listener wiring can throw before reaching the bottom of the file — and a
+// module that throws never finishes evaluating, so a gate placed anywhere in
+// it (start, middle, or end) would silently strand header/#controls/#tray at
+// opacity:0 forever for anyone without prefers-reduced-motion. The gate is a
+// standalone inline <script> in public/index.html instead, with zero imports
+// and zero DOM lookups beyond document.body, so it runs (and the chrome
+// becomes visible) independently of whether this module loads at all.

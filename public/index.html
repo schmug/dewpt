@@ -9,7 +9,7 @@
 <!-- PWA: installable standalone app. Manifest + icons are static files served
      from ./public (wrangler assets); theme-color paints the browser/OS chrome
      to match the field's --ink. See docs/mobile-research.md workstream C. -->
-<meta name="theme-color" content="#14121f">
+<meta name="theme-color" content="#0d0c14">
 <meta name="description" content="An ambient ideation canvas where words condense out of latent space.">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
@@ -20,15 +20,22 @@
 <meta name="apple-mobile-web-app-title" content="dewpt">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Space+Grotesk:wght@300..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/press.css">
 <link rel="stylesheet" href="/styles.css">
+<!-- No-JS fallback: header/#controls/#tray start at opacity:0 in styles.css,
+     released by .press-go once app.js's entrance gate runs. With scripting
+     off, that gate never fires, so restore the finished state here — same
+     principle as the prefers-reduced-motion override, same rule, just gated
+     on <noscript> instead of the media feature. -->
+<noscript><style>header, #controls, #tray{opacity:1; transform:none;}</style></noscript>
 </head>
 <body>
 <header>
   <h1>dew<em>pt</em></h1>
-  <div class="seed" id="seedDisplay" hidden>seed: <b id="seedText"></b></div>
+  <div class="seed press-label" id="seedDisplay" hidden>seed: <b id="seedText"></b></div>
   <form id="seedForm">
     <input id="seedInput" type="text" placeholder="seed the field with a topic…" maxlength="200" autocomplete="off" aria-label="Seed topic">
-    <button type="submit">condense</button>
+    <button type="submit" class="press-label">condense</button>
   </form>
   <div id="aboutWrap">
     <button id="aboutBtn" type="button" aria-expanded="false" aria-controls="about"><span class="q" aria-hidden="true">?</span> what is this?</button>
@@ -58,6 +65,15 @@
 </header>
 
 <div id="stage">
+  <div id="fieldFrame">
+  <i class="press-rule" data-edge="top" aria-hidden="true"></i>
+  <i class="press-rule" data-edge="bottom" aria-hidden="true"></i>
+  <i class="press-rule" data-axis="y" data-edge="left" aria-hidden="true"></i>
+  <i class="press-rule" data-axis="y" data-edge="right" aria-hidden="true"></i>
+  <i class="press-cross" data-corner="tl" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 0Q13.1 10.9 24 12Q13.1 13.1 12 24Q10.9 13.1 0 12Q10.9 10.9 12 0Z"/></svg></i>
+  <i class="press-cross" data-corner="tr" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 0Q13.1 10.9 24 12Q13.1 13.1 12 24Q10.9 13.1 0 12Q10.9 10.9 12 0Z"/></svg></i>
+  <i class="press-cross" data-corner="bl" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 0Q13.1 10.9 24 12Q13.1 13.1 12 24Q10.9 13.1 0 12Q10.9 10.9 12 0Z"/></svg></i>
+  <i class="press-cross" data-corner="br" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 0Q13.1 10.9 24 12Q13.1 13.1 12 24Q10.9 13.1 0 12Q10.9 10.9 12 0Z"/></svg></i>
   <div id="field" tabindex="0" role="application" aria-label="Idea field. Words appear and fade. Click blank space to prospect, click a word to pin it.">
     <!-- pre-seed manifesto (issue #11): aria-hidden inside role="application";
          #manifestoSr below mirrors it for assistive tech (the hint's pattern).
@@ -70,8 +86,9 @@
          a polite live region inside role="application" is unreliable -->
     <div class="hint" id="fieldHint" aria-hidden="true">enter a seed to begin condensation</div>
   </div>
+  </div>
   <aside id="evaporated" aria-label="Evaporated words, most recent first. Click one to condense it again.">
-    <h2>evaporated</h2>
+    <h2 class="press-label">evaporated</h2>
     <!-- aria-hidden: verbatim promotion of the aside's aria-label guidance,
          made visible for sighted users without double-announcing -->
     <p class="subline" aria-hidden="true">click a word to condense it again</p>
@@ -85,21 +102,21 @@
 
 <div id="controls">
   <div class="ctl">
-    <label>dewpoint <span id="sVal">35</span></label>
+    <label class="press-label">dewpoint <span id="sVal">35</span></label>
     <input type="range" id="strange" min="0" max="100" value="35" step="1" aria-label="dewpoint" aria-describedby="strangeGloss">
-    <div class="ends" aria-hidden="true"><span>obvious</span><span>surreal</span></div>
+    <div class="ends press-label" aria-hidden="true"><span>obvious</span><span>surreal</span></div>
     <span class="vh" id="strangeGloss">how far from the seed the vapor condenses: low, only the obvious; high, far-field and surreal.</span>
   </div>
   <div class="ctl">
-    <label>altitude <span id="aVal">25</span></label>
+    <label class="press-label">altitude <span id="aVal">25</span></label>
     <input type="range" id="alt" min="0" max="100" value="25" step="1" aria-label="altitude" aria-describedby="altGloss">
-    <div class="ends" aria-hidden="true"><span>concrete</span><span>abstract</span></div>
+    <div class="ends press-label" aria-hidden="true"><span>concrete</span><span>abstract</span></div>
     <span class="vh" id="altGloss">what kind of words condense: low, concrete and specific; high, underlying concepts.</span>
   </div>
   <div class="ctl">
-    <label>drizzle <span id="fVal">50</span></label>
+    <label class="press-label">drizzle <span id="fVal">50</span></label>
     <input type="range" id="flux" min="0" max="100" value="50" step="1" aria-label="drizzle" aria-describedby="fluxGloss">
-    <div class="ends" aria-hidden="true"><span>sparse</span><span>dense</span></div>
+    <div class="ends press-label" aria-hidden="true"><span>sparse</span><span>dense</span></div>
     <span class="vh" id="fluxGloss">how fast new words condense — pace only, it doesn't change what appears.</span>
   </div>
   <div id="legendWrap">
@@ -122,19 +139,32 @@
 
 <div id="tray">
   <div class="trayhead">
-    <h2>condensate</h2>
-    <button id="copyBtn">Copy list</button>
+    <h2 class="press-label">condensate</h2>
+    <button id="copyBtn" class="press-label">Copy list</button>
   </div>
   <!-- add your own word (issue #20): inject a word/phrase the AI hasn't offered.
        It condenses immediately as a pinned anchor and steers what comes next.
        Disabled until a session exists; the placeholder self-teaches (layer 1). -->
   <form id="addForm">
     <input id="addInput" type="text" placeholder="add your own word or phrase…" maxlength="64" autocomplete="off" aria-label="Add your own word or phrase to the condensate" disabled>
-    <button type="submit">condense</button>
+    <button type="submit" class="press-label">condense</button>
   </form>
   <div id="chips"><span class="empty">nothing has condensed yet — click words that catch you</span></div>
 </div>
 
+<!-- Press entrance gate, deliberately standalone: no imports, no getElementById
+     lookups, nothing that can throw before it reaches document.body. It runs
+     (and releases header/#controls/#tray) even if app.js 404s, throws on a
+     missing element, or fails for any other reason — the previous version
+     lived at the end of app.js, where a single throw anywhere earlier in that
+     module meant the gate line was never reached and the chrome stayed
+     invisible forever. Double rAF so the transitions actually run instead of
+     being the initial state; runs once, so it cannot double-fire the entrance. -->
+<script>
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => document.body.classList.add('press-go'));
+  });
+</script>
 <script type="module" src="/app.js"></script>
 </body>
 </html>

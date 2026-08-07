@@ -1,11 +1,28 @@
 /* Demo CSS carried over verbatim from dewpt-demo.html; additions for the seed
    form, stage layout, and evaporated sidebar are marked at the bottom. */
+/* dewpt's theme: Press's tonal architecture re-keyed cold. The concept is
+   condensation, so the ground stays blue-black rather than pear.no's warm
+   press. Tier hues survive at much lower chroma — tier encodes strangeness,
+   so it cannot collapse to one colour. See test/contrast.test.ts: these
+   values are gated on composited contrast at the opacity floor, which is the
+   only measurement that reflects what a viewer actually sees. */
 :root{
-  --ink:#14121f; --field:#1a1830; --label:#7d7a99; --hair:#2c2947;
-  --t0:#cfd4e8; --t1:#b8a6e8; --t2:#e8a68f; --pin:#f0d98c;
+  /* Press token overrides — each colour lives here once; dewpt's own names
+     below reference it via var() rather than retyping the literal. */
+  --press-ground:#0d0c14;
+  --press-paper:#dcdeea;   /* corrected to the tone dewpt actually paints */
+  --press-hair:rgb(232 233 240 / 0.14);
+  --press-accent:#f0d98c;
+  --press-face-display:'Fraunces',serif;
+  --press-face-text:'Space Grotesk',sans-serif;
+  --press-label-size:10px;
+
+  /* dewpt's own names, kept so existing rules keep working */
+  --ink:var(--press-ground); --field:#151327; --label:#9a97b0; --hair:rgb(232 233 240 / 0.14);
+  --t0:var(--press-paper); --t1:#cdc7dd; --t2:#e0c8bc; --pin:var(--press-accent);
 }
 *{box-sizing:border-box; margin:0; padding:0;}
-body{background:var(--ink); color:var(--t0); font-family:'Space Grotesk',sans-serif; min-height:100vh; min-height:100dvh; display:flex; flex-direction:column; align-items:center; padding:28px 20px 40px;
+body{background:var(--ink); color:var(--t0); font-family:var(--press-face-text); min-height:100vh; min-height:100dvh; display:flex; flex-direction:column; align-items:center; padding:28px 20px 40px;
   /* dvh keeps the tray reachable under the iOS URL bar (100vh hid it); the
      max() padding clears the notch/home-indicator in standalone mode and
      collapses to the original px on any non-notched / desktop viewport. */
@@ -14,14 +31,32 @@ body{background:var(--ink); color:var(--t0); font-family:'Space Grotesk',sans-se
   padding-bottom:max(40px, env(safe-area-inset-bottom));
   padding-left:max(20px, env(safe-area-inset-left));}
 header{width:100%; max-width:1170px; display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:14px;}
-h1{font-family:'Fraunces',serif; font-weight:400; font-size:26px; letter-spacing:0.01em;}
+h1{font-family:var(--press-face-display); font-weight:400; font-size:26px; letter-spacing:0.01em;}
 h1 em{font-style:italic; color:var(--t1);}
-.seed{font-size:12px; color:var(--label); letter-spacing:0.06em; text-transform:lowercase;}
+.seed{color:var(--label);}
 .seed b{color:var(--t0); font-weight:400; border-bottom:1px dotted var(--label);}
-#field{position:relative; width:100%; max-width:960px; height:480px; background:radial-gradient(ellipse at 50% 42%, #201d3d 0%, var(--field) 62%, #171528 100%); border:1px solid var(--hair); border-radius:14px; overflow:hidden; cursor:crosshair; touch-action:manipulation;}
+#field{position:relative; width:100%; max-width:960px; height:480px; flex:1 1 auto; min-width:0; background:radial-gradient(ellipse at 50% 42%, #1b1934 0%, var(--field) 62%, #100f1e 100%); border-radius:var(--press-radius); overflow:hidden; cursor:crosshair; touch-action:manipulation;}
 #field:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
-.hint{position:absolute; bottom:10px; left:14px; font-size:11px; color:#565378; letter-spacing:0.05em; pointer-events:none;}
-.word{position:absolute; font-family:'Fraunces',serif; white-space:nowrap; cursor:pointer; user-select:none; opacity:0; transition:opacity 1.4s ease, transform 9s linear, filter 0.4s; will-change:opacity,transform;}
+
+/* Press frame: the field is bounded by hairlines and corner marks rather than
+   a bordered card. #fieldFrame is a positioning context only — it must not
+   introduce its own box, or the field's rect (which word placement reads via
+   getBoundingClientRect) shifts. */
+#fieldFrame{position:relative; flex:1 1 auto; min-width:0; display:flex;}
+#fieldFrame .press-rule{position:absolute; z-index:2; pointer-events:none;}
+#fieldFrame .press-rule[data-edge="top"]{top:0; left:0; right:0; height:1px;}
+#fieldFrame .press-rule[data-edge="bottom"]{bottom:0; left:0; right:0; height:1px;}
+#fieldFrame .press-rule[data-edge="left"]{top:0; bottom:0; left:0; width:1px;}
+#fieldFrame .press-rule[data-edge="right"]{top:0; bottom:0; right:0; width:1px;}
+#fieldFrame .press-rule[data-edge="bottom"]{--press-rule-delay:0.08s;}
+#fieldFrame .press-rule[data-edge="right"]{--press-rule-delay:0.12s;}
+#fieldFrame .press-cross{position:absolute; z-index:3; color:var(--t0); pointer-events:none; --press-cross-delay:0.5s;}
+#fieldFrame .press-cross[data-corner="tl"]{top:0; left:0;}
+#fieldFrame .press-cross[data-corner="tr"]{top:0; right:0; margin-right:-4.5px;}
+#fieldFrame .press-cross[data-corner="bl"]{bottom:0; left:0; margin-bottom:-4.5px;}
+#fieldFrame .press-cross[data-corner="br"]{bottom:0; right:0; margin-right:-4.5px; margin-bottom:-4.5px;}
+.hint{position:absolute; bottom:10px; left:14px; font-size:11px; color:#6f6c86; letter-spacing:0.05em; pointer-events:none;}
+.word{position:absolute; font-family:var(--press-face-display); white-space:nowrap; cursor:pointer; user-select:none; opacity:0; transition:opacity 1.4s var(--press-ease), transform 9s linear, filter var(--press-dur-fast) var(--press-ease); will-change:opacity,transform;}
 .word.t1{color:var(--t1);}
 .word.t2{color:var(--t2); font-style:italic;}
 .word.t0{color:var(--t0);}
@@ -31,10 +66,10 @@ h1 em{font-style:italic; color:var(--t1);}
 @media (hover: hover){
   .word:hover{filter:none !important; opacity:1 !important;}
 }
-.pulse{position:absolute; border:1px solid var(--t1); border-radius:50%; width:12px; height:12px; pointer-events:none; animation:pulse 0.9s ease-out forwards;}
+.pulse{position:absolute; border:1px solid var(--t1); border-radius:50%; width:12px; height:12px; pointer-events:none; animation:pulse 0.9s var(--press-ease) forwards;}
 @keyframes pulse{from{opacity:0.9; transform:translate(-50%,-50%) scale(1);} to{opacity:0; transform:translate(-50%,-50%) scale(9);}}
 #controls{width:100%; max-width:1170px; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px 32px; margin-top:18px;}
-.ctl label{display:flex; justify-content:space-between; font-size:12px; color:var(--label); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:7px;}
+.ctl label{display:flex; justify-content:space-between; color:var(--label); margin-bottom:7px;}
 .ctl label span{color:var(--t0); text-transform:none; letter-spacing:0;}
 input[type=range]{width:100%; appearance:none; height:2px; background:var(--hair); border-radius:2px; outline:none;}
 input[type=range]::-webkit-slider-thumb{appearance:none; width:16px; height:16px; border-radius:50%; background:var(--t0); border:2px solid var(--ink); cursor:pointer;}
@@ -42,17 +77,37 @@ input[type=range]::-moz-range-thumb{width:14px; height:14px; border-radius:50%; 
 input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px;}
 #tray{width:100%; max-width:1170px; margin-top:22px; border-top:1px solid var(--hair); padding-top:14px;}
 #tray .trayhead{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;}
-#tray h2{font-size:12px; font-weight:400; color:var(--label); letter-spacing:0.1em; text-transform:uppercase;}
-#copyBtn{background:none; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:12px; padding:5px 12px; border-radius:6px; cursor:pointer;}
+#tray h2{font-weight:400; color:var(--label);}
+#copyBtn{background:none; border:1px solid var(--hair); color:var(--t0); padding:5px 12px; border-radius:var(--press-radius); cursor:pointer;}
 #copyBtn:hover{border-color:var(--label);}
 #copyBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #chips{display:flex; flex-wrap:wrap; gap:8px; min-height:32px;}
-.chip{display:inline-flex; align-items:center; gap:7px; font-family:'Fraunces',serif; font-size:15px; color:var(--pin); border:1px solid #4a4222; background:#1e1b2e; padding:4px 10px; border-radius:999px;}
+.chip{display:inline-flex; align-items:center; gap:7px; font-family:var(--press-face-display); font-size:15px; color:var(--pin); border:1px solid rgb(240 217 140 / 0.3); background:#17162a; padding:4px 10px; border-radius:999px;}
 .chip button{background:none; border:none; color:var(--label); cursor:pointer; font-size:13px; line-height:1; padding:0;}
 .chip button:hover{color:var(--t2);}
-.empty{font-size:13px; color:#565378; font-style:italic;}
+.empty{font-size:13px; color:#6f6c86; font-style:italic;}
+
+/* Deferred entrance: the header and controls settle once .press-go lands on
+   <body>, one step apart. The field is always moving, so the chrome enters
+   quietly and only once. */
+header, #controls, #tray{
+  opacity:0;
+  transform:translateY(6px);
+  transition:opacity var(--press-dur-base) var(--press-ease),
+             transform var(--press-dur-base) var(--press-ease);
+}
+header{transition-delay:calc(var(--press-stagger) * 1);}
+#controls{transition-delay:calc(var(--press-stagger) * 2);}
+#tray{transition-delay:calc(var(--press-stagger) * 3);}
+.press-go header, .press-go #controls, .press-go #tray{
+  opacity:1;
+  transform:none;
+}
+
 @media (prefers-reduced-motion: reduce){
-  .word{transition:opacity 0.5s ease;}
+  /* Degrade to the finished state, never to invisible content. */
+  header, #controls, #tray{opacity:1; transform:none; transition:none;}
+  .word{transition:opacity var(--press-dur-base) var(--press-ease);}
   .pulse{animation:none; opacity:0;}
 }
 
@@ -60,10 +115,10 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 
 /* seed entry form */
 #seedForm{display:flex; gap:8px; align-items:center;}
-#seedForm input{background:#1e1b2e; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:13px; padding:7px 12px; border-radius:8px; width:min(340px, 60vw); outline:none;}
+#seedForm input{background:#17162a; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:13px; padding:7px 12px; border-radius:var(--press-radius); width:min(340px, 60vw); outline:none;}
 #seedForm input:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
-#seedForm input::placeholder{color:#565378; font-style:italic;}
-#seedForm button{background:none; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;}
+#seedForm input::placeholder{color:#6f6c86; font-style:italic;}
+#seedForm button{background:none; border:1px solid var(--hair); color:var(--t0); padding:6px 12px; border-radius:var(--press-radius); cursor:pointer;}
 #seedForm button:hover{border-color:var(--label);}
 #seedForm button:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #seedForm[hidden]{display:none;}
@@ -71,21 +126,21 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 /* add-your-own-word form in the condensate tray (issue #20): mirrors the seed
    form's register — the same quiet inputs, one at intake, one mid-session */
 #addForm{display:flex; gap:8px; align-items:center; margin-bottom:12px;}
-#addForm input{background:#1e1b2e; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:13px; padding:7px 12px; border-radius:8px; width:min(300px, 60vw); outline:none;}
+#addForm input{background:#17162a; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:13px; padding:7px 12px; border-radius:var(--press-radius); width:min(300px, 60vw); outline:none;}
 #addForm input:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
-#addForm input::placeholder{color:#565378; font-style:italic;}
+#addForm input::placeholder{color:#6f6c86; font-style:italic;}
 #addForm input:disabled{opacity:0.5; cursor:not-allowed;}
-#addForm button{background:none; border:1px solid var(--hair); color:var(--t0); font-family:inherit; font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;}
+#addForm button{background:none; border:1px solid var(--hair); color:var(--t0); padding:6px 12px; border-radius:var(--press-radius); cursor:pointer;}
 #addForm button:hover{border-color:var(--label);}
 #addForm button:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 
 /* stage: field + evaporated sidebar */
 #stage{width:100%; max-width:1170px; display:flex; gap:14px; align-items:stretch;}
-#stage #field{flex:1 1 auto; min-width:0;}
-#evaporated{width:196px; flex:0 0 196px; border:1px solid var(--hair); border-radius:14px; background:#171528; padding:12px 14px; overflow-y:auto; max-height:480px;}
-#evaporated h2{font-size:12px; font-weight:400; color:var(--label); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:10px;}
+#stage #fieldFrame{flex:1 1 auto; min-width:0;}
+#evaporated{width:196px; flex:0 0 196px; border:1px solid var(--hair); border-radius:14px; background:#121124; padding:12px 14px; overflow-y:auto; max-height:480px;}
+#evaporated h2{font-weight:400; color:var(--label); margin-bottom:10px;}
 #ghosts{display:flex; flex-direction:column; gap:7px;}
-.ghost{font-family:'Fraunces',serif; font-size:14px; font-style:italic; color:#565378; background:none; border:none; padding:0; text-align:left; cursor:pointer; transition:color 0.3s ease;}
+.ghost{font-family:var(--press-face-display); font-size:14px; font-style:italic; color:#6f6c86; background:none; border:none; padding:0; text-align:left; cursor:pointer; transition:color var(--press-dur-fast) var(--press-ease);}
 .ghost:hover{color:var(--t0);}
 .ghost:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 @media (max-width: 760px){
@@ -101,11 +156,11 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 .vh{position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; border:0;}
 
 /* teaching layer 1 (#8): slider endpoint words + evaporated recover sub-line */
-.ctl .ends{display:flex; justify-content:space-between; font-size:10px; color:var(--label); letter-spacing:0.06em; margin-top:6px;}
-#evaporated .subline{font-size:11px; color:#565378; font-style:italic; margin:-4px 0 10px;}
+.ctl .ends{display:flex; justify-content:space-between; color:var(--label); margin-top:6px;}
+#evaporated .subline{font-size:11px; color:#6f6c86; font-style:italic; margin:-4px 0 10px;}
 
 /* teaching layer 2 (#9): the hint line crossfades between states (opacity only) */
-.hint{opacity:1; transition:opacity 0.45s ease;}
+.hint{opacity:1; transition:opacity var(--press-dur-base) var(--press-ease);}
 @media (prefers-reduced-motion: reduce){
   .hint{transition:none;}
 }
@@ -118,7 +173,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #legendBtn{width:24px; height:24px; background:none; border:1px solid var(--hair); color:var(--label); font-family:inherit; font-size:12px; line-height:1; border-radius:50%; cursor:pointer;}
 #legendBtn:hover, #legendBtn[aria-expanded="true"]{border-color:var(--label); color:var(--t0);}
 #legendBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
-#legend{position:absolute; top:calc(100% + 8px); right:0; z-index:10; width:min(440px, calc(100vw - 48px)); background:#171528; border:1px solid var(--hair); border-radius:10px; padding:14px 16px; box-shadow:0 8px 28px rgba(0,0,0,0.45);}
+#legend{position:absolute; top:calc(100% + 8px); right:0; z-index:10; width:min(440px, calc(100vw - 48px)); background:#121124; border:1px solid var(--hair); border-radius:10px; padding:14px 16px; box-shadow:0 8px 28px rgba(0,0,0,0.45);}
 #legend[hidden]{display:none;}
 #legend:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #legend dl{display:grid; grid-template-columns:auto 1fr; gap:7px 12px;}
@@ -127,9 +182,9 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 
 /* explainer layer (#11): pre-seed manifesto, centered under the drifting
    meta-words (which are ordinary .word t0/t1/t2 spans from preseed.js) */
-#manifesto{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; text-align:center; padding:0 48px; pointer-events:none; opacity:1; transition:opacity 0.45s ease;}
+#manifesto{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; text-align:center; padding:0 48px; pointer-events:none; opacity:1; transition:opacity var(--press-dur-base) var(--press-ease);}
 #manifesto[hidden]{display:none;}
-#manifesto p{font-family:'Fraunces',serif; font-size:18px; color:var(--t0); letter-spacing:0.01em;}
+#manifesto p{font-family:var(--press-face-display); font-size:18px; color:var(--t0); letter-spacing:0.01em;}
 #manifesto p + p{font-size:14px; color:var(--label); font-style:italic;}
 
 /* explainer layer (#12): "? what is this?" toggle — label copy in the header,
@@ -141,7 +196,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 #aboutBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #aboutBtn .q{display:inline-block; width:18px; height:18px; line-height:16px; border:1px solid var(--hair); border-radius:50%; text-align:center; margin-right:4px;}
 #aboutBtn:hover .q, #aboutBtn[aria-expanded="true"] .q{border-color:var(--label);}
-#about{position:absolute; top:calc(100% + 10px); right:0; z-index:40; width:min(420px, calc(100vw - 48px)); max-height:calc(100vh - 130px); overflow-y:auto; background:#171528; border:1px solid var(--hair); border-radius:14px; padding:16px 18px 18px; box-shadow:0 14px 40px rgba(0,0,0,0.5); animation:aboutIn 0.35s ease;}
+#about{position:absolute; top:calc(100% + 10px); right:0; z-index:40; width:min(420px, calc(100vw - 48px)); max-height:calc(100vh - 130px); overflow-y:auto; background:#121124; border:1px solid var(--hair); border-radius:14px; padding:16px 18px 18px; box-shadow:0 14px 40px rgba(0,0,0,0.5); animation:aboutIn 0.35s var(--press-ease);}
 #about[hidden]{display:none;}
 @keyframes aboutIn{from{opacity:0; transform:translateY(-8px);} to{opacity:1; transform:none;}}
 #about .abouthead{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px;}
