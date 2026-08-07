@@ -50,7 +50,7 @@
 }
 
 /* A 1px hairline that draws itself in from an origin once an ancestor gains
-   .press-go. Set --press-rule-axis to `y` for verticals. */
+   .press-go. Set `data-axis="y"` on the element for verticals. */
 .press-rule {
   background: var(--press-hair);
   transform-origin: 0 0;
