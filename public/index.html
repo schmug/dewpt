@@ -59,6 +59,15 @@
 </header>
 
 <div id="stage">
+  <div id="fieldFrame">
+  <i class="press-rule" data-edge="top" aria-hidden="true"></i>
+  <i class="press-rule" data-edge="bottom" aria-hidden="true"></i>
+  <i class="press-rule" data-axis="y" data-edge="left" aria-hidden="true"></i>
+  <i class="press-rule" data-axis="y" data-edge="right" aria-hidden="true"></i>
+  <i class="press-cross" data-corner="tl" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 0Q13.1 10.9 24 12Q13.1 13.1 12 24Q10.9 13.1 0 12Q10.9 10.9 12 0Z"/></svg></i>
+  <i class="press-cross" data-corner="tr" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 0Q13.1 10.9 24 12Q13.1 13.1 12 24Q10.9 13.1 0 12Q10.9 10.9 12 0Z"/></svg></i>
+  <i class="press-cross" data-corner="bl" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 0Q13.1 10.9 24 12Q13.1 13.1 12 24Q10.9 13.1 0 12Q10.9 10.9 12 0Z"/></svg></i>
+  <i class="press-cross" data-corner="br" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 0Q13.1 10.9 24 12Q13.1 13.1 12 24Q10.9 13.1 0 12Q10.9 10.9 12 0Z"/></svg></i>
   <div id="field" tabindex="0" role="application" aria-label="Idea field. Words appear and fade. Click blank space to prospect, click a word to pin it.">
     <!-- pre-seed manifesto (issue #11): aria-hidden inside role="application";
          #manifestoSr below mirrors it for assistive tech (the hint's pattern).
@@ -70,6 +79,7 @@
     <!-- aria-hidden: #hintLive below mirrors this text for screen readers —
          a polite live region inside role="application" is unreliable -->
     <div class="hint" id="fieldHint" aria-hidden="true">enter a seed to begin condensation</div>
+  </div>
   </div>
   <aside id="evaporated" aria-label="Evaporated words, most recent first. Click one to condense it again.">
     <h2 class="press-label">evaporated</h2>

@@ -34,8 +34,26 @@ h1{font-family:var(--press-face-display); font-weight:400; font-size:26px; lette
 h1 em{font-style:italic; color:var(--t1);}
 .seed{color:var(--label);}
 .seed b{color:var(--t0); font-weight:400; border-bottom:1px dotted var(--label);}
-#field{position:relative; width:100%; max-width:960px; height:480px; background:radial-gradient(ellipse at 50% 42%, #1b1934 0%, var(--field) 62%, #100f1e 100%); border:1px solid var(--hair); border-radius:14px; overflow:hidden; cursor:crosshair; touch-action:manipulation;}
+#field{position:relative; width:100%; max-width:960px; height:480px; flex:1 1 auto; min-width:0; background:radial-gradient(ellipse at 50% 42%, #1b1934 0%, var(--field) 62%, #100f1e 100%); border-radius:var(--press-radius); overflow:hidden; cursor:crosshair; touch-action:manipulation;}
 #field:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
+
+/* Press frame: the field is bounded by hairlines and corner marks rather than
+   a bordered card. #fieldFrame is a positioning context only — it must not
+   introduce its own box, or the field's rect (which word placement reads via
+   getBoundingClientRect) shifts. */
+#fieldFrame{position:relative; flex:1 1 auto; min-width:0; display:flex;}
+#fieldFrame .press-rule{position:absolute; z-index:2; pointer-events:none;}
+#fieldFrame .press-rule[data-edge="top"]{top:0; left:0; right:0; height:1px;}
+#fieldFrame .press-rule[data-edge="bottom"]{bottom:0; left:0; right:0; height:1px;}
+#fieldFrame .press-rule[data-edge="left"]{top:0; bottom:0; left:0; width:1px;}
+#fieldFrame .press-rule[data-edge="right"]{top:0; bottom:0; right:0; width:1px;}
+#fieldFrame .press-rule[data-edge="bottom"]{--press-rule-delay:0.08s;}
+#fieldFrame .press-rule[data-edge="right"]{--press-rule-delay:0.12s;}
+#fieldFrame .press-cross{position:absolute; z-index:3; color:var(--t0); pointer-events:none; --press-cross-delay:0.5s;}
+#fieldFrame .press-cross[data-corner="tl"]{top:0; left:0;}
+#fieldFrame .press-cross[data-corner="tr"]{top:0; right:0; margin-right:-4.5px;}
+#fieldFrame .press-cross[data-corner="bl"]{bottom:0; left:0; margin-bottom:-4.5px;}
+#fieldFrame .press-cross[data-corner="br"]{bottom:0; right:0; margin-right:-4.5px; margin-bottom:-4.5px;}
 .hint{position:absolute; bottom:10px; left:14px; font-size:11px; color:#6f6c86; letter-spacing:0.05em; pointer-events:none;}
 .word{position:absolute; font-family:var(--press-face-display); white-space:nowrap; cursor:pointer; user-select:none; opacity:0; transition:opacity 1.4s ease, transform 9s linear, filter 0.4s; will-change:opacity,transform;}
 .word.t1{color:var(--t1);}
@@ -97,7 +115,7 @@ input[type=range]:focus-visible{outline:2px solid var(--pin); outline-offset:4px
 
 /* stage: field + evaporated sidebar */
 #stage{width:100%; max-width:1170px; display:flex; gap:14px; align-items:stretch;}
-#stage #field{flex:1 1 auto; min-width:0;}
+#stage #fieldFrame{flex:1 1 auto; min-width:0;}
 #evaporated{width:196px; flex:0 0 196px; border:1px solid var(--hair); border-radius:14px; background:#121124; padding:12px 14px; overflow-y:auto; max-height:480px;}
 #evaporated h2{font-weight:400; color:var(--label); margin-bottom:10px;}
 #ghosts{display:flex; flex-direction:column; gap:7px;}
