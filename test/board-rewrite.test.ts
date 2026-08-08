@@ -362,3 +362,87 @@ describe("generateRewrites", () => {
       .resolves.toEqual(["rooftop bee lease"]);
   });
 });
+
+import { fakeAiRunner } from "../src/dev-fake-ai";
+import { expandPole, parsePolePhrase } from "../src/generation";
+
+describe("fakeAiRunner — board support", () => {
+  it("returns rewrites of the fragment, not field words", async () => {
+    const ai = fakeAiRunner();
+    const out = await generateRewrites(ai, "m", {
+      fragment: "tool libraries",
+      target: "a surreal, dreamlike version",
+      count: 4,
+      exclude: [],
+    });
+    expect(out).toHaveLength(4);
+    for (const item of out) expect(item).toContain("tool libraries");
+    expect(out).not.toContain("phishing drill");
+  });
+
+  it("returns distinct rewrites across successive hops so dedupe has work to do", async () => {
+    const ai = fakeAiRunner();
+    const inputs = { fragment: "vacant lot", target: "a physical object you can touch", count: 3, exclude: [] };
+    const first = await generateRewrites(ai, "m", inputs);
+    const second = await generateRewrites(ai, "m", inputs);
+    expect(new Set([...first, ...second]).size).toBe(6);
+  });
+
+  it("expands a pole to a phrase instead of silently degrading", async () => {
+    const pole = await expandPole(fakeAiRunner(), "m", "make strange");
+    expect(pole.expanded).toBe(true);
+    expect(pole.phrase).not.toBe("make strange");
+    expect(pole.phrase.split(" ").length).toBeGreaterThanOrEqual(4);
+  });
+
+  // The fake's phrase is embedded and used as an axis pole exactly as the real
+  // model's is, so it has to honour POLE_SYSTEM_PROMPT's contract rather than
+  // merely survive parsePolePhrase. A long user term must not push it past the
+  // 8-word ceiling.
+  it("keeps the expanded phrase inside the pole contract for a long term", async () => {
+    const pole = await expandPole(fakeAiRunner(), "m", "somewhere between dread and delight now");
+    expect(pole.expanded).toBe(true);
+    expect(parsePolePhrase(JSON.stringify({ phrase: pole.phrase }))).toBe(pole.phrase);
+    expect(pole.phrase).toMatch(/^(a|an|something) /);
+    const words = pole.phrase.split(" ").length;
+    expect(words).toBeGreaterThanOrEqual(4);
+    expect(words).toBeLessThanOrEqual(8);
+  });
+
+  // The whole defect is a request shape the fake does not recognise being
+  // answered with field words instead of an error. Fixing pole expansion and
+  // rewrites without closing the fall-through would leave the mechanism in
+  // place for the next caller.
+  it("rejects an unrecognised request shape rather than answering with field words", async () => {
+    const ai = fakeAiRunner();
+    await expect(
+      ai.run("m", {
+        messages: [{ role: "user", content: `${JSON.stringify({ mood: "blue" })}\nReturn a JSON array.` }],
+      }),
+    ).rejects.toThrow(/unrecognised request/i);
+  });
+
+  // A five-word fragment is in register for the board's own prompt, but
+  // generateRewrites runs the fake's output through cleanList, which drops
+  // anything over five words. A space-separated marker would push every child
+  // to six and the lineage would starve on an empty list.
+  it("keeps a five-word parent's rewrites inside the fragment register", async () => {
+    const out = await generateRewrites(fakeAiRunner(), "m", {
+      fragment: "a lot behind the church",
+      target: "a mystical or magical practice",
+      count: 3,
+      exclude: [],
+    });
+    expect(out).toHaveLength(3);
+    for (const item of out) expect(item).toContain("a lot behind the church");
+    expect(new Set(out).size).toBe(3);
+  });
+
+  it("still serves the field's bucketed pools unchanged", async () => {
+    const ai = fakeAiRunner();
+    const result = (await ai.run("m", {
+      messages: [{ role: "user", content: `${JSON.stringify({ seed: "x", strangeness: 0.2, altitude: 0.2, count: 2 })}\nReturn a JSON array.` }],
+    })) as { response: string };
+    expect(JSON.parse(result.response)).toEqual(["phishing drill", "password day"]);
+  });
+});
