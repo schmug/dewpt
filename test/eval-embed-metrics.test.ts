@@ -40,18 +40,6 @@ describe("dewpointAuc", () => {
     expect(dewpointAuc(seed, near, far)).toBeCloseTo(0.5, 6);
   });
 
-  it("scores exact ties pessimistically rather than at 0.5", () => {
-    // eval-vec's auc ranks by a stable sort with no tie correction, so two
-    // identical bands score 0.25, NOT the 0.5 a Mann-Whitney U with average
-    // ranks would give. Embeddings tie only on identical vectors, so this is
-    // documented rather than worked around — do not read 0.5 into a real run.
-    const seed = [1, 0];
-    const band = [
-      [1, 0],
-      [0, 1],
-    ];
-    expect(dewpointAuc(seed, band, band)).toBeCloseTo(0.25, 6);
-  });
 });
 
 describe("altitudeAuc", () => {
@@ -83,7 +71,7 @@ describe("altitudeAuc", () => {
 });
 
 describe("duplicateRate", () => {
-  it("counts each word too close to an EARLIER word", () => {
+  it("counts each word too close to an already-ADMITTED word", () => {
     const a = [1, 0];
     const dup = [1, 0.01]; // cosine ~0.9999 > DEDUPE_COSINE
     const far = [0, 1];
@@ -220,14 +208,50 @@ describe("non-finite inputs (guard C)", () => {
     ).toBe("EvalMetricError");
   });
 
-  it("duplicateRate rejects a non-finite threshold", () => {
-    // A NaN threshold compares false against everything, reporting a flawless
-    // 0 for a batch of literal duplicates.
-    const a = [1, 0];
-    expect(() => duplicateRate([a, a], Number.NaN)).toThrow(/threshold is not finite/);
-    expect(() => duplicateRate([a, a], Number.POSITIVE_INFINITY)).toThrow(
-      /threshold is not finite/,
+  it("duplicateRate rejects a threshold outside cosine's [-1, 1] range", () => {
+    // A NaN threshold compares false against everything, reporting a flawless 0
+    // for a batch of literal duplicates. So does any threshold above 1, because
+    // cosine is bounded to [-1, 1] and can never exceed it — 5, 1.5 and even
+    // 1.0000001 are all silently unreachable, not merely "strict". A finiteness
+    // check catches NaN and Infinity and misses every one of those.
+    const identical = [
+      [1, 0],
+      [1, 0],
+      [1, 0],
+    ];
+    expect(() => duplicateRate(identical, Number.NaN)).toThrow(
+      /threshold is outside cosine's \[-1, 1\] range/,
     );
+    expect(() => duplicateRate(identical, Number.POSITIVE_INFINITY)).toThrow(
+      /threshold is outside cosine's \[-1, 1\] range/,
+    );
+    expect(() => duplicateRate(identical, 5)).toThrow(/threshold is outside cosine's \[-1, 1\] range/);
+    expect(() => duplicateRate(identical, 1.5)).toThrow(
+      /threshold is outside cosine's \[-1, 1\] range/,
+    );
+    expect(() => duplicateRate(identical, 1.0000001)).toThrow(
+      /threshold is outside cosine's \[-1, 1\] range/,
+    );
+    expect(() => duplicateRate(identical, -1.0000001)).toThrow(
+      /threshold is outside cosine's \[-1, 1\] range/,
+    );
+    expect(thrownName(() => duplicateRate(identical, 5))).toBe("EvalMetricError");
+    // The true rate for this batch, which every rejected threshold hid behind a 0.
+    expect(duplicateRate(identical)).toBeCloseTo(2 / 3, 6);
+  });
+
+  it("accepts the endpoints of the range", () => {
+    // 1 and -1 are values cosine actually attains, so the guard lets them
+    // through: -1 is the loosest legal setting and 1 the strictest. Note the
+    // comparison is strict `>`, so a threshold of exactly 1 still fires for
+    // nothing — the guard bounds the argument to cosine's range, it does not
+    // promise every in-range threshold is reachable.
+    const orthogonal = [
+      [1, 0],
+      [0, 1],
+    ];
+    expect(duplicateRate(orthogonal, 1)).toBe(0);
+    expect(duplicateRate(orthogonal, -1)).toBeCloseTo(0.5, 6);
   });
 
   it("dewpointAuc rejects non-finite components in the seed or either band", () => {
@@ -255,6 +279,36 @@ describe("non-finite inputs (guard C)", () => {
   });
 });
 
+describe("zero-norm vectors (guard E)", () => {
+  // A vector of all zeros is what an embedding backend hands back when it
+  // errors out — the local OpenAI-compatible path is where a malformed
+  // response is most likely. Every other guard waves it through: it is
+  // non-empty, dimensionally consistent, and every component is finite.
+  // eval-vec's cosine divides by `norm(a) * norm(b) || 1`, so instead of NaN
+  // it returns a clean 0, and a clean 0 means "maximally distinct". Three
+  // IDENTICAL zero vectors would report a flawless 0 duplicate rate, and a
+  // zero seed or axis would collapse both AUCs onto a constant score.
+  const zero = [0, 0];
+
+  it("duplicateRate rejects an all-zero vector instead of scoring it as distinct", () => {
+    expect(() => duplicateRate([zero, zero, zero])).toThrow(/vectors\[0\] is all zeros/);
+    expect(thrownName(() => duplicateRate([zero, zero, zero]))).toBe("EvalMetricError");
+    expect(() => duplicateRate([[1, 0], zero])).toThrow(/vectors\[1\] is all zeros/);
+  });
+
+  it("dewpointAuc rejects a zero seed or a zero vector in either band", () => {
+    expect(() => dewpointAuc(zero, [[1, 0]], [[0, 1]])).toThrow(/seedVec is all zeros/);
+    expect(() => dewpointAuc([1, 0], [zero], [[0, 1]])).toThrow(/nearVecs\[0\] is all zeros/);
+    expect(() => dewpointAuc([1, 0], [[1, 0]], [zero])).toThrow(/farVecs\[0\] is all zeros/);
+  });
+
+  it("altitudeAuc rejects a zero axis or a zero vector in either band", () => {
+    expect(() => altitudeAuc(zero, [[1, 0]], [[0, 1]])).toThrow(/axis is all zeros/);
+    expect(() => altitudeAuc([0, 1], [zero], [[0, 1]])).toThrow(/concreteVecs\[0\] is all zeros/);
+    expect(() => altitudeAuc([0, 1], [[1, 0]], [zero])).toThrow(/abstractVecs\[0\] is all zeros/);
+  });
+});
+
 /** Unit vectors at cosine 0.9201 and 0.9199 to [1, 0] — one hair above the
  *  0.92 dedupe threshold and one hair below it. */
 const justOverThreshold = [0.9201, Math.sqrt(1 - 0.9201 ** 2)];
@@ -271,11 +325,6 @@ describe("threshold default (guard D)", () => {
     // (0.9199, 0.9201]. Any other constant flips one of these two lines.
     expect(duplicateRate([[1, 0], justOverThreshold])).toBeCloseTo(0.5, 6);
     expect(duplicateRate([[1, 0], justUnderThreshold])).toBe(0);
-  });
-
-  it("gives the same answer as passing DEDUPE_COSINE explicitly", () => {
-    const batch = [[1, 0], justOverThreshold, justUnderThreshold];
-    expect(duplicateRate(batch)).toBe(duplicateRate(batch, DEDUPE_COSINE));
   });
 
   it("lets an explicit threshold override the default in both directions", () => {
@@ -295,20 +344,35 @@ describe("threshold default (guard D)", () => {
 });
 
 describe("duplicate comparison order", () => {
-  it("compares each vector only against EARLIER ones, never later ones", () => {
+  it("compares each vector only against ADMITTED ones, not every earlier one", () => {
     // A-B and B-C sit 0.25 rad apart (cosine 0.9689, above threshold); A-C sit
-    // 0.5 rad apart (cosine 0.8776, below it). Earlier-only marks B and C for
-    // 2/3. Comparing against ALL other vectors would also mark A — through its
-    // LATER neighbour B — for 3/3. The two rules disagree on this batch by
-    // construction, so this test fails if the inner loop ever scans the whole
-    // batch. Earlier-only is what the pool does: it admits in order and only
-    // ever checks a candidate against what was already accepted.
+    // 0.5 rad apart (cosine 0.8776, below it). Three rules give three different
+    // answers on this batch by construction:
+    //   all-pairs      3/3 — A is marked through its LATER neighbour B
+    //   all-earlier    2/3 — B marked against A, C marked against the REJECTED B
+    //   accepted-only  1/3 — B is rejected, so C only ever meets A, and passes
+    // pool-core.ts:180-186 is accepted-only: it compares against
+    // this.allCandidates() (the accepted pool) and `continue`s past a rejected
+    // near-duplicate, so the reject never becomes a comparison target. This
+    // test fails if the implementation drifts to either of the other two rules.
     const a = unit(-0.25);
     const b = unit(0);
     const c = unit(0.25);
-    expect(duplicateRate([a, b, c])).toBeCloseTo(2 / 3, 6);
-    expect(duplicateRate([a, b, c])).not.toBeCloseTo(1, 6);
+    expect(duplicateRate([a, b, c])).toBeCloseTo(1 / 3, 6);
+    expect(duplicateRate([a, b, c])).not.toBeCloseTo(2 / 3, 6); // all-earlier
+    expect(duplicateRate([a, b, c])).not.toBeCloseTo(1, 6); // all-pairs
     // The premise: A and C alone are NOT near-duplicates of each other.
     expect(duplicateRate([a, c])).toBe(0);
+  });
+
+  it("does not let a rejected vector seed further rejections down a long chain", () => {
+    // Twelve vectors, each 0.25 rad (cosine 0.9689) from its neighbour.
+    // Accepted-only admits every other one — 0, 2, 4, 6, 8, 10 — because a
+    // rejected vector is not a comparison target, so 6/12 = 0.5. All-earlier
+    // rejects everything after the first for 11/12 = 0.9167. The gap between
+    // the two rules widens with batch size; this pins the right side of it.
+    const chain = Array.from({ length: 12 }, (_, i) => unit(i * 0.25));
+    expect(duplicateRate(chain)).toBeCloseTo(0.5, 6);
+    expect(duplicateRate(chain)).not.toBeCloseTo(11 / 12, 6); // all-earlier
   });
 });

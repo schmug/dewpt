@@ -3,7 +3,7 @@
 // file's whole import graph into tsconfig.json, which sets "types": []. Both
 // imports below are pure. All I/O lives in eval.ts and eval-matrix.ts.
 
-import { auc, cosine } from "./eval-vec";
+import { auc, cosine, norm } from "./eval-vec";
 import { DEDUPE_COSINE } from "../src/types";
 
 /** Thrown when an input cannot yield a meaningful metric. Every metric here is
@@ -33,6 +33,17 @@ function checkVector(label: string, v: number[], expected: number | null): numbe
     if (!Number.isFinite(v[i])) {
       throw new EvalMetricError(`${label}[${i}] is not finite (${v[i]})`);
     }
+  }
+  // An all-zero vector is what an embedding backend returns when it errors out,
+  // and it clears every check above: non-empty, right dimension, all finite.
+  // eval-vec's cosine divides by `norm(a) * norm(b) || 1`, so the zero denominator
+  // yields a clean 0 rather than NaN — which reads as "maximally distinct" and
+  // launders a broken batch into a perfect duplicate rate and a flat AUC.
+  if (norm(v) === 0) {
+    throw new EvalMetricError(
+      `${label} is all zeros: it has no direction, and cosine's divide-by-zero guard ` +
+        `would score it 0 against everything rather than failing`,
+    );
   }
   return v.length;
 }
@@ -68,23 +79,32 @@ export function altitudeAuc(axis: number[], concreteVecs: number[][], abstractVe
   return auc(abstractVecs.map(project), concreteVecs.map(project));
 }
 
-/** Fraction of a batch the pool would throw away as near-duplicates. Compares
- *  each word only against EARLIER ones, matching how the pool admits in order.
+/** Fraction of a batch the pool would throw away as near-duplicates. Replays
+ *  the pool's own admission loop (pool-core.ts:180-186): walk the batch in
+ *  order and compare each word only against the words already ADMITTED — a
+ *  rejected near-duplicate `continue`s without entering the pool, so it never
+ *  becomes a comparison target for anything after it. Comparing against all
+ *  earlier words instead would let one reject cascade down a chain and inflate
+ *  the rate — by a widening margin as the batch grows.
+ *
  *  Within-batch only: the real pool also checks existing entries and anchors,
  *  but that is session state, not model quality. */
 export function duplicateRate(vectors: number[][], threshold: number = DEDUPE_COSINE): number {
   checkGroup("vectors", vectors, null);
-  if (!Number.isFinite(threshold)) {
-    throw new EvalMetricError(`threshold is not finite (${threshold})`);
+  // Range, not finiteness: cosine is bounded to [-1, 1], so any threshold above
+  // 1 is unreachable and reports a flawless 0 for a batch of literal duplicates
+  // — exactly what a NaN threshold does. `!(a && b)` also rejects NaN, which
+  // compares false against both bounds.
+  if (!(threshold >= -1 && threshold <= 1)) {
+    throw new EvalMetricError(
+      `threshold is outside cosine's [-1, 1] range (${threshold}): no pair could ever exceed it`,
+    );
   }
+  const admitted: number[][] = [];
   let duplicates = 0;
-  for (let i = 0; i < vectors.length; i++) {
-    for (let j = 0; j < i; j++) {
-      if (cosine(vectors[i], vectors[j]) > threshold) {
-        duplicates++;
-        break;
-      }
-    }
+  for (const v of vectors) {
+    if (admitted.some((a) => cosine(a, v) > threshold)) duplicates++;
+    else admitted.push(v);
   }
   return duplicates / vectors.length;
 }
