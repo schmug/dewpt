@@ -122,7 +122,10 @@ export interface AiEnv {
   LOCAL_AI_CHAT_OPTIONS?: string;
 }
 
-function parseChatOptions(raw: string | undefined): Record<string, unknown> | undefined {
+/** Exported so the node-side eval scripts validate the same value the same way.
+ *  Two parsers for one option is how the eval harness ends up posting garbage
+ *  keys the Worker would have rejected. */
+export function parseChatOptions(raw: string | undefined): Record<string, unknown> | undefined {
   const text = raw?.trim();
   if (!text) return undefined;
   let parsed: unknown;
