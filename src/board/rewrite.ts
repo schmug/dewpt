@@ -23,43 +23,37 @@ export interface ScoredCandidate extends Candidate {
   /** COSINE between the candidate's displacement from the parent
    *  (`candidate - parent`) and the intended direction (`phrase - parent`):
    *  alignment, not distance. Served raw, exactly as `coordsFor` serves the
-   *  field.
+   *  field. That is the definition, and the only part of this comment that
+   *  holds without qualification.
    *
-   *  FOR UNIT-NORMALIZED EMBEDDINGS IT IS MONOTONE IN TRAVEL, so a higher
-   *  score does also mean further. A candidate that has travelled θ from the
-   *  parent at off-aim angle φ scores (sin(θ/2) + cos(θ/2)·cos φ)/√2, which
-   *  rises with θ for every φ as long as the tether stays non-negative:
-   *  verified over a (θ ≤ 90°, φ) grid at 1°/5° resolution, zero
-   *  counterexamples. It DOES turn over past a quarter-turn (2185
-   *  counterexamples out to θ = 179°), but that is the negative-tether region,
-   *  which TETHER_FLOOR rejects long before — at 0.5 it confines candidates to
-   *  θ ≤ 60°, well inside. Along the aimed great circle the formula reduces to
-   *  sin(45° + θ/2): measured 0.7373 at tether 0.9962 through to 1.0000 at
-   *  tether 0.0000.
+   *  ITS ORDERING IS NOT GLOBALLY MONOTONE IN TRAVEL. Where a candidate ranks
+   *  depends on three things, not one: the angle between parent and phrase, how
+   *  far the candidate travelled, and whether the embeddings are
+   *  unit-normalized. Earlier versions of this comment gave a closed form and a
+   *  "higher means further" rule read off the orthogonal case alone; both were
+   *  wrong away from it, so do not restate this as a formula. The regimes that
+   *  are measured, each held by a named test in test/board-rewrite.test.ts:
    *
-   *  The reason is geometric — a small displacement from a unit vector is
-   *  necessarily tangential, so its alignment with `phrase - parent` is
-   *  floored at 1/√2 ≈ 0.707. A 1° nudge scores 0.713 and loses to a 70°
-   *  traveller that is 15° off-aim (0.965). On the sphere the crawler cannot
-   *  win.
+   *  - Phrase 90° from the parent, unit-normalized — monotone in travel:
+   *    "scores further travel higher, for unit-normalized embeddings",
+   *    "stays monotone in travel even for a badly aimed move".
+   *  - Phrase 45° from the parent — not monotone: the score peaks when the
+   *    candidate reaches the phrase and falls away past it, at a tether of
+   *    0.500 that still clears TETHER_FLOOR: "is NOT monotone in travel once
+   *    the phrase is not orthogonal to the parent", "picks the candidate AT the
+   *    phrase, not the one that travelled furthest". ARRIVAL_COSINE = 0.9 lets
+   *    a lineage run until the card is within acos(0.9) ≈ 26° of the phrase, so
+   *    narrow pole angles are ordinary operation rather than a corner case.
+   *  - Off the unit sphere — a 0.1% move outscores a 60° one: "lets a
+   *    barely-moved candidate outscore a real traveller off the unit sphere".
    *
-   *  IT CAN WIN OFF THE SPHERE: `parent + 0.001·(phrase - parent)`, magnitude
-   *  0.9993, scores a perfect 1.0000. So "higher means further" is not a
-   *  property of this formula, it is a property of the formula PLUS
-   *  unit-normalized inputs. `bge-m3` returns normalized vectors, so the crawl
-   *  pathology is not expected in practice — but NOTHING IN THIS REPO
-   *  NORMALIZES OR ASSERTS EMBEDDING MAGNITUDE, and no doc records the
-   *  assumption. That unpinned assumption is the real hazard: an embedding
-   *  source returning unnormalized vectors would silently flip what this rule
-   *  selects for, from "moved furthest" to "moved least, most precisely", with
-   *  no error anywhere. test/board-rewrite.test.ts pins the unit-vector
-   *  behaviour so the assumption is at least checked; whether alignment
-   *  selection makes a chain progress rather than crawl on real embeddings is
-   *  measured by scripts/board-calibrate.ts.
+   *  Outside those three the ordering is unmeasured; do not assume it. NOTHING
+   *  IN THIS REPO NORMALIZES OR ASSERTS EMBEDDING MAGNITUDE and no doc records
+   *  the assumption, which is what keeps the third case reachable rather than
+   *  theoretical.
    *
-   *  The tether is a separate floor rather than a term in this score because
-   *  on the unit sphere the two are in direct opposition — score rises exactly
-   *  as tether falls — so they must stay independently tunable. */
+   *  The tether is a separate floor rather than a term in this score so the two
+   *  stay independently tunable. */
   score: number;
   /** Cosine against the parent. Low means the "rewrite" drifted off-topic. */
   tether: number;
@@ -75,16 +69,20 @@ export interface ScoredCandidate extends Candidate {
  *  wrangler.jsonc with no data migration behind it, so swapping models is a
  *  one-line change.
  *
- *  This THROWS rather than skipping the offending candidate, deliberately.
- *  Every embedding on a board comes from the single configured model, so a
- *  mismatch is never a property of one bad candidate — it is a configuration
- *  or migration fault that has already corrupted the whole board. Rejecting
- *  the candidate would launder that global fault into a per-hop quality
- *  signal: lineages would fail hops, reach MAX_HOP_FAILURES and release at the
- *  edge, which is indistinguishable from the model simply writing bad
- *  rewrites. The board would look alive and be wrong. A throw cannot be
- *  mistaken for anything else, and it costs nothing while the invariant holds,
- *  which for a correctly configured board is always. */
+ *  This THROWS rather than skipping the offending candidate. Every embedding on
+ *  a board comes from the single configured model, so a mismatch is never a
+ *  property of one bad candidate — it is a configuration or migration fault
+ *  that has already corrupted the whole board.
+ *
+ *  Be exact about what the throw buys, though, because an earlier version of
+ *  this comment was not: it buys a LOG LINE, not a distinguishable outcome. The
+ *  planned caller (`pumpOnce`, in docs/superpowers/plans/) wraps the hop in a
+ *  catch that logs and then calls `noteHopFailure` — so the lineage fails the
+ *  hop, counts toward MAX_HOP_FAILURES and releases at the edge exactly as it
+ *  would had this function quietly skipped the candidate. The difference is
+ *  that `console.error` names the fault, where a skip would be silent and the
+ *  board would merely look uninspired. Keep the throw for the diagnostic, not
+ *  for a control-flow property it does not have. */
 function assertSameDim(expected: number, actual: number, what: string): void {
   if (actual !== expected) {
     throw new Error(
@@ -146,6 +144,13 @@ export function selectChild(
     // comparison, so `c.tether < floor` reads as satisfied for a NaN tether
     // and the floor admits it — a quality guard turned into a no-op, which is
     // exactly what this function must never do.
+    //
+    // THE TETHER HALF IS LOAD-BEARING AND THE -Infinity SEED DOES NOT SUBSUME
+    // IT: a score can be finite and near-maximal while the tether is NaN, so
+    // the seed lets that candidate win. Pinned by "rejects a NaN tether that
+    // arrives with a finite, near-maximal score". The score half is defence in
+    // depth and is NOT independently pinned — a non-finite cosine here can only
+    // be NaN or -Infinity, and neither beats the seed.
     if (!Number.isFinite(c.score) || !Number.isFinite(c.tether)) continue;
     if (c.tether < floor) continue;
     // The dedupe check has the same shape and so needs the same treatment from

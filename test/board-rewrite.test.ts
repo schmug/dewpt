@@ -86,6 +86,41 @@ describe("scoreCandidates", () => {
     expect(scored[2]!.score).toBeLessThan(aimed[0]!.score);
   });
 
+  it("is NOT monotone in travel once the phrase is not orthogonal to the parent", () => {
+    // The two tests above both put the phrase 90° from the parent — the one
+    // pole angle at which monotonicity survives, and the reason four earlier
+    // versions of the score comment claimed it in general. Move the phrase to
+    // 45° and a candidate that travelled 60° scores BELOW one that travelled
+    // 40°, at tether 0.500: inside the 0.5 floor, not safely beyond it. The
+    // score peaks when the candidate reaches the phrase and falls away past it.
+    // This test exists so "higher score means further" cannot be reasserted.
+    const scored = scoreCandidates(
+      PARENT,
+      along(45),
+      [40, 45, 60].map((d) => ({ text: `${d}deg`, embedding: along(d) })),
+    );
+    expect(scored[1]!.score).toBeCloseTo(1, 6);
+    expect(scored[2]!.score).toBeLessThan(scored[0]!.score);
+    expect(scored[2]!.tether).toBeCloseTo(0.5, 6);
+  });
+
+  it("lets a barely-moved candidate outscore a real traveller off the unit sphere", () => {
+    // `parent + 0.001·(phrase − parent)` sits just off the sphere at magnitude
+    // ≈0.999 and scores a perfect 1.0 for travelling a thousandth of the way,
+    // beating a genuine 60° traveller at 0.9659. Monotonicity in travel is a
+    // property of the formula PLUS unit-normalized inputs; nothing in this repo
+    // normalizes or asserts embedding magnitude, so this is where that
+    // assumption is checked rather than assumed.
+    const crawler = PARENT.map((p, i) => p + 0.001 * (PHRASE[i]! - p));
+    const scored = scoreCandidates(PARENT, PHRASE, [
+      { text: "crawler", embedding: crawler },
+      { text: "traveller", embedding: along(60) },
+    ]);
+    expect(scored[0]!.score).toBeCloseTo(1, 6);
+    expect(scored[1]!.score).toBeCloseTo(0.9659, 4);
+    expect(scored[0]!.score).toBeGreaterThan(scored[1]!.score);
+  });
+
   it("throws rather than truncating when a candidate's embedding has a different width", () => {
     expect(() =>
       scoreCandidates([1, 0, 0, 0], [0, 1, 0, 0], [{ text: "short", embedding: [1, 0, 0] }]),
@@ -156,6 +191,58 @@ describe("selectChild", () => {
       tetherFloor: 0.5,
     });
     expect(picked?.text).toBe("halfway");
+  });
+
+  it("picks the candidate AT the phrase, not the one that travelled furthest", () => {
+    // Companion to the non-monotonicity test above, at the level that matters:
+    // what selectChild actually returns. With the phrase 45° from the parent
+    // all three clear a 0.5 floor, and the furthest traveller does not win —
+    // 60° scores 0.9914, exactly what 30° scores, while 45°, sitting on the
+    // phrase, takes it at 1.0. What this maximises is alignment; distance only
+    // tracks it when the parent and phrase happen to be orthogonal.
+    const picked = selectChild(
+      PARENT,
+      along(45),
+      [30, 45, 60].map((d) => ({ text: `${d}deg`, embedding: along(d) })),
+      { tetherFloor: 0.5 },
+    );
+    expect(picked?.text).toBe("45deg");
+  });
+
+  it("rejects a NaN tether that arrives with a finite, near-maximal score", () => {
+    // REMOVING `Number.isFinite(c.tether)` FROM selectChild MUST TURN THIS RED.
+    // The -Infinity argmax seed does not subsume that guard: the seed only
+    // stops a non-finite SCORE from winning. Here the score is finite and
+    // nearly 1, because the huge shared first component cancels in both
+    // displacements and the cosine is then computed on small, well-conditioned
+    // differences — while the tether takes the raw vectors, whose norms
+    // overflow to Infinity, giving Infinity/Infinity = NaN. `NaN < floor` is
+    // false, so without the guard the floor admits it and a NaN-tethered
+    // candidate is returned as the winner.
+    const parent = [1e200, 1, 0];
+    const phrase = [1e200, 0, 1];
+    const candidates = [{ text: "overflow", embedding: [1e200, 0, 1] }];
+    const [scored] = scoreCandidates(parent, phrase, candidates);
+    expect(Number.isFinite(scored!.score)).toBe(true);
+    expect(scored!.score).toBeGreaterThan(0.99);
+    expect(Number.isNaN(scored!.tether)).toBe(true);
+    expect(selectChild(parent, phrase, candidates, { tetherFloor: 0.5 })).toBeNull();
+  });
+
+  it("returns null when a non-finite station phrase poisons every score", () => {
+    // The mirror shape — non-finite score, finite tether clearing the floor —
+    // exists as an INPUT: a NaN in the phrase embedding makes every score NaN
+    // while the tether stays clean at 0.914. It is NOT a test of the
+    // `Number.isFinite(c.score)` guard and does not claim to be: a NaN score
+    // already loses `c.score > -Infinity`, so this returns null with or without
+    // that half of the guard. No input makes that half load-bearing, because a
+    // non-finite cosine can only be NaN or -Infinity — Cauchy-Schwarz keeps the
+    // ratio finite whenever both norms are — and neither beats the seed. This
+    // pins the behaviour, not the guard.
+    const picked = selectChild(PARENT, [NaN, 1, 0], [{ text: "clean", embedding: unit([9, 4, 0]) }], {
+      tetherFloor: 0.5,
+    });
+    expect(picked).toBeNull();
   });
 
   it("fails closed when an excluded embedding is non-finite", () => {
