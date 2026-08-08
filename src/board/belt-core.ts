@@ -196,6 +196,36 @@ export class BeltCore {
     if (lineage) lineage.arrivedAt = now;
   }
 
+  /** Advance time: park finished heads at the edge, then evict the ones whose
+   *  dwell has elapsed. An evicted head's text goes to the evaporated ring —
+   *  the only thing that outlives a lineage. Everything else is gone, which is
+   *  the ephemerality premise (SPEC.md) holding for this surface.
+   *
+   *  The two passes are ordered, not incidental: parking and evicting in one
+   *  pass would let a head be evicted in the tick it arrived, and the dwell
+   *  exists precisely so a head is readable — and, from M3, pinnable — first.
+   *  `now` is a parameter rather than a Date.now() call so the belt stays pure
+   *  and testable without a Workers runtime. */
+  tick(now: number): void {
+    for (const lineage of this.lineageList) {
+      if (lineage.edgeAt !== null) continue;
+      const head = lineage.cards.at(-1)!;
+      const finished = head.stationIndex >= this.stationList.length || lineage.arrivedAt !== null;
+      if (finished) lineage.edgeAt = now;
+    }
+
+    const survivors: Lineage[] = [];
+    for (const lineage of this.lineageList) {
+      if (lineage.edgeAt !== null && now - lineage.edgeAt >= EDGE_DWELL_MS) {
+        this.evaporatedList.unshift({ text: lineage.cards.at(-1)!.text, evaporatedAt: now });
+        continue;
+      }
+      survivors.push(lineage);
+    }
+    this.lineageList = survivors;
+    if (this.evaporatedList.length > EVAPORATED_CAP) this.evaporatedList.length = EVAPORATED_CAP;
+  }
+
   /** Client projection. Embeddings are absent by construction — this is the
    *  only path to the wire, so there is nowhere for one to leak through. */
   view(): BoardView {
