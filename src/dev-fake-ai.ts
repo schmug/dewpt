@@ -6,6 +6,7 @@
 // only — this fixture just lets the field/pool machinery be exercised locally.
 
 import type { AiRunner } from "./generation";
+import { MAX_POLE_PHRASE_CHARS } from "./types";
 
 // The demo's pre-baked pools, reused as canned generation output per bucket.
 const POOLS: Record<string, string[]> = {
@@ -35,6 +36,102 @@ function pseudoEmbedding(text: string): number[] {
   return vec.map((v) => v / mag);
 }
 
+/** Pull the request object out of the last chat turn.
+ *
+ *  Every caller puts its payload on the FIRST LINE of the final user turn, with
+ *  any instruction prose on the lines after it — except pole expansion, which
+ *  sends bare JSON with no newline at all. The original `slice(0, indexOf("\n"))`
+ *  read that -1 as an index and chopped the closing brace, so every pole
+ *  expansion under DEV_FAKE_AI=1 threw, `expandPole` swallowed it, and every
+ *  user-named axis ran on a bare embedded term at AUC 0.640 instead of 0.980,
+ *  looking entirely normal. Hence the explicit -1 branch.
+ *
+ *  Anything that is not a JSON object on that line THROWS. See the dispatch in
+ *  `fakeAiRunner` for why this fixture must never guess. */
+function parseRequest(messages: unknown): Record<string, unknown> {
+  const turns = messages as { content?: unknown }[] | undefined;
+  const last = Array.isArray(turns) ? turns[turns.length - 1] : undefined;
+  const content = last?.content;
+  if (typeof content !== "string") {
+    throw new Error("dev-fake-ai: unrecognised request — no embedding input and no chat messages");
+  }
+  const newline = content.indexOf("\n");
+  const firstLine = newline === -1 ? content : content.slice(0, newline);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(firstLine);
+  } catch {
+    throw new Error(`dev-fake-ai: unrecognised request — first line is not JSON: ${firstLine.slice(0, 80)}`);
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("dev-fake-ai: unrecognised request — first line is not a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/** The fake's pole phrase is embedded and used as an axis direction exactly as
+ *  the real model's is, so it has to honour POLE_SYSTEM_PROMPT's contract
+ *  (generation.ts) rather than merely survive `parsePolePhrase`: an article,
+ *  4-8 words, never the bare term. It keeps the term inside the phrase so
+ *  different poles stay distinguishable under `pseudoEmbedding`, and drops
+ *  trailing term words when a long term would otherwise blow the word or
+ *  character ceiling. */
+function fakePolePhrase(term: string): string {
+  const words = term.trim().replace(/\s+/g, " ").split(" ").filter(Boolean);
+  for (let take = Math.min(words.length, 4); take > 0; take--) {
+    const phrase = `a ${words.slice(0, take).join(" ")} kind of thing`;
+    if (phrase.length <= MAX_POLE_PHRASE_CHARS) return phrase;
+  }
+  return "a thing of no particular kind";
+}
+
+/** generation.ts's `cleanList` — which `generateRewrites` runs this output
+ *  through — enforces TWO ceilings and drops a violating item in full rather
+ *  than trimming it, so tripping either one starves the lineage instead of
+ *  letting it hop. Both have to be honoured here, for every fragment a card can
+ *  legally hold (mirrored constants; `cleanList`'s own are not exported):
+ *
+ *  - Five words. The board's prompt admits 1-5 word fragments, so a five-word
+ *    parent plus a space-separated marker is already over. A hyphenated marker
+ *    joins the last word instead of adding one — but it removes exactly one
+ *    space, so a six-word parent is still six words and needs its tail dropped.
+ *  - Sixty-four characters. index.ts caps typed text at the same 64, so a 62-64
+ *    character card is admissible everywhere text enters the system, and the
+ *    marker adds two to four characters on top. This is the worse of the two
+ *    because it arrives MID-LINEAGE: the marker grows a digit at the tenth
+ *    child, so a 62-character parent hops three times and then returns nothing
+ *    at all, for no visible reason.
+ *
+ *  So the parent is shrunk to fit when it must be — whole trailing words first
+ *  (only a six-word-or-longer parent needs that), then characters off the tail.
+ *  The child therefore always opens with a LEADING PREFIX of the parent, and
+ *  with the whole parent wherever both ceilings allow one, which covers every
+ *  fragment in the board's own 1-5 word register up to 62 characters. That
+ *  prefix is what keeps the tether high; the marker still varies per call, so
+ *  successive children stay distinct and lineage dedupe has something real to
+ *  reject. */
+const MAX_FAKE_REWRITE_WORDS = 5;
+const MAX_FAKE_REWRITE_CHARS = 64;
+
+function fitsCleanList(text: string): boolean {
+  return text.length <= MAX_FAKE_REWRITE_CHARS && text.split(" ").length <= MAX_FAKE_REWRITE_WORDS;
+}
+
+function fakeRewrite(fragment: string, n: number): string {
+  // Normalized first, because `cleanList` measures the normalized form.
+  const text = fragment.trim().replace(/\s+/g, " ");
+  const spaced = `${text} ${n}`;
+  if (fitsCleanList(spaced)) return spaced;
+  const marker = `-${n}`;
+  const words = text.split(" ");
+  let stem = words.length > MAX_FAKE_REWRITE_WORDS ? words.slice(0, MAX_FAKE_REWRITE_WORDS).join(" ") : text;
+  const budget = MAX_FAKE_REWRITE_CHARS - marker.length;
+  // trimEnd so a cut that lands on a space cannot leave a trailing one, which
+  // `cleanList` would collapse into a different string than the one measured.
+  if (stem.length > budget) stem = stem.slice(0, budget).trimEnd();
+  return `${stem}${marker}`;
+}
+
 export function fakeAiRunner(): AiRunner {
   const counters = new Map<string, number>();
   return {
@@ -43,27 +140,62 @@ export function fakeAiRunner(): AiRunner {
       if (Array.isArray(inputs.text)) {
         return { data: (inputs.text as string[]).map(pseudoEmbedding) };
       }
-      const messages = inputs.messages as { content: string }[];
-      const lastContent = messages[messages.length - 1]!.content;
-      const req = JSON.parse(lastContent.slice(0, lastContent.indexOf("\n"))) as {
-        strangeness: number;
-        altitude: number;
-        count: number;
-      };
-      const tier = req.strangeness < 0.33 ? 0 : req.strangeness <= 0.66 ? 1 : 2;
-      const alt = req.altitude >= 0.5 ? 1 : 0;
-      const bucket = `w${tier}a${alt}`;
-      const base = POOLS[bucket]!;
-      const out: string[] = [];
-      let cursor = counters.get(bucket) ?? 0;
-      while (out.length < req.count) {
-        const generation = Math.floor(cursor / base.length);
-        const word = base[cursor % base.length]!;
-        out.push(generation === 0 ? word : `${word} ${generation + 1}`);
-        cursor++;
+      const req = parseRequest(inputs.messages);
+
+      // Pole expansion (generation.ts `expandPole`) — a bare {term} payload.
+      if (typeof req.term === "string") {
+        return { response: JSON.stringify({ phrase: fakePolePhrase(req.term) }) };
       }
-      counters.set(bucket, cursor);
-      return { response: JSON.stringify(out) };
+
+      // Board rewrite (board/rewrite.ts `generateRewrites`) — {fragment,
+      // target, exclude, count}. Children embed the parent text so the tether
+      // stays high, and the per-fragment cursor makes successive hops distinct.
+      if (typeof req.fragment === "string") {
+        const count = typeof req.count === "number" ? req.count : 0;
+        const key = `rw:${req.fragment}`;
+        let cursor = counters.get(key) ?? 0;
+        const out: string[] = [];
+        while (out.length < count) {
+          out.push(fakeRewrite(req.fragment, cursor + 1));
+          cursor++;
+        }
+        counters.set(key, cursor);
+        return { response: JSON.stringify(out) };
+      }
+
+      // Field generation — the original bucketed behaviour, unchanged. The
+      // demo's pre-baked pools are the taste reference for the field, so this
+      // output is a fixture other work reads: keep it byte-identical.
+      if (typeof req.strangeness === "number" && typeof req.altitude === "number") {
+        const count = typeof req.count === "number" ? req.count : 0;
+        const tier = req.strangeness < 0.33 ? 0 : req.strangeness <= 0.66 ? 1 : 2;
+        const alt = req.altitude >= 0.5 ? 1 : 0;
+        const bucket = `w${tier}a${alt}`;
+        const base = POOLS[bucket]!;
+        const out: string[] = [];
+        let cursor = counters.get(bucket) ?? 0;
+        while (out.length < count) {
+          const generation = Math.floor(cursor / base.length);
+          const word = base[cursor % base.length]!;
+          out.push(generation === 0 ? word : `${word} ${generation + 1}`);
+          cursor++;
+        }
+        counters.set(bucket, cursor);
+        return { response: JSON.stringify(out) };
+      }
+
+      // No fall-through. The whole defect this dispatch fixes was an
+      // unrecognised shape being answered with field words instead of an error:
+      // the request parsed, found no `strangeness`, and served bucket w2a0.
+      // Nothing threw, so a board or an axis could be developed entirely
+      // locally against security-awareness vocabulary and look fine. A throw is
+      // what the callers can actually detect — `expandPole` catches it and
+      // reports `expanded: false`, the pump counts a hop failure and logs — so a
+      // new request shape arriving here fails loudly instead of quietly.
+      throw new Error(
+        `dev-fake-ai: unrecognised request shape {${Object.keys(req).join(", ")}} — ` +
+          `expected a field generation, pole expansion or board rewrite payload`,
+      );
     },
   };
 }
