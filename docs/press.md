@@ -213,6 +213,25 @@ to any text element:
 It reads `--press-face-mono`, `--press-label-size`, and
 `--press-label-tracking` and sets `text-transform: uppercase`.
 
+**Adding the class is only half the conversion — you must also delete what it
+replaces.** `.press-label` is a class, specificity `(0,1,0)`. A consumer rule
+selected by ID is `(1,0,x)` and beats it on every property they share,
+regardless of which stylesheet loads last. A `#aboutBtn { font-family:
+inherit; font-size: 12px }` therefore keeps its sans face and its 12px size
+after the class lands, and the site silently stays on the old recipe while
+looking converted in the markup. **Delete the competing declaration; never
+answer it with a louder selector or an `!important`** — that just re-creates
+the second recipe somewhere harder to find. dewpt shipped this bug once in
+#35 and swept up the remaining five sites in #36; `test/press-adoption.test.ts`
+now fails if any of them re-declares `font-family`, `font-size`,
+`letter-spacing`, or `text-transform`.
+
+The properties are inherited, so a label's non-label children inherit them
+too. Where that is wrong — a fixed-width glyph that tracking would push off
+centre, a value that should not be uppercased — reset on the child rather
+than dropping the class (`.ctl label span` and `#aboutBtn .q` are dewpt's two
+instances).
+
 ### `.press-go`
 
 The entrance gate. It carries **no styling of its own** — adding it to any
@@ -406,6 +425,9 @@ frame furniture with no warning.
 - `public/press.css` — the token layer and the four primitives, in full.
 - `test/press-tokens.test.ts` — the authoritative list of required tokens and
   classes.
+- `test/press-adoption.test.ts` — the adoption gate: which selectors are
+  allowed to keep a non-`var(--press-radius)` corner, and which sites must
+  carry `.press-label` without re-declaring any of it.
 - `test/contrast.test.ts` — the composited-contrast gate.
 - `public/depth.js` — the JS-side depth bands and opacity floors that both
   the field renderer and the contrast test read from.

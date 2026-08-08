@@ -38,25 +38,25 @@
     <button type="submit" class="press-label">condense</button>
   </form>
   <div id="aboutWrap">
-    <button id="aboutBtn" type="button" aria-expanded="false" aria-controls="about"><span class="q" aria-hidden="true">?</span> what is this?</button>
+    <button id="aboutBtn" class="press-label" type="button" aria-expanded="false" aria-controls="about"><span class="q" aria-hidden="true">?</span> what is this?</button>
     <!-- non-modal (issue #12): no backdrop, no focus trap — the field keeps
          condensing while this is open. Copy from docs/explainer-research.md.
          The ? by the sliders stays the interaction legend; this is the concept. -->
     <aside id="about" aria-labelledby="aboutTitle" hidden>
       <div class="abouthead">
-        <h2 id="aboutTitle">what is dewpt</h2>
+        <h2 id="aboutTitle" class="press-label">what is dewpt</h2>
         <button id="aboutClose" type="button" aria-label="Close about panel">&times;</button>
       </div>
       <p>an ambient ideation canvas. give it a seed — a topic, a question, a half-idea — and words condense out of latent space: some obvious, some strange. each one lives a few seconds, then evaporates. that's not a bug — ephemerality is the point. pin the words that catch you and they crystallize, gold, into your condensate. play, not productivity.</p>
       <p class="note">the name is the meteorological abbreviation for dew point: the threshold where invisible vapor becomes visible water.</p>
-      <h3>the weather, glossed</h3>
+      <h3 class="press-label">the weather, glossed</h3>
       <dl>
-        <dt>dewpoint</dt><dd>how strange the words get. low: only the obvious condenses. high: far-field vapor precipitates.</dd>
-        <dt>altitude</dt><dd>how abstract. ground level is concrete tactics; high altitude is underlying concepts.</dd>
-        <dt>drizzle</dt><dd>how fast new words condense.</dd>
-        <dt>condensate</dt><dd>the harvest: words you've pinned — or your own, typed straight in — ready to copy out.</dd>
-        <dt>evaporated</dt><dd>the ghost trail: the last twenty words that faded. click one to condense it again.</dd>
-        <dt>condense / evaporate</dt><dd>the verbs: words condense (appear) and evaporate (fade). every word does both unless you pin it.</dd>
+        <dt class="press-label">dewpoint</dt><dd>how strange the words get. low: only the obvious condenses. high: far-field vapor precipitates.</dd>
+        <dt class="press-label">altitude</dt><dd>how abstract. ground level is concrete tactics; high altitude is underlying concepts.</dd>
+        <dt class="press-label">drizzle</dt><dd>how fast new words condense.</dd>
+        <dt class="press-label">condensate</dt><dd>the harvest: words you've pinned — or your own, typed straight in — ready to copy out.</dd>
+        <dt class="press-label">evaporated</dt><dd>the ghost trail: the last twenty words that faded. click one to condense it again.</dd>
+        <dt class="press-label">condense / evaporate</dt><dd>the verbs: words condense (appear) and evaporate (fade). every word does both unless you pin it.</dd>
       </dl>
       <p>inspired by kevin kelly's <a href="https://kevinkelly.substack.com/p/latent-space-as-a-new-medium" target="_blank" rel="noopener">"latent space as a new medium"</a> (july 2026) — the idea that a model's space of almost-ideas is a place you can wander, and that the white space between the known ideas is worth prospecting.</p>
       <p class="note">the moves themselves — prospect, pin, release — are glossed under the <b>?</b> beside the sliders.</p>
@@ -123,15 +123,15 @@
     <button id="legendBtn" type="button" aria-expanded="false" aria-controls="legend" aria-label="Interaction legend">?</button>
     <div id="legend" tabindex="0" hidden>
       <dl>
-        <dt>prospect</dt><dd>click blank space: a pulse draws a burst of slightly stranger words there</dd>
-        <dt>pin</dt><dd>click a word: it crystallizes, joins the condensate, and steers what condenses next</dd>
-        <dt>add your own</dt><dd>type a word or phrase into the condensate to steer generation toward an idea the field hasn't offered</dd>
-        <dt>release</dt><dd>click a pinned word again, or its &times; in the tray</dd>
-        <dt>dewpoint</dt><dd>how far from the seed the vapor condenses: obvious &harr; surreal</dd>
-        <dt>altitude</dt><dd>what kind of words condense: concrete &harr; abstract</dd>
-        <dt>drizzle</dt><dd>how fast new words condense: sparse &harr; dense (pace only)</dd>
-        <dt>evaporated</dt><dd>unpinned words fade after a few seconds and rest in the sidebar; click one to condense it again</dd>
-        <dt>copy list</dt><dd>copies the condensate as plain lines</dd>
+        <dt class="press-label">prospect</dt><dd>click blank space: a pulse draws a burst of slightly stranger words there</dd>
+        <dt class="press-label">pin</dt><dd>click a word: it crystallizes, joins the condensate, and steers what condenses next</dd>
+        <dt class="press-label">add your own</dt><dd>type a word or phrase into the condensate to steer generation toward an idea the field hasn't offered</dd>
+        <dt class="press-label">release</dt><dd>click a pinned word again, or its &times; in the tray</dd>
+        <dt class="press-label">dewpoint</dt><dd>how far from the seed the vapor condenses: obvious &harr; surreal</dd>
+        <dt class="press-label">altitude</dt><dd>what kind of words condense: concrete &harr; abstract</dd>
+        <dt class="press-label">drizzle</dt><dd>how fast new words condense: sparse &harr; dense (pace only)</dd>
+        <dt class="press-label">evaporated</dt><dd>unpinned words fade after a few seconds and rest in the sidebar; click one to condense it again</dd>
+        <dt class="press-label">copy list</dt><dd>copies the condensate as plain lines</dd>
       </dl>
     </div>
   </div>

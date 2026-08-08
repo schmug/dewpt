@@ -54,10 +54,13 @@ describe('"? what is this?" about panel (issue #12)', () => {
 
   it("glosses the full weather vocabulary without renaming it", () => {
     const about = aboutSection();
+    // Matched with an open attribute list: this suite pins the *copy* and the
+    // element it sits in, not the styling. The terms carry class="press-label"
+    // since issue #36; test/press-adoption.test.ts is what gates that.
     for (const term of ["dewpoint", "altitude", "drizzle", "condensate", "evaporated"]) {
-      expect(about).toContain(`<dt>${term}</dt>`);
+      expect(about).toMatch(new RegExp(`<dt[^>]*>${term}</dt>`));
     }
-    expect(about).toContain("<dt>condense / evaporate</dt>");
+    expect(about).toMatch(/<dt[^>]*>condense \/ evaporate<\/dt>/);
     expect(about).toContain("how strange the words get");
   });
 

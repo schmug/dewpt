@@ -137,7 +137,7 @@ header{transition-delay:calc(var(--press-stagger) * 1);}
 /* stage: field + evaporated sidebar */
 #stage{width:100%; max-width:1170px; display:flex; gap:14px; align-items:stretch;}
 #stage #fieldFrame{flex:1 1 auto; min-width:0;}
-#evaporated{width:196px; flex:0 0 196px; border:1px solid var(--hair); border-radius:14px; background:#121124; padding:12px 14px; overflow-y:auto; max-height:480px;}
+#evaporated{width:196px; flex:0 0 196px; border:1px solid var(--hair); border-radius:var(--press-radius); background:#121124; padding:12px 14px; overflow-y:auto; max-height:480px;}
 #evaporated h2{font-weight:400; color:var(--label); margin-bottom:10px;}
 #ghosts{display:flex; flex-direction:column; gap:7px;}
 .ghost{font-family:var(--press-face-display); font-size:14px; font-style:italic; color:#6f6c86; background:none; border:none; padding:0; text-align:left; cursor:pointer; transition:color var(--press-dur-fast) var(--press-ease);}
@@ -173,11 +173,11 @@ header{transition-delay:calc(var(--press-stagger) * 1);}
 #legendBtn{width:24px; height:24px; background:none; border:1px solid var(--hair); color:var(--label); font-family:inherit; font-size:12px; line-height:1; border-radius:50%; cursor:pointer;}
 #legendBtn:hover, #legendBtn[aria-expanded="true"]{border-color:var(--label); color:var(--t0);}
 #legendBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
-#legend{position:absolute; top:calc(100% + 8px); right:0; z-index:10; width:min(440px, calc(100vw - 48px)); background:#121124; border:1px solid var(--hair); border-radius:10px; padding:14px 16px; box-shadow:0 8px 28px rgba(0,0,0,0.45);}
+#legend{position:absolute; top:calc(100% + 8px); right:0; z-index:10; width:min(440px, calc(100vw - 48px)); background:#121124; border:1px solid var(--hair); border-radius:var(--press-radius); padding:14px 16px; box-shadow:0 8px 28px rgba(0,0,0,0.45);}
 #legend[hidden]{display:none;}
 #legend:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #legend dl{display:grid; grid-template-columns:auto 1fr; gap:7px 12px;}
-#legend dt{font-size:12px; color:var(--t0); letter-spacing:0.06em; white-space:nowrap;}
+#legend dt{color:var(--t0); white-space:nowrap;}
 #legend dd{font-size:12px; color:var(--label);}
 
 /* explainer layer (#11): pre-seed manifesto, centered under the drifting
@@ -191,24 +191,27 @@ header{transition-delay:calc(var(--press-stagger) * 1);}
    opening a non-modal about panel in the evaporated-sidebar family (no
    backdrop, no focus trap; the field keeps condensing beside it) */
 #aboutWrap{position:relative;}
-#aboutBtn{background:none; border:none; color:var(--label); font-family:inherit; font-size:12px; letter-spacing:0.06em; cursor:pointer; padding:2px 4px; border-radius:4px;}
+#aboutBtn{background:none; border:none; color:var(--label); cursor:pointer; padding:2px 4px; border-radius:var(--press-radius);}
 #aboutBtn:hover, #aboutBtn[aria-expanded="true"]{color:var(--t0);}
 #aboutBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
-#aboutBtn .q{display:inline-block; width:18px; height:18px; line-height:16px; border:1px solid var(--hair); border-radius:50%; text-align:center; margin-right:4px;}
+/* The glyph is a circle, not a label: it inherits .press-label's tracking from
+   the button, which would add a trailing 0.2em inside a fixed-width box and
+   push the ? off centre. Same reset, same reason, as `.ctl label span`. */
+#aboutBtn .q{display:inline-block; width:18px; height:18px; line-height:16px; border:1px solid var(--hair); border-radius:50%; text-align:center; margin-right:4px; letter-spacing:0;}
 #aboutBtn:hover .q, #aboutBtn[aria-expanded="true"] .q{border-color:var(--label);}
-#about{position:absolute; top:calc(100% + 10px); right:0; z-index:40; width:min(420px, calc(100vw - 48px)); max-height:calc(100vh - 130px); overflow-y:auto; background:#121124; border:1px solid var(--hair); border-radius:14px; padding:16px 18px 18px; box-shadow:0 14px 40px rgba(0,0,0,0.5); animation:aboutIn 0.35s var(--press-ease);}
+#about{position:absolute; top:calc(100% + 10px); right:0; z-index:40; width:min(420px, calc(100vw - 48px)); max-height:calc(100vh - 130px); overflow-y:auto; background:#121124; border:1px solid var(--hair); border-radius:var(--press-radius); padding:16px 18px 18px; box-shadow:0 14px 40px rgba(0,0,0,0.5); animation:aboutIn 0.35s var(--press-ease);}
 #about[hidden]{display:none;}
 @keyframes aboutIn{from{opacity:0; transform:translateY(-8px);} to{opacity:1; transform:none;}}
 #about .abouthead{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px;}
-#about h2{font-size:12px; font-weight:400; color:var(--label); letter-spacing:0.1em; text-transform:uppercase;}
+#about h2{font-weight:400; color:var(--label);}
 #aboutClose{background:none; border:none; color:var(--label); font-size:16px; line-height:1; cursor:pointer; padding:2px 5px;}
 #aboutClose:hover{color:var(--t2);}
 #aboutClose:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #about p{font-size:13px; color:var(--t0); line-height:1.55; margin-bottom:10px;}
 #about p.note{font-size:12px; color:var(--label); font-style:italic;}
-#about h3{font-size:11px; font-weight:400; color:var(--label); letter-spacing:0.1em; text-transform:uppercase; margin:14px 0 8px;}
+#about h3{font-weight:400; color:var(--label); margin:14px 0 8px;}
 #about dl{display:grid; grid-template-columns:auto 1fr; gap:7px 12px; margin-bottom:12px;}
-#about dt{font-size:12px; color:var(--t0); letter-spacing:0.06em; white-space:nowrap;}
+#about dt{color:var(--t0); white-space:nowrap;}
 #about dd{font-size:12px; color:var(--label);}
 #about a{color:var(--t1); text-decoration:underline dotted; text-underline-offset:3px;}
 #about a:hover{color:var(--t0);}
