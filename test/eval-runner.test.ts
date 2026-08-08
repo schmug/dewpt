@@ -193,6 +193,40 @@ describe("resolveEvalRunner: what it refuses", () => {
     { name: "--workers-ai= with a value that is neither true nor false", argv: ["--workers-ai=yes"], env: CF_CREDS, message: /--workers-ai/ },
     { name: "--record= given a value it does not take", argv: ["--record=true"], message: /--record/ },
 
+    // Defect 6: the allowlist was an object literal, so the lookup reached
+    // Object.prototype and every name inherited from it was accepted and then
+    // silently ignored — the misparse this whole parser exists to prevent.
+    // Note the guard has to be membership, not value: the inherited value is a
+    // function (or, for --__proto__, an object), so a `=== undefined` check
+    // would not fire either.
+    { name: "--constructor=, inherited from Object.prototype", argv: ["--constructor=zzz"], message: /unknown flag: --constructor/ },
+    { name: "--toString=, inherited from Object.prototype", argv: ["--toString=zzz"], message: /unknown flag: --toString/ },
+    { name: "--valueOf=, inherited from Object.prototype", argv: ["--valueOf=zzz"], message: /unknown flag: --valueOf/ },
+    { name: "--__proto__=, inherited from Object.prototype", argv: ["--__proto__=zzz"], message: /unknown flag: --__proto__/ },
+    { name: "--hasOwnProperty=, inherited from Object.prototype", argv: ["--hasOwnProperty=zzz"], message: /unknown flag: --hasOwnProperty/ },
+    { name: "--isPrototypeOf=, inherited from Object.prototype", argv: ["--isPrototypeOf=zzz"], message: /unknown flag: --isPrototypeOf/ },
+    // Bare, so it lands in the other branch of assertFlagSyntax: an inherited
+    // name is not "value", so it fell through the space-separated check too.
+    { name: "a bare --toString, inherited from Object.prototype", argv: ["--toString"], message: /unknown flag: --toString/ },
+
+    // Defect 7: --x= was rejected but --x="   " was not, so a whitespace-only
+    // value beat both the default and the env fallback exactly as the empty one
+    // used to. --base-url="   " posted to "   /embeddings"; --model="   "
+    // resolved to a genModel no server has. Same rule the CLOUDFLARE_* trim
+    // already applied: a whitespace-only value is unset.
+    { name: "--base-url= with a spaces-only value", argv: ["--base-url=   "], message: /--base-url= was given an empty value/ },
+    { name: "--base-url= with a tab-only value", argv: ["--base-url=\t"], message: /--base-url= was given an empty value/ },
+    {
+      name: "--base-url= with a spaces-only value even when LOCAL_AI_BASE_URL is set",
+      argv: ["--base-url=   "],
+      env: { LOCAL_AI_BASE_URL: "http://configured/v1" },
+      message: /--base-url= was given an empty value/,
+    },
+    { name: "--model= with a spaces-only value", argv: ["--model=   "], message: /--model= was given an empty value/ },
+    { name: "--model= with a tab-only value", argv: ["--model=\t"], message: /--model= was given an empty value/ },
+    { name: "--embed-model= with a spaces-only value", argv: ["--embed-model=   "], message: /--embed-model= was given an empty value/ },
+    { name: "--embed-model= with a tab-only value", argv: ["--embed-model=\t"], message: /--embed-model= was given an empty value/ },
+
     // Defect 5: whitespace-only credentials passed the guard and built
     // https://api.cloudflare.com/client/v4/accounts/  /ai/run/…
     { name: "--workers-ai with a whitespace-only account id", argv: ["--workers-ai"], env: { CLOUDFLARE_ACCOUNT_ID: "  ", CLOUDFLARE_API_TOKEN: "tok" }, message: /CLOUDFLARE_ACCOUNT_ID/ },

@@ -26,21 +26,28 @@ const DEFAULT_CF_EMBED = "@cf/baai/bge-m3";
 /** Every flag the eval scripts accept, and whether it carries `=value`.
  *  `--models`, `--record` and `--judge` belong to the sibling matrix script,
  *  which routes its whole argv through here; they are listed so that script's
- *  arguments are not rejected as unknown. */
-const KNOWN_FLAGS: Record<string, "value" | "bare" | "boolean"> = {
-  "workers-ai": "boolean",
-  model: "value",
-  "embed-model": "value",
-  "base-url": "value",
-  "chat-options": "value",
-  models: "value",
-  judge: "value",
-  record: "bare",
-};
+ *  arguments are not rejected as unknown.
+ *
+ *  A Map, not an object literal, because the keys are attacker-shaped input:
+ *  argv. `KNOWN_FLAGS["toString"]` on a literal reaches Object.prototype, and
+ *  --toString= was accepted and then silently ignored — the one outcome this
+ *  parser exists to prevent. Tightening the guard to `=== undefined` would not
+ *  have helped: the inherited value is a *function*, not undefined. A Map has
+ *  no prototype chain for its keys, so the fix lives in the table rather than
+ *  in one call site, and `.get()` is typed `… | undefined`, which makes the
+ *  compiler insist on the guard instead of promising a value that isn't there. */
+const KNOWN_FLAGS = new Map<string, "value" | "bare" | "boolean">([
+  ["workers-ai", "boolean"],
+  ["model", "value"],
+  ["embed-model", "value"],
+  ["base-url", "value"],
+  ["chat-options", "value"],
+  ["models", "value"],
+  ["judge", "value"],
+  ["record", "bare"],
+]);
 
-const FLAG_LIST = Object.keys(KNOWN_FLAGS)
-  .map((name) => `--${name}`)
-  .join(", ");
+const FLAG_LIST = [...KNOWN_FLAGS.keys()].map((name) => `--${name}`).join(", ");
 
 const TRUE_VALUES = new Set(["true", "1"]);
 const FALSE_VALUES = new Set(["false", "0"]);
@@ -60,8 +67,8 @@ function assertFlagSyntax(argv: string[]): void {
     // "--" is the conventional end-of-options separator, not a flag.
     if (!arg.startsWith("--") || arg === "--") continue;
     const name = flagName(arg);
-    const kind = KNOWN_FLAGS[name];
-    if (!kind) throw new Error(`unknown flag: --${name}. This script accepts ${FLAG_LIST}`);
+    const kind = KNOWN_FLAGS.get(name);
+    if (kind === undefined) throw new Error(`unknown flag: --${name}. This script accepts ${FLAG_LIST}`);
 
     const eq = arg.indexOf("=");
     if (eq === -1) {
@@ -90,9 +97,12 @@ function flag(argv: string[], name: string): string | undefined {
   // Slice rather than split: values legitimately contain "=" (query strings,
   // JSON), and splitting would truncate at the first one.
   const value = hit.slice(prefix.length);
-  // "" is not a value. `??` only falls back on nullish, so returning it here
-  // would beat both the default and the env fallback.
-  if (value === "") throw new Error(`--${name}= was given an empty value; omit the flag to use the default`);
+  // "" is not a value, and neither is "   " — same rule the CLOUDFLARE_* trim
+  // applies below: a whitespace-only value is unset. `??` only falls back on
+  // nullish, so returning either here beats both the default and the env
+  // fallback; --base-url="   " posted to "   /embeddings" and --model="   "
+  // named a model no server has.
+  if (value.trim() === "") throw new Error(`--${name}= was given an empty value; omit the flag to use the default`);
   return value;
 }
 
