@@ -127,3 +127,55 @@ describe("styles.css press-go entrance gate (task 6)", () => {
     expect(rule!.body).toMatch(/transition:\s*none/);
   });
 });
+
+describe("styles.css field/frame stacking (issue #37)", () => {
+  const rules = parseFlatRules(stylesCss);
+
+  it("#field establishes its own stacking context, so no word can interleave with the frame", () => {
+    // Without this, #field is position:relative/z-index:auto — not a stacking
+    // context — so every .word inside it competes directly with the frame's
+    // z-index:2 rules and z-index:3 corner marks in the root context.
+    // `.word.pinned{z-index:3}` ties with `.press-cross` and wins on DOM order,
+    // while an ordinary word loses: two answers for one spatial relationship.
+    // Isolating the field collapses that to one — the frame is always chrome.
+    expect(bodyForExactSelector(rules, "#field")).toMatch(/isolation:\s*isolate/);
+  });
+
+  it("pins crystallize above the drift, ordered only against sibling words", () => {
+    // Inside the isolated field, .word.pinned is the one layer that declares a
+    // z-index; every other in-field layer (.word, .pulse, .hint, #manifesto) is
+    // auto. Any positive value works — what matters is that it is positive, and
+    // that it is read as local to the field rather than as a rung on the
+    // frame's ladder.
+    const pinnedZ = /z-index:\s*(\d+)/.exec(bodyForExactSelector(rules, ".word.pinned"));
+    expect(pinnedZ, ".word.pinned declares no z-index").not.toBeNull();
+    expect(Number(pinnedZ![1])).toBeGreaterThan(0);
+    expect(bodyForExactSelector(rules, ".word")).not.toMatch(/z-index/);
+  });
+
+  it("keeps the frame click-through, so prospecting clicks reach #field", () => {
+    // The field's own click handler is how a user prospects. The frame overlays
+    // its edges and corners, so it must never take a hit.
+    expect(bodyForExactSelector(rules, "#fieldFrame .press-rule")).toMatch(/pointer-events:\s*none/);
+    expect(bodyForExactSelector(rules, "#fieldFrame .press-cross")).toMatch(/pointer-events:\s*none/);
+  });
+
+  it("holds #field's desktop box, which spawnPick measures on every spawn", () => {
+    // field.js reads getBoundingClientRect() per spawn and places words against
+    // rect.width/rect.height, so a change to this box silently misplaces the
+    // whole field — the failure the isolation fix had to avoid causing. These
+    // are the values measured in the browser: 960x480 at desktop.
+    const fieldBody = bodyForExactSelector(rules, "#field");
+    expect(fieldBody).toMatch(/(?<!max-)width:\s*100%/);
+    expect(fieldBody).toMatch(/max-width:\s*960px/);
+    expect(fieldBody).toMatch(/(?<!max-|min-)height:\s*480px/);
+    expect(fieldBody).toMatch(/overflow:\s*hidden/);
+  });
+
+  it("holds #field's narrow-viewport height", () => {
+    // Below 760px the field fills the phone instead of letterboxing; measured
+    // at 335x560 in a 375px-wide viewport.
+    const narrowRules = parseFlatRules(extractBlockBody(stylesCss, "@media (max-width: 760px)"));
+    expect(bodyForExactSelector(narrowRules, "#field")).toMatch(/height:\s*min\(70svh,\s*560px\)/);
+  });
+});

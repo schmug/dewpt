@@ -35,7 +35,16 @@ h1{font-family:var(--press-face-display); font-weight:400; font-size:26px; lette
 h1 em{font-style:italic; color:var(--t1);}
 .seed{color:var(--label);}
 .seed b{color:var(--t0); font-weight:400; border-bottom:1px dotted var(--label);}
-#field{position:relative; width:100%; max-width:960px; height:480px; flex:1 1 auto; min-width:0; background:radial-gradient(ellipse at 50% 42%, #1b1934 0%, var(--field) 62%, #100f1e 100%); border-radius:var(--press-radius); overflow:hidden; cursor:crosshair; touch-action:manipulation;}
+/* isolation:isolate makes #field a stacking context, so every word paints
+   inside it and none can rise into the frame's layers (see the #fieldFrame
+   block below). Without it #field is position:relative/z-index:auto — not a
+   context — and words compete with the frame directly: `.word.pinned`'s
+   z-index:3 tied with `.press-cross`'s and won on DOM order, while an ordinary
+   word lost. It is a paint-order property only; it computes no box, so
+   #field's rect — which field.js's spawnPick measures on every spawn — is
+   untouched. Keep it declared here, not on #fieldFrame: isolating the wrapper
+   would group the frame and the words together rather than separate them. */
+#field{position:relative; isolation:isolate; width:100%; max-width:960px; height:480px; flex:1 1 auto; min-width:0; background:radial-gradient(ellipse at 50% 42%, #1b1934 0%, var(--field) 62%, #100f1e 100%); border-radius:var(--press-radius); overflow:hidden; cursor:crosshair; touch-action:manipulation;}
 #field:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 
 /* Press frame: the field is bounded by hairlines and corner marks rather than
@@ -60,7 +69,11 @@ h1 em{font-style:italic; color:var(--t1);}
 .word.t1{color:var(--t1);}
 .word.t2{color:var(--t2); font-style:italic;}
 .word.t0{color:var(--t0);}
-.word.pinned{color:var(--pin) !important; font-style:normal; filter:none !important; opacity:1 !important; text-decoration:underline dotted; text-underline-offset:5px; z-index:3;}
+/* z-index:1 orders a crystallized word above the drift and nothing else — it
+   is scoped to #field's own stacking context, so it is not comparable to the
+   frame's 2 and 3. It read as 3 while the two sets shared the root context,
+   which made a pinned word tie with .press-cross and win on DOM order. */
+.word.pinned{color:var(--pin) !important; font-style:normal; filter:none !important; opacity:1 !important; text-decoration:underline dotted; text-underline-offset:5px; z-index:1;}
 /* hover-to-clarify is a fine-pointer affordance; touch has no hover, so the
    coarse-pointer legibility floor (field.js spawnPick) replaces it there. */
 @media (hover: hover){
