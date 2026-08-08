@@ -46,8 +46,12 @@ export interface Comparison {
   observed: number;
   baseline: number | null;
   delta: number | null;
+  /** Null whenever no threshold was applied — every skip, and the two failure
+   *  modes (unusable observation, unusable baseline) that never got that far. */
   threshold: number | null;
   verdict: "pass" | "fail" | "skipped";
+  /** Why this metric was skipped, or why it failed without a threshold. */
+  reason?: string;
 }
 
 export interface GateResult {
@@ -55,11 +59,34 @@ export interface GateResult {
   /** False when provenance drifted; the run reports but cannot fail. */
   gated: boolean;
   staleReason?: string;
+  /** Observed keys with no entry in METRIC_DIRECTION. Never gated: the
+   *  comparator has no direction for them and will not guess one. Non-empty
+   *  means the caller is measuring something this gate cannot judge. */
+  unknownMetrics: string[];
+  /** How many comparisons applied a threshold, and how many did not. `passed`
+   *  alone cannot distinguish a real green from a run where nothing was
+   *  compared, so the consumer prints "N of M metrics checked". */
+  checked: number;
+  skipped: number;
   passed: boolean;
 }
 
+const hasOwn = (obj: object, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(obj, key);
+
+/** Own-property lookups only. `METRIC_DIRECTION["toString"]` inherits a
+ *  function from Object.prototype — truthy, and not `undefined` — which walks
+ *  straight past both an `!entry` skip and an `=== undefined` direction check. */
+function directionOf(metric: string): "higher" | "lower" | undefined {
+  return hasOwn(METRIC_DIRECTION, metric) ? METRIC_DIRECTION[metric as MetricKey] : undefined;
+}
+
+function entryOf(baseline: Baseline, metric: string): BaselineEntry | undefined {
+  return hasOwn(baseline.metrics, metric) ? baseline.metrics[metric as MetricKey] : undefined;
+}
+
 export function compareToBaseline(
-  observed: Record<string, number>,
+  observed: Partial<Record<MetricKey, number>>,
   baseline: Baseline,
   provenance: Provenance,
   sigmas = 2,
@@ -72,16 +99,70 @@ export function compareToBaseline(
   }
   const gated = staleReason === undefined;
 
-  const comparisons: Comparison[] = Object.entries(observed).map(([metric, value]) => {
-    const entry = baseline.metrics[metric as MetricKey];
-    if (!gated || !entry) {
-      return { metric, observed: value, baseline: entry?.mean ?? null, delta: null, threshold: null, verdict: "skipped" };
+  // `machine` scopes to throughput alone rather than dropping the whole run to
+  // report-only: throughput is wall-clock, so it is the one metric a different
+  // machine invalidates. Yield, the AUCs and duplicate rate are model-dependent
+  // and stay perfectly comparable across machines — silencing them on a machine
+  // change would throw away most of the gate. `date` and `commit` are
+  // deliberately not staleness inputs: a commit change is what we gate on.
+  const machineReason =
+    baseline.provenance.machine !== provenance.machine
+      ? `throughput is wall-clock; baseline machine ${baseline.provenance.machine} != ${provenance.machine}`
+      : undefined;
+
+  const unknownMetrics: string[] = [];
+
+  const comparisons: Comparison[] = Object.entries(observed).map(([metric, raw]): Comparison => {
+    // An explicitly-undefined key is an observation that failed to compute,
+    // which the non-finite rule below treats as a failure rather than a zero.
+    const value = raw ?? NaN;
+    const entry = entryOf(baseline, metric);
+    const mean = entry !== undefined && Number.isFinite(entry.mean) ? entry.mean : null;
+    // Deltas print on every run, gated or not: report-only mode is the exact
+    // mode meant to answer "what changed when I switched models". A threshold,
+    // in contrast, is only reported when one was actually applied.
+    const delta = mean !== null && Number.isFinite(value) ? value - mean : null;
+    const report = (verdict: Comparison["verdict"], reason: string): Comparison => ({
+      metric,
+      observed: value,
+      baseline: mean,
+      delta,
+      threshold: null,
+      verdict,
+      reason,
+    });
+
+    const direction = directionOf(metric);
+    if (direction === undefined) {
+      unknownMetrics.push(metric);
+      return report("skipped", `no direction declared for "${metric}"`);
     }
-    const lowerIsBetter = METRIC_DIRECTION[metric as MetricKey] === "lower";
-    const threshold = lowerIsBetter
-      ? entry.mean + sigmas * entry.stddev
-      : entry.mean - sigmas * entry.stddev;
-    const failed = lowerIsBetter ? value > threshold : value < threshold;
+    if (!gated) return report("skipped", staleReason!);
+    if (metric === "throughput" && machineReason !== undefined) {
+      return report("skipped", machineReason);
+    }
+    if (entry === undefined) return report("skipped", "no baseline entry");
+    // A corrupt baseline is not a green light. Without this, a missing stddev
+    // makes the threshold NaN and every comparison against it passes.
+    if (!Number.isFinite(entry.mean) || !Number.isFinite(entry.stddev)) {
+      return report("fail", `corrupt baseline entry: mean=${entry.mean} stddev=${entry.stddev}`);
+    }
+    // A metric that failed to compute is a failure, not a pass: every NaN
+    // comparison is false, so an unguarded NaN can never trip `failed`.
+    if (!Number.isFinite(value)) {
+      return report("fail", `observed value is not finite (${value})`);
+    }
+
+    // The first recorded baseline comes from a single run, so stddev is 0 for
+    // every metric and the raw band admits only bit-exact equality — a 1e-15
+    // drift would fail the gate. Floor it. The relative term (2% of the mean)
+    // scales with unbounded metrics like throughput (~14 candidates/sec); the
+    // absolute term covers metrics in [0,1] — the AUCs and the rates — where
+    // 2% of a small mean is itself smaller than the run-to-run noise.
+    const sigma = Math.max(entry.stddev, 0.02 * Math.abs(entry.mean), 0.005);
+    const threshold =
+      direction === "lower" ? entry.mean + sigmas * sigma : entry.mean - sigmas * sigma;
+    const failed = direction === "lower" ? value > threshold : value < threshold;
     return {
       metric,
       observed: value,
@@ -92,10 +173,15 @@ export function compareToBaseline(
     };
   });
 
+  const skipped = comparisons.filter((c) => c.verdict === "skipped").length;
+
   return {
     comparisons,
     gated,
     staleReason,
+    unknownMetrics,
+    checked: comparisons.length - skipped,
+    skipped,
     passed: comparisons.every((c) => c.verdict !== "fail"),
   };
 }
