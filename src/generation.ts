@@ -82,6 +82,13 @@ const FEWSHOT_SEEDS: FewshotSeed[] = [
   },
 ];
 
+/** Every phrase the prompt shows the model as a correct answer. Exported for
+ *  measurement: a model that returns these verbatim has read the examples back
+ *  rather than generated anything (scripts/band-spike.ts scores the rate). */
+export const FEWSHOT_EXEMPLARS: readonly string[] = FEWSHOT_SEEDS.flatMap((example) =>
+  Object.values(example.bands).flatMap((pools) => [...pools.concrete, ...pools.abstract]),
+);
+
 function bandFor(strangeness: number): Band {
   if (strangeness < 0.33) return "low";
   if (strangeness <= 0.66) return "mid";

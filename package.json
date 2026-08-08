@@ -10,6 +10,7 @@
     "typecheck": "wrangler types && tsc --noEmit && tsc -p tsconfig.scripts.json --noEmit",
     "types": "wrangler types",
     "calibrate": "tsx scripts/calibrate.ts",
+    "band-spike": "tsx scripts/band-spike.ts",
     "axis-spike": "tsx scripts/axis-spike.ts",
     "axis-phrasing-spike": "tsx scripts/axis-phrasing-spike.ts",
     "axis-layout": "tsx scripts/axis-layout-prototype.ts"
