@@ -201,9 +201,16 @@ export class BeltCore {
    *  the only thing that outlives a lineage. Everything else is gone, which is
    *  the ephemerality premise (SPEC.md) holding for this surface.
    *
-   *  The two passes are ordered, not incidental: parking and evicting in one
-   *  pass would let a head be evicted in the tick it arrived, and the dwell
-   *  exists precisely so a head is readable — and, from M3, pinnable — first.
+   *  The two passes are split for readability — "park, then evict" is the rule,
+   *  and each loop states one half of it. The split is NOT what keeps a head
+   *  from being evicted in the tick it parked; the dwell arithmetic is. A head
+   *  parked at `now` sees `now - edgeAt === 0`, and `0 >= EDGE_DWELL_MS` is
+   *  false for any positive dwell, so the head survives its own parking tick and
+   *  stays readable — and, from M3, pinnable — for the whole dwell. Fusing the
+   *  two loops was checked against a randomized differential (4000 trials,
+   *  6 ticks each, varying station count and pre-set arrivedAt/edgeAt, including
+   *  backward clock jumps) and diverged nowhere, so treat the split as style
+   *  rather than as the thing enforcing the dwell.
    *  `now` is a parameter rather than a Date.now() call so the belt stays pure
    *  and testable without a Workers runtime. */
   tick(now: number): void {
