@@ -51,8 +51,9 @@ export interface ScoredCandidate extends Candidate {
    *  ON THE PRODUCTION EMBEDDING PATH NORMALIZES OR ASSERTS MAGNITUDE —
    *  `embedTexts` passes model output straight through — and no doc records the
    *  assumption, which is what keeps the third case reachable rather than
-   *  theoretical. (`dev-fake-ai.ts` does normalize its pseudo-embeddings, so
-   *  tests exercise the sphere the real path never guarantees.)
+   *  theoretical. (Two places do normalize, neither of them that path: the
+   *  `unit()` and `along()` helpers in test/board-rewrite.test.ts, and
+   *  `dev-fake-ai.ts`'s pseudo-embeddings.)
    *
    *  The tether is a separate floor rather than a term in this score so the two
    *  stay independently tunable. */

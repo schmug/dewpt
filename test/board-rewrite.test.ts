@@ -51,9 +51,10 @@ describe("scoreCandidates", () => {
   it("scores further travel higher, for unit-normalized embeddings", () => {
     // Pins the assumption the score comment documents. On the unit sphere the
     // score is monotone in travel — a candidate cannot win by moving less.
-    // Nothing in the repo normalizes or asserts embedding magnitude and no doc
-    // records the assumption, so this is the only place it is checked rather
-    // than assumed. Off the sphere it does not hold: see the score comment.
+    // Nothing on the production embedding path normalizes or asserts magnitude
+    // and no doc records the assumption, so this is the only place it is
+    // checked rather than assumed. Off the sphere it does not hold: see the
+    // score comment.
     const scored = scoreCandidates(
       PARENT,
       PHRASE,
