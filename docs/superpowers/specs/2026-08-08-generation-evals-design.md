@@ -61,8 +61,22 @@ src/ai-runner.ts             + restAiRunner, extracted from calibrate.ts
 mirrors the `pool-core` / `session-do` split that CLAUDE.md mandates: the
 testable logic stays out of the layer that does I/O.
 
-`auc` and `cohensD` stay in `axis-lib.ts`; `eval-lib.ts` imports them. No move,
-and they finally acquire direct tests.
+The pure vector math and ranking metrics (`dot`, `norm`, `sub`, `mean`,
+`cosine`, `auc`, `cohensD`) move *out* of `axis-lib.ts` into `eval-lib.ts`, and
+`axis-lib.ts` re-exports them so the existing spike scripts keep working
+unchanged. They finally acquire direct tests.
+
+The direction of that move is forced, not stylistic. `tsconfig.json` sets
+`"types": []` and includes `test/**/*.ts`, so a test importing `eval-lib.ts`
+drags its entire import graph into a typecheck with no node globals — and
+`axis-lib.ts` calls `process.env` in `requireCreds()`. Hence the hard rule
+below.
+
+**`eval-lib.ts` must not import node APIs or anything that does.** No
+`process`, no `node:fs`, no `node:os`. All I/O — reading the baseline, reading
+argv, resolving the machine name — lives in `eval.ts` and `eval-matrix.ts`,
+which are covered only by `tsconfig.scripts.json` and are never imported by
+tests.
 
 ### Cells
 
