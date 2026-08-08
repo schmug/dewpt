@@ -9,7 +9,6 @@ import {
   MAX_HOP_FAILURES,
   MAX_LINEAGES,
   SEED_FANOUT,
-  type Card,
   type EvaporatedCard,
   type Lineage,
   type Station,
@@ -59,21 +58,39 @@ export interface BoardView {
   evaporated: EvaporatedCard[];
 }
 
-let idCounter = 0;
-function nextId(prefix: string): string {
-  idCounter += 1;
-  return `${prefix}${idCounter}`;
+export interface BeltCoreOptions {
+  /** Mints the unique half of every lineage and card id. Injected rather than
+   *  reached for, so this module stays pure and deterministic under test.
+   *
+   *  It must NOT be a module-scope counter. BoardDO hibernates and wakes on a
+   *  fresh isolate: module scope is rebuilt from zero while the hydrated state
+   *  still holds every id minted before, so a counter does not merely reset —
+   *  it replays its sequence and re-mints ids the state already holds. The
+   *  mutators resolve by `find`/`findIndex`, which take the first match, so
+   *  duplicates route hops into the wrong lineage, strand the real one in
+   *  `hungry()` forever (unbounded metered generation), and ship duplicate DOM
+   *  keys. Tests may inject a deterministic factory; production must not. */
+  newId?: () => string;
 }
 
 export class BeltCore {
   private stationList: Station[];
   private lineageList: Lineage[];
   private evaporatedList: EvaporatedCard[];
+  private readonly newId: () => string;
 
-  constructor(state?: Partial<BeltCoreState>) {
+  constructor(state?: Partial<BeltCoreState>, options?: BeltCoreOptions) {
     this.stationList = [...(state?.stations ?? [])].sort((a, b) => a.order - b.order);
     this.lineageList = [...(state?.lineages ?? [])];
     this.evaporatedList = [...(state?.evaporated ?? [])];
+    this.newId = options?.newId ?? (() => crypto.randomUUID());
+  }
+
+  /** The `l`/`c` prefix is a debugging affordance only — it says which kind of
+   *  thing you are looking at in a log or a DOM key. Uniqueness comes entirely
+   *  from `newId`, never from the prefix. */
+  private mintId(prefix: "l" | "c"): string {
+    return `${prefix}${this.newId()}`;
   }
 
   stations(): Station[] {
@@ -99,9 +116,9 @@ export class BeltCore {
     const trimmed = text.trim();
     if (!trimmed) return false;
     this.lineageList.push({
-      id: nextId("l"),
+      id: this.mintId("l"),
       seedText: trimmed,
-      cards: [{ id: nextId("c"), text: trimmed, stationIndex: 0, bornAt: now, embedding: null }],
+      cards: [{ id: this.mintId("c"), text: trimmed, stationIndex: 0, bornAt: now, embedding: null }],
       failures: 0,
       arrivedAt: null,
       edgeAt: null,
@@ -138,11 +155,11 @@ export class BeltCore {
     const room = MAX_LINEAGES - this.lineageList.length + 1; // the original's slot is reusable
     const admitted = children.slice(0, Math.max(1, room));
     const spawned: Lineage[] = admitted.map((child) => ({
-      id: nextId("l"),
+      id: this.mintId("l"),
       seedText: original.seedText,
       cards: [
-        { ...seedCard, id: nextId("c") },
-        { id: nextId("c"), text: child.text, stationIndex: 1, bornAt: now, embedding: child.embedding },
+        { ...seedCard, id: this.mintId("c") },
+        { id: this.mintId("c"), text: child.text, stationIndex: 1, bornAt: now, embedding: child.embedding },
       ],
       failures: 0,
       arrivedAt: null,
@@ -158,7 +175,7 @@ export class BeltCore {
     if (!lineage) return;
     const head = lineage.cards.at(-1)!;
     lineage.cards.push({
-      id: nextId("c"),
+      id: this.mintId("c"),
       text: child.text,
       stationIndex: head.stationIndex + 1,
       bornAt: now,

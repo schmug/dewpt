@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BeltCore } from "../src/board/belt-core";
-import { GHOST_DEPTH, MAX_LINEAGES, SEED_FANOUT, type Station } from "../src/board/types";
+import { GHOST_DEPTH, MAX_HOP_FAILURES, MAX_LINEAGES, SEED_FANOUT, type Station } from "../src/board/types";
 
 function stations(n = 3): Station[] {
   return Array.from({ length: n }, (_, i) => ({
@@ -20,6 +20,27 @@ function child(text: string) {
 /** Drive one lineage forward `hops` times, so tests can position a head. */
 function advance(belt: BeltCore, lineageId: string, hops: number, from = 1): void {
   for (let i = 0; i < hops; i++) belt.applyHop(lineageId, child(`hop ${from + i}`), 1000 + i);
+}
+
+/** Every id the belt currently holds, lineage and card alike. Ids share one
+ *  namespace on the wire — a card colliding with a lineage is still a dup key. */
+function allIds(belt: BeltCore): string[] {
+  return belt.lineages().flatMap((l) => [l.id, ...l.cards.map((c) => c.id)]);
+}
+
+/** Every KEY name at any depth. The wire guard has to be structural: a
+ *  substring match on the serialized JSON fires on a card whose *text* happens
+ *  to contain "embedding", which is ordinary copy on an idea board. */
+function keysDeep(value: unknown, found: string[] = []): string[] {
+  if (Array.isArray(value)) {
+    for (const item of value) keysDeep(item, found);
+  } else if (value !== null && typeof value === "object") {
+    for (const [key, inner] of Object.entries(value)) {
+      found.push(key);
+      keysDeep(inner, found);
+    }
+  }
+  return found;
 }
 
 describe("addSeed", () => {
@@ -115,18 +136,163 @@ describe("applyHop", () => {
     belt.applySeedFan(id, [child("a")], 1001);
     const live = belt.lineages()[0]!.id;
     belt.noteHopFailure(live, 1002);
+    // Assert the raise before the reset: without this the test passes even if
+    // noteHopFailure is a no-op, proving nothing about applyHop.
+    expect(belt.lineages()[0]!.failures).toBe(1);
     belt.applyHop(live, child("b"), 1003);
     expect(belt.lineages()[0]!.failures).toBe(0);
   });
 });
 
-describe("view", () => {
-  it("never puts an embedding on the wire", () => {
+describe("markArrived", () => {
+  it("stamps the lineage and reports it as arrived on the wire", () => {
     const belt = new BeltCore({ stations: stations() });
     belt.addSeed("urban gardening", 1000);
     const id = belt.lineages()[0]!.id;
+    expect(belt.lineages()[0]!.arrivedAt).toBeNull();
+    belt.markArrived(id, 1234);
+    expect(belt.lineages()[0]!.arrivedAt).toBe(1234);
+    expect(belt.view().lineages[0]!.arrived).toBe(true);
+  });
+
+  it("ignores an unknown lineage rather than stamping the wrong one", () => {
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("urban gardening", 1000);
+    belt.markArrived("no-such-lineage", 1234);
+    expect(belt.lineages()[0]!.arrivedAt).toBeNull();
+  });
+});
+
+describe("hungry release", () => {
+  it("stops asking for hops once a lineage has arrived", () => {
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("urban gardening", 1000);
+    const id = belt.lineages()[0]!.id;
+    expect(belt.hungry()).toHaveLength(1);
+    belt.markArrived(id, 1001);
+    expect(belt.hungry()).toHaveLength(0);
+  });
+
+  it("stops asking for hops once a lineage is released to the edge", () => {
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("urban gardening", 1000);
+    const id = belt.lineages()[0]!.id;
+    for (let i = 0; i < MAX_HOP_FAILURES; i++) belt.noteHopFailure(id, 1000 + i);
+    expect(belt.lineages()[0]!.edgeAt).not.toBeNull();
+    expect(belt.hungry()).toHaveLength(0);
+  });
+});
+
+describe("id minting", () => {
+  it("mints from an injected factory, so the core stays deterministic under test", () => {
+    const build = () => {
+      let n = 0;
+      const belt = new BeltCore({ stations: stations() }, { newId: () => `-${++n}` });
+      belt.addSeed("urban gardening", 1000);
+      belt.applySeedFan(belt.lineages()[0]!.id, [child("a")], 1001);
+      return belt.lineages();
+    };
+    // Same inputs, same ids — no ambient entropy, no shared module state.
+    expect(build()).toEqual(build());
+    expect(build()[0]!.id).toBe("l-3");
+  });
+
+  it("keeps lineage and card ids unique within one instance", () => {
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("urban gardening", 1000);
+    belt.applySeedFan(belt.lineages()[0]!.id, [child("a"), child("b")], 1001);
+    advance(belt, belt.lineages()[0]!.id, 2, 2);
+    const ids = allIds(belt);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  /** Serialize on one module evaluation, hydrate on another. The distinct
+   *  import queries are what make this a real test: two instances built in ONE
+   *  module evaluation share module scope, so they pass trivially. */
+  async function rehydrateOnFreshModule() {
+    // The `?isolate=` suffix is a Vite resolution, not a TypeScript one, so tsc
+    // cannot follow it. The suffix is exactly what forces a genuine module
+    // re-evaluation, so the type is pinned to the real module by hand.
+    type BeltCoreModule = typeof import("../src/board/belt-core");
+    // @ts-expect-error -- Vite-only module specifier; typed by the annotation
+    const beforeMod: BeltCoreModule = await import("../src/board/belt-core.ts?isolate=before-hibernation");
+    // @ts-expect-error -- Vite-only module specifier; typed by the annotation
+    const afterMod: BeltCoreModule = await import("../src/board/belt-core.ts?isolate=after-hibernation");
+    // Guard the guard — if these ever collapse to one module, fail loudly rather
+    // than quietly proving nothing.
+    expect(afterMod.BeltCore).not.toBe(beforeMod.BeltCore);
+
+    const before = new beforeMod.BeltCore({ stations: stations() });
+    before.addSeed("urban gardening", 1000);
+    // Round-trip through JSON exactly as Durable Object storage does.
+    const persisted = JSON.parse(JSON.stringify(before.serialize()));
+    return { before, after: new afterMod.BeltCore(persisted), hydratedIds: new Set(allIds(before)) };
+  }
+
+  // A Durable Object hibernates and wakes on a FRESH isolate: module scope is
+  // rebuilt from zero while the hydrated state still holds every id minted
+  // before. A module-scope counter therefore does not merely reset — it replays
+  // the same sequence and re-mints ids the state already holds, so find/
+  // findIndex resolve to the wrong lineage and the wire ships duplicate keys.
+  // Two instances in ONE module evaluation cannot catch this; the module has to
+  // genuinely be re-evaluated, which the distinct import queries below force.
+  it("never re-mints an id the rehydrated state already holds", async () => {
+    const { before, after, hydratedIds } = await rehydrateOnFreshModule();
+
+    expect(after.addSeed("mycelium logistics", 2000)).toBe(true);
+
+    // Assert on the ids the fresh instance actually minted. Set-differencing
+    // against the hydrated ids would be defeated by the very collision under
+    // test — a re-minted id subtracts itself out and looks like nothing new.
+    const fresh = after.lineages().at(-1)!;
+    for (const id of [fresh.id, ...fresh.cards.map((c) => c.id)]) {
+      expect(hydratedIds.has(id)).toBe(false);
+    }
+    const ids = allIds(after);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(before.lineages()[0]!.id).not.toBe(fresh.id);
+  });
+
+  it("resolves a mutation to the lineage that owns the id, after rehydration", async () => {
+    const { after } = await rehydrateOnFreshModule();
+    after.addSeed("mycelium logistics", 2000);
+    const fresh = after.lineages().at(-1)!;
+
+    // find()/findIndex() take the FIRST match, so a re-minted id silently routes
+    // this hop into the hydrated lineage and leaves the new one starving —
+    // hungry() then reports it forever, burning metered Workers AI calls.
+    after.applyHop(fresh.id, child("spore freight corridors"), 2001);
+
+    const target = after.lineages().find((l) => l.seedText === "mycelium logistics")!;
+    expect(target.cards.map((c) => c.text)).toEqual(["mycelium logistics", "spore freight corridors"]);
+    const hydrated = after.lineages().find((l) => l.seedText === "urban gardening")!;
+    expect(hydrated.cards.map((c) => c.text)).toEqual(["urban gardening"]);
+  });
+});
+
+describe("view", () => {
+  // The 245 KB regression guard. Structural, not a substring match: the seed
+  // below is exactly the copy that makes `not.toContain("embedding")` fail with
+  // nothing leaked, and card text is LLM-written idea text, so that is not a
+  // contrived input.
+  it("never puts an embedding key on the wire, at any depth", () => {
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("word embedding tricks", 1000);
+    const id = belt.lineages()[0]!.id;
     belt.applySeedFan(id, [child("a")], 1001);
-    expect(JSON.stringify(belt.view())).not.toContain("embedding");
+    const wire = JSON.parse(JSON.stringify(belt.view()));
+    expect(keysDeep(wire)).not.toContain("embedding");
+    // ...and the text itself survived, which the old substring guard forbade.
+    expect(JSON.stringify(wire)).toContain("word embedding tricks");
+  });
+
+  it("uses a key walk that would actually catch a leak", () => {
+    // serialize() legitimately carries embeddings. If keysDeep cannot find one
+    // here it cannot find one on the wire either, and the guard above is vacuous.
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("urban gardening", 1000);
+    belt.applySeedFan(belt.lineages()[0]!.id, [child("a")], 1001);
+    expect(keysDeep(JSON.parse(JSON.stringify(belt.serialize())))).toContain("embedding");
   });
 
   it("trims ghosts beyond GHOST_DEPTH behind the head", () => {
