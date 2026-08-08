@@ -5,7 +5,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { axisFromRow, axisToRow, isDegeneratePole } from "./axis-core";
-import { fakeAiRunner } from "./dev-fake-ai";
+import { selectAiRunner } from "./ai-runner";
 import { embedTexts, expandPole, generateCandidates, type AiRunner } from "./generation";
 import { PoolCore } from "./pool-core";
 import {
@@ -68,7 +68,9 @@ export class SessionDO extends DurableObject<Env> {
   private meta: Meta | null = null;
   private pumping = false;
   private pumpFailures = 0;
-  private devFakeAi: AiRunner | null = null;
+  /** Memoized because the offline fake carries per-bucket counters; the other
+   *  two runners are stateless, so caching them is free. */
+  private ai: AiRunner | null = null;
   /** Axis creations past the cap guard but not yet added to the core. See the
    *  comment in createAxis for why the guard cannot rely on axes().length alone. */
   private axisCreationsInFlight = 0;
@@ -425,15 +427,9 @@ export class SessionDO extends DurableObject<Env> {
   }
 
   private aiRunner(): AiRunner {
-    // dev-only escape hatch for local runtimes with no egress; see dev-fake-ai.ts
-    if ((this.env as Env & { DEV_FAKE_AI?: string }).DEV_FAKE_AI === "1") {
-      this.devFakeAi ??= fakeAiRunner();
-      return this.devFakeAi;
-    }
-    const ai = this.env.AI;
-    return {
-      run: (model, inputs) => ai.run(model as Parameters<typeof ai.run>[0], inputs as Parameters<typeof ai.run>[1]),
-    };
+    // Workers AI, a local OpenAI-compatible server, or the offline fake — see
+    // ai-runner.ts for the precedence and the dev-only escape hatches.
+    return (this.ai ??= selectAiRunner(this.env));
   }
 
   // ---- persistence --------------------------------------------------------------

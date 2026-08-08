@@ -2,6 +2,7 @@
 // Static client is served from ./public via the assets binding; only /api/*
 // reaches this code (run_worker_first).
 
+import { aiMode, selectAiRunner } from "./ai-runner";
 import { parsePoleTerms } from "./axis-core";
 import { BUCKET_KEYS, MAX_AXES, MAX_POLE_TERM_CHARS, type BucketKey, type DewptParams, type Tier } from "./types";
 
@@ -60,15 +61,19 @@ function isBucketKey(value: unknown): value is BucketKey {
 async function handleApi(request: Request, env: Env, path: string): Promise<Response> {
   const method = request.method;
 
-  // Health probe for the AI binding — handy for checking that the local
-  // runtime can reach Workers AI (e.g. after pausing WARP).
+  // Health probe for inference — handy for checking that the local runtime can
+  // reach whichever backend is configured (e.g. after pausing WARP). It probes
+  // through the same selection the DO uses, and reports the mode, because a
+  // probe that answers for Workers AI while the DO generates against a local
+  // server would send you debugging the wrong layer.
   if (path === "/api/debug/ai" && method === "GET") {
     const t0 = Date.now();
+    const mode = aiMode(env);
     try {
-      const result = (await env.AI.run(env.EMBED_MODEL as never, { text: ["probe"] } as never)) as { data?: number[][] };
-      return json({ ok: true, ms: Date.now() - t0, dims: result?.data?.[0]?.length ?? null });
+      const result = (await selectAiRunner(env).run(env.EMBED_MODEL, { text: ["probe"] })) as { data?: number[][] };
+      return json({ ok: true, mode, model: env.EMBED_MODEL, ms: Date.now() - t0, dims: result?.data?.[0]?.length ?? null });
     } catch (error) {
-      return json({ ok: false, ms: Date.now() - t0, error: String(error) }, 500);
+      return json({ ok: false, mode, model: env.EMBED_MODEL, ms: Date.now() - t0, error: String(error) }, 500);
     }
   }
 
