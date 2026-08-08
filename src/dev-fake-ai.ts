@@ -86,17 +86,50 @@ function fakePolePhrase(term: string): string {
 }
 
 /** generation.ts's `cleanList` — which `generateRewrites` runs this output
- *  through — drops anything over five words, and the board's own prompt admits
- *  1-5 word fragments. A five-word parent plus a space-separated marker would
- *  therefore be discarded in full and the lineage would starve rather than hop.
- *  Hyphenate in that case: the marker still varies per call, and the parent text
- *  is still a substring, which is what keeps the tether high and gives lineage
- *  dedupe something real to reject. */
+ *  through — enforces TWO ceilings and drops a violating item in full rather
+ *  than trimming it, so tripping either one starves the lineage instead of
+ *  letting it hop. Both have to be honoured here, for every fragment a card can
+ *  legally hold (mirrored constants; `cleanList`'s own are not exported):
+ *
+ *  - Five words. The board's prompt admits 1-5 word fragments, so a five-word
+ *    parent plus a space-separated marker is already over. A hyphenated marker
+ *    joins the last word instead of adding one — but it removes exactly one
+ *    space, so a six-word parent is still six words and needs its tail dropped.
+ *  - Sixty-four characters. index.ts caps typed text at the same 64, so a 62-64
+ *    character card is admissible everywhere text enters the system, and the
+ *    marker adds two to four characters on top. This is the worse of the two
+ *    because it arrives MID-LINEAGE: the marker grows a digit at the tenth
+ *    child, so a 62-character parent hops three times and then returns nothing
+ *    at all, for no visible reason.
+ *
+ *  So the parent is shrunk to fit when it must be — whole trailing words first
+ *  (only a six-word-or-longer parent needs that), then characters off the tail.
+ *  The child therefore always opens with a LEADING PREFIX of the parent, and
+ *  with the whole parent wherever both ceilings allow one, which covers every
+ *  fragment in the board's own 1-5 word register up to 62 characters. That
+ *  prefix is what keeps the tether high; the marker still varies per call, so
+ *  successive children stay distinct and lineage dedupe has something real to
+ *  reject. */
 const MAX_FAKE_REWRITE_WORDS = 5;
+const MAX_FAKE_REWRITE_CHARS = 64;
+
+function fitsCleanList(text: string): boolean {
+  return text.length <= MAX_FAKE_REWRITE_CHARS && text.split(" ").length <= MAX_FAKE_REWRITE_WORDS;
+}
 
 function fakeRewrite(fragment: string, n: number): string {
-  const spaced = `${fragment} ${n}`;
-  return spaced.split(" ").length <= MAX_FAKE_REWRITE_WORDS ? spaced : `${fragment}-${n}`;
+  // Normalized first, because `cleanList` measures the normalized form.
+  const text = fragment.trim().replace(/\s+/g, " ");
+  const spaced = `${text} ${n}`;
+  if (fitsCleanList(spaced)) return spaced;
+  const marker = `-${n}`;
+  const words = text.split(" ");
+  let stem = words.length > MAX_FAKE_REWRITE_WORDS ? words.slice(0, MAX_FAKE_REWRITE_WORDS).join(" ") : text;
+  const budget = MAX_FAKE_REWRITE_CHARS - marker.length;
+  // trimEnd so a cut that lands on a space cannot leave a trailing one, which
+  // `cleanList` would collapse into a different string than the one measured.
+  if (stem.length > budget) stem = stem.slice(0, budget).trimEnd();
+  return `${stem}${marker}`;
 }
 
 export function fakeAiRunner(): AiRunner {

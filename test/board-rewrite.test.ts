@@ -446,3 +446,175 @@ describe("fakeAiRunner — board support", () => {
     expect(JSON.parse(result.response)).toEqual(["phishing drill", "password day"]);
   });
 });
+
+/** A fragment of exactly `chars` characters in exactly `words` words, so the
+ *  ceilings below are hit exactly rather than approximately. */
+function fragmentOf(chars: number, words: number): string {
+  const letters = chars - (words - 1);
+  const base = Math.floor(letters / words);
+  const extra = letters % words;
+  return Array.from({ length: words }, (_, i) => "x".repeat(base + (i < extra ? 1 : 0))).join(" ");
+}
+
+/** The parent-derived part of a child: everything before the trailing marker,
+ *  whether the marker was joined with a space or a hyphen. */
+function stemOf(child: string): string {
+  return child.replace(/[ -]\d+$/, "");
+}
+
+// generation.ts's `cleanList` enforces TWO ceilings — five words AND 64
+// characters — and drops a violating item in full rather than trimming it. The
+// hyphenated marker closes only the word half. The character half is reachable,
+// not theoretical: index.ts caps typed text at that same 64, so a 62-64
+// character card is admissible everywhere text enters the system. It is also
+// the worse failure of the two, because it arrives mid-lineage — the marker
+// grows a digit at the tenth child, so a 62-character parent hops three times
+// and then returns nothing at all, for no visible reason.
+describe("fakeAiRunner — rewrites stay inside both of cleanList's ceilings", () => {
+  const CASES: { chars: number; words: number; first: (f: string) => string; keepsWholeParent: boolean }[] = [
+    // 61 + " 1" = 63 characters in two words: the spaced marker still fits, and
+    // has to keep fitting. A fix that hyphenates or truncates unconditionally
+    // fails here rather than passing quietly.
+    { chars: 61, words: 1, first: (f) => `${f} 1`, keepsWholeParent: true },
+    // 62 + " 1" = 64: the longest parent the spaced marker fits behind.
+    { chars: 62, words: 1, first: (f) => `${f} 1`, keepsWholeParent: true },
+    // 63 + " 1" = 65, and 63 + "-1" = 65 too — hyphenating is not enough, the
+    // parent itself has to give up a character.
+    { chars: 63, words: 1, first: (f) => `${f.slice(0, 62)}-1`, keepsWholeParent: false },
+    { chars: 64, words: 1, first: (f) => `${f.slice(0, 62)}-1`, keepsWholeParent: false },
+    // Over both ceilings at once: five words and the full 64 characters.
+    { chars: 64, words: 5, first: (f) => `${f.slice(0, 62)}-1`, keepsWholeParent: false },
+    // Only the word ceiling bites. Hyphenation removes one space, so six words
+    // stay six words; the sixth word is what has to go.
+    { chars: 46, words: 6, first: (f) => `${f.split(" ").slice(0, 5).join(" ")}-1`, keepsWholeParent: false },
+  ];
+
+  for (const { chars, words, first, keepsWholeParent } of CASES) {
+    it(`returns every rewrite asked for, for a ${chars}-character ${words}-word fragment`, async () => {
+      const fragment = fragmentOf(chars, words);
+      expect(fragment).toHaveLength(chars);
+      expect(fragment.split(" ")).toHaveLength(words);
+
+      const out = await generateRewrites(fakeAiRunner(), "m", {
+        fragment,
+        target: "a mystical or magical practice",
+        count: 5,
+        exclude: [],
+      });
+
+      expect(out).toHaveLength(5);
+      expect(new Set(out).size).toBe(5);
+      expect(out[0]).toBe(first(fragment));
+      for (const item of out) {
+        expect(item.length, item).toBeLessThanOrEqual(64);
+        expect(item.split(" ").length, item).toBeLessThanOrEqual(5);
+        // The parent stays recognisable: every child opens with a leading
+        // prefix of it — the whole parent wherever both ceilings allow one.
+        expect(fragment.startsWith(stemOf(item)), item).toBe(true);
+        if (keepsWholeParent) expect(item).toContain(fragment);
+      }
+    });
+  }
+
+  // The mid-lineage case, which is what makes the character ceiling a silent
+  // fault rather than a loud one: children 1-9 fit and children 10+ do not, so
+  // the belt stalls partway through a chain that started fine.
+  it("keeps serving a 62-character parent once the marker reaches two digits", async () => {
+    const ai = fakeAiRunner();
+    const fragment = fragmentOf(62, 5);
+    const inputs = { fragment, target: "a mystical or magical practice", count: 3, exclude: [] };
+    const hops: string[][] = [];
+    for (let hop = 0; hop < 5; hop++) hops.push(await generateRewrites(ai, "m", inputs));
+
+    hops.forEach((hop, i) => expect(hop, `hop ${i + 1}`).toHaveLength(3));
+    const all = hops.flat();
+    expect(new Set(all).size).toBe(15);
+    // Children 10-15 are the ones the old three-character marker could not fit.
+    expect(all.filter((t) => /-1\d$/.test(t))).toHaveLength(6);
+    for (const item of all) {
+      expect(item.length, item).toBeLessThanOrEqual(64);
+      expect(item.split(" ").length, item).toBeLessThanOrEqual(5);
+      expect(fragment.startsWith(stemOf(item)), item).toBe(true);
+    }
+  });
+});
+
+/** dev-fake-ai's POOLS, restated rather than imported: the demo's pre-baked
+ *  pools are a fixture other work reads, and a test that imported the thing
+ *  under test could not fail when it changed. */
+const FIELD_POOLS: Record<string, string[]> = {
+  w0a0: ["phishing drill", "password day", "poster contest", "lunch-and-learn", "badge stickers", "monthly newsletter", "quiz with prizes", "report button", "welcome-back training", "door-lock checks"],
+  w0a1: ["habit", "repetition", "trust", "reminders", "routine", "vigilance", "compliance", "muscle memory", "recognition", "baseline"],
+  w1a0: ["hallway escape room", "security mascot", "phishing bingo", "staff CTF night", "spot-the-fake wall", "incident tabletop game", "security fortune cookies", "fake-invoice bake-off", "lanyard trading cards", "two-minute mystery emails"],
+  w1a1: ["play", "curiosity", "friendly rivalry", "storytelling", "folklore", "street smarts", "rituals", "bragging rights", "shared vocabulary", "near-miss stories"],
+  w2a0: ["haunted inbox exhibit", "phish sommelier tasting", "threat-model tarot deck", "cafeteria con-artist theater", "lock-picking petting zoo", "malware aquarium", "ransomware campfire stories", "gossip-powered honeypot", "social-engineering improv night", "breach museum field trip"],
+  w2a1: ["immune system", "superstition", "herd instinct", "antibodies", "myth-making", "communal grooming", "tribal memory", "dread as teacher", "apprenticeship of doubt", "folk immunity"],
+};
+
+/** One field-generation request. The runner defaults to a fresh one so each
+ *  case starts at cursor 0 and independent cases can be awaited concurrently
+ *  without sharing a counter. */
+async function fieldWords(strangeness: number, altitude: number, count: number, ai = fakeAiRunner()): Promise<string[]> {
+  const result = (await ai.run("m", {
+    messages: [{ role: "user", content: `${JSON.stringify({ seed: "x", strangeness, altitude, count })}\nReturn a JSON array.` }],
+  })) as { response: string };
+  return JSON.parse(result.response) as string[];
+}
+
+// The single check above — bucket w0a0, count 2, cursor 0 — is the whole of the
+// committed defence of a fixture that is supposed to be byte-identical forever.
+// It would miss a tier-boundary flip, the altitude boundary, the wrap suffix,
+// and five of the six pools. These generalise it on every one of those axes.
+describe("fakeAiRunner — field generation is a frozen fixture", () => {
+  it("serves each of the six buckets from its own pool, in order", async () => {
+    const cases = [
+      { strangeness: 0.0, altitude: 0.0, bucket: "w0a0" },
+      { strangeness: 0.0, altitude: 1.0, bucket: "w0a1" },
+      { strangeness: 0.5, altitude: 0.0, bucket: "w1a0" },
+      { strangeness: 0.5, altitude: 1.0, bucket: "w1a1" },
+      { strangeness: 1.0, altitude: 0.0, bucket: "w2a0" },
+      { strangeness: 1.0, altitude: 1.0, bucket: "w2a1" },
+    ];
+    const got = await Promise.all(cases.map((c) => fieldWords(c.strangeness, c.altitude, 10)));
+    cases.forEach((c, i) => expect(got[i], c.bucket).toEqual(FIELD_POOLS[c.bucket]));
+  });
+
+  // `strangeness < 0.33 ? 0 : strangeness <= 0.66 ? 1 : 2` — exclusive below,
+  // inclusive above, so both boundary values belong to tier 1.
+  it("flips tier at 0.33 and 0.66, with both boundaries in the middle tier", async () => {
+    const cases = [
+      { strangeness: 0.3299999, bucket: "w0a0" },
+      { strangeness: 0.33, bucket: "w1a0" },
+      { strangeness: 0.66, bucket: "w1a0" },
+      { strangeness: 0.6600001, bucket: "w2a0" },
+    ];
+    const got = await Promise.all(cases.map((c) => fieldWords(c.strangeness, 0, 3)));
+    cases.forEach((c, i) => expect(got[i], `strangeness ${c.strangeness}`).toEqual(FIELD_POOLS[c.bucket].slice(0, 3)));
+  });
+
+  // `altitude >= 0.5 ? 1 : 0` — 0.5 itself is the abstract half.
+  it("flips altitude at 0.5, inclusive", async () => {
+    const [below, at] = await Promise.all([fieldWords(0, 0.4999999, 3), fieldWords(0, 0.5, 3)]);
+    expect(below).toEqual(FIELD_POOLS.w0a0.slice(0, 3));
+    expect(at).toEqual(FIELD_POOLS.w0a1.slice(0, 3));
+  });
+
+  it("wraps a ten-word pool with a numeric generation suffix", async () => {
+    const base = FIELD_POOLS.w1a0;
+    expect(await fieldWords(0.5, 0.2, 25)).toEqual([
+      ...base,
+      ...base.map((w) => `${w} 2`),
+      ...base.slice(0, 5).map((w) => `${w} 3`),
+    ]);
+  });
+
+  it("advances the bucket cursor across calls rather than restarting at zero", async () => {
+    const ai = fakeAiRunner();
+    const base = FIELD_POOLS.w2a1;
+    expect(await fieldWords(0.9, 0.9, 6, ai)).toEqual(base.slice(0, 6));
+    expect(await fieldWords(0.9, 0.9, 6, ai)).toEqual([
+      ...base.slice(6),
+      ...base.slice(0, 2).map((w) => `${w} 2`),
+    ]);
+  });
+});
