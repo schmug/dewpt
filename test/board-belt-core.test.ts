@@ -313,3 +313,132 @@ describe("view", () => {
     expect(belt.view().stations[0]!.degraded).toBe(true);
   });
 });
+
+// A second import from the same module rather than an edit to the one at the
+// top: MAX_HOP_FAILURES is already bound up there, so re-importing it would be
+// a redeclaration, and the tests above are append-only territory.
+import { EDGE_DWELL_MS, EVAPORATED_CAP } from "../src/board/types";
+
+describe("tick", () => {
+  function atEnd(): { belt: BeltCore; id: string } {
+    const belt = new BeltCore({ stations: stations(1) });
+    belt.addSeed("urban gardening", 1000);
+    belt.applySeedFan(belt.lineages()[0]!.id, [child("rooftop bee lease")], 1001);
+    return { belt, id: belt.lineages()[0]!.id };
+  }
+
+  it("sends a head that has passed the last station to the edge", () => {
+    const { belt } = atEnd();
+    belt.tick(2000);
+    expect(belt.lineages()[0]!.edgeAt).toBe(2000);
+  });
+
+  it("keeps the lineage readable for the whole dwell", () => {
+    const { belt } = atEnd();
+    belt.tick(2000);
+    belt.tick(2000 + EDGE_DWELL_MS - 1);
+    expect(belt.lineages()).toHaveLength(1);
+  });
+
+  it("evicts the lineage once the dwell elapses", () => {
+    const { belt } = atEnd();
+    belt.tick(2000);
+    belt.tick(2000 + EDGE_DWELL_MS);
+    expect(belt.lineages()).toHaveLength(0);
+  });
+
+  it("records the evicted head in the evaporated ring", () => {
+    const { belt } = atEnd();
+    belt.tick(2000);
+    belt.tick(2000 + EDGE_DWELL_MS);
+    expect(belt.evaporated()[0]!.text).toBe("rooftop bee lease");
+  });
+
+  it("caps the evaporated ring, dropping the oldest entries", () => {
+    const belt = new BeltCore({ stations: stations(1) });
+    for (let i = 0; i < EVAPORATED_CAP + 3; i++) {
+      belt.addSeed(`seed ${i}`, 1000);
+      const id = belt.lineages().at(-1)!.id;
+      belt.applySeedFan(id, [child(`child ${i}`)], 1001);
+      belt.tick(2000);
+      belt.tick(2000 + EDGE_DWELL_MS);
+    }
+    expect(belt.evaporated()).toHaveLength(EVAPORATED_CAP);
+    // WHICH entries survive is the load-bearing half. A length-only assertion
+    // holds just as well for a ring frozen on its OLDEST entries, which is what
+    // truncating a push-ordered list produces: the cap is reached once and every
+    // later evaporation is silently discarded, so the ghost trail stops moving.
+    expect(belt.evaporated().map((e) => e.text)).toEqual(
+      Array.from({ length: EVAPORATED_CAP }, (_, i) => `child ${EVAPORATED_CAP + 2 - i}`),
+    );
+  });
+
+  it("releases a lineage that has failed its hop too many times", () => {
+    const belt = new BeltCore({ stations: stations(3) });
+    belt.addSeed("stuck", 1000);
+    const id = belt.lineages()[0]!.id;
+    belt.applySeedFan(id, [child("a")], 1001);
+    const live = belt.lineages()[0]!.id;
+    for (let i = 0; i < MAX_HOP_FAILURES; i++) belt.noteHopFailure(live, 1002);
+    belt.tick(2000 + EDGE_DWELL_MS);
+    expect(belt.lineages()).toHaveLength(0);
+  });
+
+  it("stores no card text anywhere once a lineage is evicted, beyond the ring", () => {
+    const { belt } = atEnd();
+    belt.tick(2000);
+    belt.tick(2000 + EDGE_DWELL_MS);
+    const dump = JSON.stringify(belt.serialize());
+    // The seed's own text is gone with the lineage; only the head survives,
+    // in the evaporated ring, which is the one sanctioned mercy.
+    expect(dump).not.toContain("urban gardening");
+    expect(belt.evaporated().map((e) => e.text)).toEqual(["rooftop bee lease"]);
+  });
+
+  // Arrival is the OTHER way a lineage finishes, and the only one that can
+  // strand it. A head short of the last station has somewhere left to go, but
+  // hungry() skips an arrived lineage, so it can never go there on its own. If
+  // tick() parked only on `stationIndex >= stations.length`, nothing would ever
+  // park this lineage: it would never reach the edge, never evict, and outlive
+  // the board — permanence, which the ephemerality premise (SPEC.md, and
+  // CLAUDE.md's "correctness, not preference") forbids.
+  it("parks and evicts a lineage that arrived short of the last station", () => {
+    const belt = new BeltCore({ stations: stations(3) });
+    belt.addSeed("urban gardening", 1000);
+    belt.applySeedFan(belt.lineages()[0]!.id, [child("rooftop bee lease")], 1001);
+    const id = belt.lineages()[0]!.id;
+    belt.markArrived(id, 1002);
+
+    // The premise, asserted rather than assumed: the head really is short of
+    // the last station, and really has no way to advance itself.
+    expect(belt.lineages()[0]!.cards.at(-1)!.stationIndex).toBe(1);
+    expect(belt.hungry()).toHaveLength(0);
+
+    belt.tick(2000);
+    expect(belt.lineages()[0]!.edgeAt).toBe(2000);
+    belt.tick(2000 + EDGE_DWELL_MS - 1);
+    expect(belt.lineages()).toHaveLength(1);
+    belt.tick(2000 + EDGE_DWELL_MS);
+    expect(belt.lineages()).toHaveLength(0);
+    expect(belt.evaporated().map((e) => e.text)).toEqual(["rooftop bee lease"]);
+  });
+
+  it("orders the evaporated ring newest first", () => {
+    const belt = new BeltCore({ stations: stations(1) });
+    // One eviction per iteration, at a distinct time, so the ring's intended
+    // order is known rather than inferred. A single eviction cannot tell
+    // unshift from push; three can.
+    for (let i = 0; i < 3; i++) {
+      const at = 2000 + i * 100_000;
+      belt.addSeed(`seed ${i}`, at);
+      belt.applySeedFan(belt.lineages().at(-1)!.id, [child(`child ${i}`)], at + 1);
+      belt.tick(at + 2);
+      belt.tick(at + 2 + EDGE_DWELL_MS);
+    }
+    expect(belt.evaporated().map((e) => e.text)).toEqual(["child 2", "child 1", "child 0"]);
+    // Stated twice on purpose: the text order pins insertion, the timestamps
+    // pin that "newest first" is what the order MEANS.
+    const times = belt.evaporated().map((e) => e.evaporatedAt);
+    expect(times).toEqual([...times].sort((a, b) => b - a));
+  });
+});
