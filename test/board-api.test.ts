@@ -1,21 +1,27 @@
 // Route shape and the wire contract for /api/board/*.
 //
 // There is no Durable Object test harness in this repo (issue #31), so nothing
-// here exercises BoardDO itself — not its alarm loop, not its pump, not
-// rehydration. What IS exercised is everything either side of it: the belt's
-// projection onto the wire, and the real route table from src/index.ts driven
-// against a stub DO stub. `cloudflare:workers` does not resolve under plain
-// vitest, so it is stubbed; that stub is only needed because src/index.ts
-// re-exports the DO classes, and it does not touch any code under test.
+// here drives BoardDO as an object — not its alarm loop, not its rehydration.
+// What IS exercised is everything either side of it: the belt's projection onto
+// the wire, the real route table from src/index.ts driven against a stub DO
+// stub, and the two pieces of the pump that were lifted out of the DO exactly
+// so they could be reached without one — `candidateWidth` and `selectFan`.
+// `cloudflare:workers` does not resolve under plain vitest, so it is stubbed;
+// that stub is only needed because src/index.ts and board-do.ts reference the
+// DO base class, and it does not touch any code under test.
 
 import { describe, expect, it, vi } from "vitest";
 import { BeltCore } from "../src/board/belt-core";
-import { DEFAULT_STATION_TERMS, type Station } from "../src/board/types";
+import { scoreCandidates } from "../src/board/rewrite";
+import { CANDIDATES_PER_HOP, DEFAULT_STATION_TERMS, SEED_FANOUT, TETHER_FLOOR, type Station } from "../src/board/types";
+import { cosineSim } from "../src/pool-core";
+import { DEDUPE_COSINE } from "../src/types";
 
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 
 // Imported after the vi.mock above purely for readability — vitest hoists the
 // mock above every import regardless of where it is written.
+import { candidateWidth, selectFan } from "../src/board/board-do";
 import worker, { assertNoEmbeddings } from "../src/index";
 
 /** Collect every key at any depth. The substring form of this guard
@@ -83,6 +89,127 @@ describe("board wire format", () => {
     const pending = readyStations();
     pending[1]!.embedding = null;
     expect(new BeltCore({ stations: pending }).view().stations[1]!.ready).toBe(false);
+  });
+});
+
+// ── the seed fan ────────────────────────────────────────────────────────────
+//
+// The fan is the one place where a hop takes several children out of one
+// generation call, and it under-filled silently: `Math.max(CANDIDATES_PER_HOP,
+// hop.count)` asked for 4 candidates to fill 3 slots. The board then shipped
+// two rows where SEED_FANOUT promises three, permanently — a spawned lineage
+// asks for one child from then on, so there is no second chance at a fan.
+
+/** Synthetic embeddings with hand-chosen geometry, so "3 candidates survive the
+ *  tether floor and two of them are near-duplicates" is a fact of the fixture
+ *  rather than a hope about a model. Eight dimensions: e0 is the parent, e1 the
+ *  station phrase, e2+ mutually orthogonal noise that keeps distinct candidates
+ *  distinct. */
+const FAN_DIM = 8;
+
+function mix(parts: [number, number][]): number[] {
+  const v = new Array<number>(FAN_DIM).fill(0);
+  for (const [coefficient, axis] of parts) v[axis] = coefficient;
+  const mag = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+  return v.map((x) => x / mag);
+}
+
+const FAN_PARENT = mix([[1, 0]]);
+const FAN_PHRASE = mix([[1, 1]]);
+
+/** In the order a generation call returns them, so slicing to a width models
+ *  what a narrower request actually receives. The first four are M0's measured
+ *  minimum: three above the floor, one below it. */
+const FAN_CANDIDATES = [
+  { text: "cand-top", embedding: mix([[0.5, 0], [0.6, 1], [0.7, 2]]) },
+  { text: "cand-twin", embedding: mix([[0.5, 0], [0.61, 1], [0.7, 2]]) }, // near-duplicate of cand-top
+  { text: "cand-third", embedding: mix([[0.5, 0], [0.45, 1], [0.7, 3]]) },
+  { text: "cand-low", embedding: mix([[0.15, 0], [0.5, 1], [0.7, 4]]) }, // below TETHER_FLOOR
+  { text: "cand-fourth", embedding: mix([[0.5, 0], [0.4, 1], [0.7, 5]]) },
+  { text: "cand-fifth", embedding: mix([[0.5, 0], [0.35, 1], [0.7, 6]]) },
+];
+
+/** What the DO passes as history on a seed's first hop: the seed's own
+ *  embedding, so a child cannot restate it. */
+const FAN_HISTORY = [FAN_PARENT];
+
+describe("candidateWidth", () => {
+  it("adds a candidate per extra child rather than taking a maximum", () => {
+    // CANDIDATES_PER_HOP is calibrated PER CHILD, so the two quantities add.
+    // Math.max(4, 3) = 4 is the starved formula this replaces.
+    expect(candidateWidth(SEED_FANOUT)).toBe(CANDIDATES_PER_HOP + SEED_FANOUT - 1);
+    expect(candidateWidth(SEED_FANOUT)).toBeGreaterThan(Math.max(CANDIDATES_PER_HOP, SEED_FANOUT));
+    for (const k of [2, 3, 4, 7, 12]) expect(candidateWidth(k)).toBe(CANDIDATES_PER_HOP + k - 1);
+  });
+
+  it("leaves a single-child hop at the calibrated width", () => {
+    // Every hop after the fan asks for one child, and 4 is what M0 measured for
+    // exactly that case. Widening it would spend quota on every hop of every
+    // lineage, which the calibration does not support.
+    expect(candidateWidth(1)).toBe(CANDIDATES_PER_HOP);
+  });
+
+  it("follows SEED_FANOUT, so raising the fan cannot outrun the request", () => {
+    // The starved formula saturated: at SEED_FANOUT 5 or 9 it still asked for
+    // max(4, k), which is k — one candidate per slot and no spares at all.
+    for (const fanout of [5, 9]) {
+      expect(candidateWidth(fanout)).toBeGreaterThan(fanout);
+    }
+  });
+});
+
+describe("selectFan", () => {
+  it("has the geometry it claims: three survivors, one near-duplicate pair", () => {
+    // Without this the fill tests below could pass for the wrong reason.
+    const narrow = FAN_CANDIDATES.slice(0, candidateWidth(1));
+    const scored = scoreCandidates(FAN_PARENT, FAN_PHRASE, narrow);
+    expect(scored.filter((c) => c.tether >= TETHER_FLOOR)).toHaveLength(3);
+    expect(scored.find((c) => c.text === "cand-low")!.tether).toBeLessThan(TETHER_FLOOR);
+    expect(cosineSim(FAN_CANDIDATES[0]!.embedding, FAN_CANDIDATES[1]!.embedding)).toBeGreaterThan(DEDUPE_COSINE);
+    expect(cosineSim(FAN_CANDIDATES[0]!.embedding, FAN_CANDIDATES[2]!.embedding)).toBeLessThan(DEDUPE_COSINE);
+  });
+
+  it("under-fills at the old width, which is the defect the width fix exists for", () => {
+    // Not a regression guard: this pins WHY the width had to change. Four
+    // candidates for three slots loses a whole child to one sibling collision.
+    const chosen = selectFan(FAN_PARENT, FAN_PHRASE, FAN_CANDIDATES.slice(0, 4), SEED_FANOUT, FAN_HISTORY, "l1");
+    expect(chosen).toHaveLength(2);
+  });
+
+  it("fills every slot at the new width, against that same collision", () => {
+    const width = candidateWidth(SEED_FANOUT);
+    const chosen = selectFan(FAN_PARENT, FAN_PHRASE, FAN_CANDIDATES.slice(0, width), SEED_FANOUT, FAN_HISTORY, "l1");
+    expect(chosen).toHaveLength(SEED_FANOUT);
+    expect(new Set(chosen.map((c) => c.text)).size).toBe(SEED_FANOUT); // and all distinct
+  });
+
+  it("never picks a sibling that near-duplicates one already chosen", () => {
+    const chosen = selectFan(FAN_PARENT, FAN_PHRASE, FAN_CANDIDATES, SEED_FANOUT, FAN_HISTORY, "l1");
+    for (const a of chosen) {
+      for (const b of chosen) {
+        if (a.text === b.text) continue;
+        expect(cosineSim(a.embedding, b.embedding)).toBeLessThanOrEqual(DEDUPE_COSINE);
+      }
+    }
+  });
+
+  it("reports an under-fill instead of shipping a short board silently", () => {
+    // The whole fix exists so a board that promises three rows ships three. If
+    // it under-fills anyway, that has to be diagnosable from a log line rather
+    // than from a user counting rows.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      selectFan(FAN_PARENT, FAN_PHRASE, FAN_CANDIDATES.slice(0, 4), SEED_FANOUT, FAN_HISTORY, "l-short");
+      expect(warn).toHaveBeenCalledTimes(1);
+      const line = JSON.parse(warn.mock.calls[0]![0] as string) as Record<string, unknown>;
+      expect(line).toMatchObject({ level: "warn", lineage: "l-short", requested: SEED_FANOUT, delivered: 2 });
+
+      warn.mockClear();
+      selectFan(FAN_PARENT, FAN_PHRASE, FAN_CANDIDATES, SEED_FANOUT, FAN_HISTORY, "l-full");
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

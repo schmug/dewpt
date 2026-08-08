@@ -17,7 +17,7 @@ import { DurableObject } from "cloudflare:workers";
 import { fakeAiRunner } from "../dev-fake-ai";
 import { embedTexts, expandPole, type AiRunner } from "../generation";
 import { BeltCore, type BeltCoreState, type BoardView } from "./belt-core";
-import { generateRewrites, hasArrived, selectChild } from "./rewrite";
+import { generateRewrites, hasArrived, selectChild, type Candidate } from "./rewrite";
 import { CANDIDATES_PER_HOP, DEFAULT_STATION_TERMS, type Station } from "./types";
 
 const PUMP_MS = 500;
@@ -26,6 +26,112 @@ const PUMP_MS = 500;
  *  500ms that is an unbounded wake loop against a live account. */
 const PUMP_RETRY_MAX_MS = 30_000;
 const PUMP_BACKOFF_MAX_SHIFT = 8;
+
+/** Consecutive stalled ticks after which the board stops re-arming its own
+ *  alarm. Past this point the backoff has saturated, so every further wake is
+ *  one storage write and one alarm for a board that provably did no work and
+ *  spent no AI quota — measured at 20 wakes / 20 writes / 0 AI calls, i.e.
+ *  ~2,880 alarms a day per board, forever.
+ *
+ *  A board really can be stuck for good: `prepareStations` is one-shot (only
+ *  `init()` runs it, and only on an empty board), `embedTexts` throws on a
+ *  transient AI fault, and `pumpOnce` returns "stalled" before reaching
+ *  `noteHopFailure`, so nothing ever releases the lineage.
+ *
+ *  Stopping is not terminal — `init`, `getView` and `seed` all call
+ *  `schedulePump`, so the board resumes the moment anyone touches it. The
+ *  alternative (count stalls toward `noteHopFailure` so the lineage releases)
+ *  was rejected: this stall is a STATION fault, not a lineage fault, so it
+ *  would release every lineage on the board in turn and evaporate the user's
+ *  typed seeds over an outage that may last seconds. Losing typed input to a
+ *  retryable fault is worse than an alarm that has to be re-armed by a poll. */
+const MAX_CONSECUTIVE_STALLS = PUMP_BACKOFF_MAX_SHIFT;
+
+/** Storage key for the consecutive-stall counter above, which is DURABLE
+ *  rather than just a field. The counter is ticked by wakes up to 30 seconds
+ *  apart and nothing keeps the object in memory between them, so an evicted
+ *  isolate would reload with the counter at zero, restart the backoff ladder,
+ *  and go on waking forever — the give-up would read as implemented and do
+ *  nothing. Whether eviction actually occurs at this cadence is a property of
+ *  the platform that is NOT measured here; persisting costs one write per
+ *  change, only while the count is moving, and makes the give-up hold either
+ *  way. The probe covers both: a hot isolate and a fresh one per wake stop at
+ *  the same point. */
+const STALLS_KEY = "stalls";
+
+/** Candidates to request from one generation call for a hop that needs
+ *  `childCount` children.
+ *
+ *  This ADDS rather than taking a maximum, and the difference is the whole
+ *  point. `CANDIDATES_PER_HOP` is calibrated PER CHILD: M0 measured 4 as the
+ *  smallest width that still left at least 3 candidates above the tether floor
+ *  for a hop needing ONE child, and the measured minimum was exactly 3 — no
+ *  slack. A fan of k spends that slack twice, because every pick is added to
+ *  the sibling exclude set as well as being consumed, so a single near-
+ *  duplicate pair inside the batch costs an entire child. `Math.max(4, 3)`
+ *  asked for 4 candidates to fill 3 slots and, on the M0 minimum plus one
+ *  sibling collision, delivered 2 — silently, since `applySeedFan` splices in
+ *  however many arrived and the spawned lineages then have `count === 1`
+ *  forever. There is no second chance at a fan.
+ *
+ *  So the width has to FOLLOW the fan: k children need k-1 more candidates
+ *  than one child does. Raising SEED_FANOUT widens the request automatically —
+ *  which a future reader raising it needs to know, because the calibrated
+ *  number it is added to is a per-child quantity and nothing else scales it. */
+export function candidateWidth(childCount: number): number {
+  return childCount > 1 ? CANDIDATES_PER_HOP + childCount - 1 : CANDIDATES_PER_HOP;
+}
+
+/** Pick up to `count` distinct children out of one candidate batch, excluding
+ *  the lineage's own history and each sibling already chosen.
+ *
+ *  Exported and pure so the loop `candidateWidth` feeds can be exercised
+ *  directly — there is no DO test harness in this repo (issue #31), and this
+ *  loop under-filling is exactly the defect that survived because of it.
+ *
+ *  An under-fill is REPORTED rather than swallowed. A board that promises
+ *  SEED_FANOUT rows and quietly ships two is the failure the width fix exists
+ *  to prevent; if it still happens it has to be diagnosable from a log rather
+ *  than from someone counting rows. Deliberately no retry: the batch is what it
+ *  is on this tick, and a second generation call per fan is real quota spent on
+ *  a case the width is now sized to avoid. */
+export function selectFan(
+  parentEmb: number[],
+  stationEmb: number[],
+  candidates: Candidate[],
+  count: number,
+  history: number[][],
+  lineageId: string,
+): Candidate[] {
+  const chosen: Candidate[] = [];
+  const exclude = [...history];
+  const remaining = [...candidates];
+  for (let i = 0; i < count; i++) {
+    const pick = selectChild(parentEmb, stationEmb, remaining, { exclude });
+    if (!pick) break;
+    chosen.push({ text: pick.text, embedding: pick.embedding });
+    exclude.push(pick.embedding);
+    // Guarded: a bare splice(-1, 1) on a miss would drop the LAST candidate
+    // instead. The pick always comes from `remaining`, so the miss is
+    // unreachable — but the failure mode is silent, so it is cheaper to
+    // exclude it than to reason about it again later.
+    const taken = remaining.findIndex((c) => c.text === pick.text);
+    if (taken !== -1) remaining.splice(taken, 1);
+  }
+  if (chosen.length < count) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        message: "seed fan under-filled",
+        lineage: lineageId,
+        requested: count,
+        delivered: chosen.length,
+        candidates: candidates.length,
+      }),
+    );
+  }
+  return chosen;
+}
 
 /** What one pump tick accomplished, which is what the backoff keys off.
  *  "idle" and "stalled" are deliberately distinct: idle means there was no work
@@ -38,6 +144,9 @@ export class BoardDO extends DurableObject<Env> {
   private ready = false;
   private pumping = false;
   private pumpFailures = 0;
+  /** Last value of `pumpFailures` written to storage, so a healthy board adds
+   *  no write per tick. */
+  private persistedFailures = 0;
   private devFakeAi: AiRunner | null = null;
 
   private aiRunner(): AiRunner {
@@ -55,6 +164,10 @@ export class BoardDO extends DurableObject<Env> {
   private async load(): Promise<void> {
     if (this.ready) return;
     const state = await this.ctx.storage.get<BeltCoreState>("belt");
+    // Rehydrated, not reset: see STALLS_KEY. A board that has already given up
+    // must still be given up after the eviction that its own backoff invites.
+    this.pumpFailures = (await this.ctx.storage.get<number>(STALLS_KEY)) ?? 0;
+    this.persistedFailures = this.pumpFailures;
     // No id factory: BeltCore defaults to crypto.randomUUID(). It must NOT be
     // given a counter here — this object hibernates and wakes on a fresh
     // isolate, so a module-scope counter replays its sequence against hydrated
@@ -176,22 +289,57 @@ export class BoardDO extends DurableObject<Env> {
       result = await this.pumpOnce();
       await this.save();
     } catch (error) {
+      // Force the failure state. `result` is assigned as soon as pumpOnce
+      // returns, so a save() that throws underneath a successful pump would
+      // otherwise leave it "progressed", reset the backoff, and put a board
+      // whose storage is failing back on a 500ms retry loop (probed: six
+      // consecutive failing ticks, backoff 0 throughout).
+      result = "stalled";
       console.error(JSON.stringify({ level: "error", message: "board pump failed", error: String(error) }));
     } finally {
       this.pumping = false;
-      this.pumpFailures = result === "stalled" ? this.pumpFailures + 1 : 0;
+      const stalls = result === "stalled" ? Math.min(this.pumpFailures + 1, MAX_CONSECUTIVE_STALLS) : 0;
+      // Announce the give-up once, as it happens: from here the board produces
+      // nothing until someone touches it, and that should not be silent.
+      if (stalls === MAX_CONSECUTIVE_STALLS && this.pumpFailures < MAX_CONSECUTIVE_STALLS) {
+        console.warn(
+          JSON.stringify({ level: "warn", message: "board pump gave up after consecutive stalls", stalls }),
+        );
+      }
+      this.pumpFailures = stalls;
+      await this.persistStalls();
       await this.rearm();
     }
   }
 
-  /** Reschedule, unless the board has nothing left to do. An idle board lets its
-   *  alarm lapse and is re-armed by the next init/getView/seed, so a board
-   *  nobody is watching does not wake twice a second forever. */
+  /** Write-through, on change only, so a healthy board pays no extra write.
+   *  Never throws: this runs inside the alarm's `finally`. */
+  private async persistStalls(): Promise<void> {
+    if (this.pumpFailures === this.persistedFailures) return;
+    try {
+      await this.ctx.storage.put(STALLS_KEY, this.pumpFailures);
+      this.persistedFailures = this.pumpFailures;
+    } catch (error) {
+      console.error(
+        JSON.stringify({ level: "error", message: "board stall counter write failed", error: String(error) }),
+      );
+    }
+  }
+
+  /** Reschedule, unless the board has nothing left to do or has given up. An
+   *  idle board lets its alarm lapse and is re-armed by the next
+   *  init/getView/seed, so a board nobody is watching does not wake twice a
+   *  second forever; a stalled board stops for the same reason, one saturated
+   *  backoff later. */
   private async rearm(): Promise<void> {
     try {
       if (this.ready && !this.hasPendingWork()) return;
+      if (this.pumpFailures >= MAX_CONSECUTIVE_STALLS) return;
       const shift = Math.min(this.pumpFailures, PUMP_BACKOFF_MAX_SHIFT);
-      await this.ctx.storage.setAlarm(Date.now() + Math.min(PUMP_RETRY_MAX_MS, PUMP_MS * 2 ** shift));
+      // Through schedulePump, NOT a raw setAlarm: this must pull the alarm
+      // forward and never push it out. A seed landing mid-pump has already
+      // asked for 0ms, and a raw set here moved it to the full 30s backoff.
+      await this.schedulePump(Math.min(PUMP_RETRY_MAX_MS, PUMP_MS * 2 ** shift));
     } catch (error) {
       // Storage itself is failing; there is no way left to reschedule.
       console.error(JSON.stringify({ level: "error", message: "board rearm failed", error: String(error) }));
@@ -239,10 +387,7 @@ export class BoardDO extends DurableObject<Env> {
       const texts = await generateRewrites(ai, this.env.GEN_MODEL, {
         fragment: hop.parentText,
         target: station.phrase,
-        // Never ask for fewer candidates than the fan needs children, so
-        // raising SEED_FANOUT above CANDIDATES_PER_HOP cannot quietly starve
-        // the first hop. At the calibrated values (4 and 3) this is just 4.
-        count: Math.max(CANDIDATES_PER_HOP, hop.count),
+        count: candidateWidth(hop.count),
         exclude: (lineage?.cards ?? []).map((c) => c.text),
       });
       if (texts.length === 0) {
@@ -256,21 +401,7 @@ export class BoardDO extends DurableObject<Env> {
       // A seed's first hop takes several children at once, so one generation
       // call turns a lone seed into a fanned board.
       if (hop.count > 1) {
-        const chosen: { text: string; embedding: number[] }[] = [];
-        const exclude = [...history];
-        const remaining = [...candidates];
-        for (let i = 0; i < hop.count; i++) {
-          const pick = selectChild(parentEmb, station.embedding, remaining, { exclude });
-          if (!pick) break;
-          chosen.push({ text: pick.text, embedding: pick.embedding });
-          exclude.push(pick.embedding);
-          // Guarded: a bare splice(-1, 1) on a miss would drop the LAST
-          // candidate instead. The pick always comes from `remaining`, so the
-          // miss is unreachable — but the failure mode is silent, so it is
-          // cheaper to exclude it than to reason about it again later.
-          const taken = remaining.findIndex((c) => c.text === pick.text);
-          if (taken !== -1) remaining.splice(taken, 1);
-        }
+        const chosen = selectFan(parentEmb, station.embedding, candidates, hop.count, history, hop.lineageId);
         if (chosen.length === 0) {
           this.belt.noteHopFailure(hop.lineageId, now());
           return "progressed";
