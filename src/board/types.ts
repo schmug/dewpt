@@ -64,20 +64,46 @@ export const GHOST_DEPTH = 3;
 
 export const EVAPORATED_CAP = 20;
 
-// ── calibrated in M0 (scripts/board-calibrate.ts) ──────────────────────────
-// The values below are the pre-calibration defaults used to get Task 1
-// compiling. Task 2 replaces them with measured numbers and records the
-// evidence. Do not ship on these.
+// ── calibrated in M0, 2026-08-08 ───────────────────────────────────────────
+// Measured by `npm run board-calibrate`. Raw output committed verbatim at
+// docs/measurements/2026-08-08-m0-calibration-run{1,2}.md — read those before
+// changing any value here, and re-run the spike after changing the rewrite
+// prompt, since every number below is measured through it.
+//
+// The M0 gate PASSED: tether separation AUC 0.853 against a 0.80 bar,
+// reproduced identically on both runs.
 
 /** Minimum cosine against the parent for a rewrite to still be a rewrite
- *  rather than a non-sequitur. */
-export const TETHER_FLOOR = 0.5;
+ *  rather than a non-sequitur. The linear-interpolated 5th percentile of 15
+ *  hand-written genuine rewrites — deliberately not their minimum, which
+ *  retains 100% by construction and moves with one bad probe.
+ *
+ *  KNOWN WEAK. At this value 93% of genuine rewrites survive but 53% of
+ *  non-sequiturs do too: the distributions barely separate (genuine p50 0.463,
+ *  non-sequitur p50 0.400). It is the weakest number in the calibration, and
+ *  the sample is 15 hand-written probes, at which size a p05 still swings on a
+ *  single bad one. Widen PROBES in the spike before treating it as precise. */
+export const TETHER_FLOOR = 0.4;
 
 /** Cosine at which a card has effectively reached a station's phrase, so that
- *  direction has nothing left to give. NOTE: this is deliberately NOT
- *  DEGENERATE_POLE_COSINE (0.98) from src/types.ts — that constant was tuned
- *  pole-against-pole and does not transfer to card-against-phrase. */
-export const ARRIVAL_COSINE = 0.9;
+ *  direction has nothing left to give. Set above the interpolated p95 of
+ *  observed rewrite-to-phrase cosines (p50 0.432, p95 0.578, max 0.579), so an
+ *  ordinary hop never false-reports arrival.
+ *
+ *  Deliberately NOT DEGENERATE_POLE_COSINE (0.98) from src/types.ts — that was
+ *  tuned pole-against-pole and does not transfer to card-against-phrase. The
+ *  measured gap between them, 0.35, is the size of the mistake that assumption
+ *  would have been. */
+export const ARRIVAL_COSINE = 0.628;
 
-/** Candidates requested per hop, before tether and dedupe filtering. */
-export const CANDIDATES_PER_HOP = 8;
+/** Candidates requested per hop, before tether and dedupe filtering. The
+ *  smallest measured width where every probe still left at least 3 candidates
+ *  above the floor — 3 rather than 1 because selectChild then drops
+ *  near-duplicates of the lineage's own history, so a hop needs spares.
+ *
+ *  Survivor count is still rising at n=8 and n=12; that does not argue for a
+ *  larger value, because the criterion is a sufficiency threshold rather than a
+ *  maximum. Caveat: ONE generation draw per (width, probe) at temperature 0.9,
+ *  i.e. 3 samples per width, so this will move run to run. Read it as "this
+ *  width sufficed on one draw", not as a stable estimate. */
+export const CANDIDATES_PER_HOP = 4;
