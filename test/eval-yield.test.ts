@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { meanYield, zeroRate, throughput, REQUIRED_THROUGHPUT, type CallResult } from "../scripts/eval-yield";
+import {
+  meanYield,
+  zeroRate,
+  throughput,
+  REQUIRED_THROUGHPUT,
+  STEADY_SPAWN_RATE,
+  EvalMetricError,
+  type CallResult,
+} from "../scripts/eval-yield";
 
 function call(words: number, elapsedMs: number): CallResult {
   return { words: Array.from({ length: words }, (_, i) => `w${i}`), elapsedMs };
@@ -16,6 +24,34 @@ describe("yield metrics", () => {
     expect(zeroRate([call(24, 1000), call(0, 1000), call(0, 1000)])).toBeCloseTo(2 / 3, 6);
     expect(zeroRate([call(1, 1000)])).toBe(0);
   });
+
+  it("refuses a requested count that would make the yield non-finite", () => {
+    // Every one of these used to return Infinity, NaN or a negative yield, all
+    // of which launder into a passing gate downstream.
+    expect(() => meanYield([call(24, 1000)], 0)).toThrow(EvalMetricError);
+    expect(() => meanYield([call(24, 1000)], -24)).toThrow(EvalMetricError);
+    expect(() => meanYield([call(24, 1000)], Number.NaN)).toThrow(EvalMetricError);
+    expect(() => meanYield([call(24, 1000)], Number.POSITIVE_INFINITY)).toThrow(EvalMetricError);
+    expect(() => meanYield([call(24, 1000)], 0)).toThrow(/requested/);
+  });
+
+  it("clamps an overproducing call so it cannot mask a dead one", () => {
+    // 48 words against a request of 24 is 2.0 unclamped, which averaged with a
+    // dead call reported a perfect 1.0. src/generation.ts:149 caps parsed output
+    // in practice, but this must not depend on its caller for that.
+    expect(meanYield([call(48, 1000), call(0, 1000)], 24)).toBeCloseTo(0.5, 6);
+    expect(meanYield([call(48, 1000)], 24)).toBe(1);
+  });
+});
+
+describe("empty batches", () => {
+  it("refuses to report a rate over zero calls", () => {
+    // zeroRate is the fail-open one: the old sentinel 0 means "no dead cycles",
+    // i.e. perfect, so a total generation outage reported as ideal.
+    expect(() => zeroRate([])).toThrow(EvalMetricError);
+    expect(() => meanYield([], 24)).toThrow(EvalMetricError);
+    expect(() => throughput([])).toThrow(EvalMetricError);
+  });
 });
 
 describe("throughput", () => {
@@ -27,9 +63,27 @@ describe("throughput", () => {
     expect(throughput([call(0, 50_000)])).toBe(0);
   });
 
-  it("states the field's drain ceiling", () => {
-    // public/field.js:162 — interval = 2400 - drizzle*19 ms, +0-400ms jitter,
-    // one spawn per tick. At drizzle 100 the mean interval is ~700ms.
-    expect(REQUIRED_THROUGHPUT).toBeCloseTo(1.43, 2);
+  it("refuses degenerate elapsed times instead of absorbing them", () => {
+    // Each of these used to return a number: 0 with 20 words vanishing, -20
+    // words/sec, or a bare 0 for a zero-duration batch.
+    expect(() => throughput([call(10, 1000), call(10, -1000)])).toThrow(EvalMetricError);
+    expect(() => throughput([call(10, 1000), call(10, -2000)])).toThrow(EvalMetricError);
+    expect(() => throughput([call(10, Number.NaN)])).toThrow(EvalMetricError);
+    expect(() => throughput([call(10, Number.POSITIVE_INFINITY)])).toThrow(EvalMetricError);
+    expect(() => throughput([call(20, 0)])).toThrow(/elapsed/);
+  });
+
+  it("derives the steady spawn rate from the loop's interval formula", () => {
+    // Recomputed from the literals the constants are built out of, so editing
+    // the base interval (2400), the ms-per-drizzle-step (19), the jitter span
+    // (400) or the slider max (100, public/index.html:118) fails here rather
+    // than silently drifting from public/field.js:162.
+    expect(STEADY_SPAWN_RATE).toBe(1000 / (2400 - 100 * 19 + 400 / 2));
+  });
+
+  it("uses the minimum interval, not the mean, as the required throughput", () => {
+    expect(REQUIRED_THROUGHPUT).toBe(1000 / (2400 - 100 * 19));
+    // The ceiling must exceed the asymptotic mean, or it is not a ceiling.
+    expect(REQUIRED_THROUGHPUT).toBeGreaterThan(STEADY_SPAWN_RATE);
   });
 });
