@@ -83,6 +83,31 @@ export function localAiRunner(config: LocalAiConfig): AiRunner {
   };
 }
 
+/** Workers AI over its REST API rather than a binding. Scripts run in node with
+ *  no binding available, and this path is also unaffected by the wrangler-dev
+ *  egress traps documented in CLAUDE.md. */
+export function restAiRunner(accountId: string, token: string): AiRunner {
+  return {
+    async run(model, inputs) {
+      const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify(inputs),
+      });
+      const body = (await response.json()) as {
+        success: boolean;
+        result?: unknown;
+        errors?: { message: string }[];
+      };
+      if (!response.ok || !body.success) {
+        const detail = body.errors?.map((e) => e.message).join("; ") || `HTTP ${response.status}`;
+        throw new Error(`Workers AI call failed for ${model}: ${detail}`);
+      }
+      return body.result;
+    },
+  };
+}
+
 export interface AiEnv {
   /** The Workers AI binding. Typed loosely on purpose: the generated `Ai` type
    *  overloads `run` per model id, and dewpt's model names come from vars, so

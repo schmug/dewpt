@@ -8,7 +8,8 @@
 //
 // The API token needs the "Workers AI - Read" permission.
 
-import { bandTemperature, generateCandidates, type AiRunner } from "../src/generation";
+import { restAiRunner } from "../src/ai-runner";
+import { bandTemperature, generateCandidates } from "../src/generation";
 
 const DEFAULT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const BATCHES = [
@@ -17,24 +18,6 @@ const BATCHES = [
   { label: "strangeness 0.85 (far-field: surreal but tethered)", strangeness: 0.85 },
 ];
 const ALTITUDE = 0.3;
-
-function restRunner(accountId: string, token: string): AiRunner {
-  return {
-    async run(model, inputs) {
-      const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify(inputs),
-      });
-      const body = (await res.json()) as { success: boolean; result?: unknown; errors?: { message: string }[] };
-      if (!res.ok || !body.success) {
-        const detail = body.errors?.map((e) => e.message).join("; ") || `HTTP ${res.status}`;
-        throw new Error(`Workers AI call failed for ${model}: ${detail}`);
-      }
-      return body.result;
-    },
-  };
-}
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -59,7 +42,7 @@ async function main(): Promise<void> {
 
   const model = flags.get("model") || DEFAULT_MODEL;
   const count = Number(flags.get("count")) || 24;
-  const ai = restRunner(accountId, token);
+  const ai = restAiRunner(accountId, token);
 
   console.log(`seed:  ${seed}`);
   console.log(`model: ${model}   altitude: ${ALTITUDE}   count: ${count}\n`);

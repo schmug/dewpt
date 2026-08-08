@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { aiMode, localAiRunner, selectAiRunner } from "../src/ai-runner";
+import { aiMode, localAiRunner, restAiRunner, selectAiRunner } from "../src/ai-runner";
 import { embedTexts, generateCandidates, type AiRunner } from "../src/generation";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -250,5 +250,25 @@ describe("selectAiRunner", () => {
     expect(result.data).toHaveLength(1);
     expect(impl).not.toHaveBeenCalled();
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("restAiRunner", () => {
+  it("posts to the Workers AI account endpoint and unwraps result", async () => {
+    const { calls } = captureFetch(() =>
+      jsonResponse({ success: true, result: { response: '["a"]' } }),
+    );
+
+    const out = await restAiRunner("acct123", "tok456").run("@cf/meta/llama", { messages: [] });
+
+    expect(calls[0]!.url).toBe("https://api.cloudflare.com/client/v4/accounts/acct123/ai/run/@cf/meta/llama");
+    expect(new Headers(calls[0]!.init.headers).get("authorization")).toBe("Bearer tok456");
+    expect(out).toEqual({ response: '["a"]' });
+  });
+
+  it("throws with the provider message when success is false", async () => {
+    captureFetch(() => jsonResponse({ success: false, errors: [{ message: "no such model" }] }, 404));
+
+    await expect(restAiRunner("a", "t").run("@cf/nope", { messages: [] })).rejects.toThrow(/no such model/);
   });
 });
