@@ -27,8 +27,8 @@ export interface ScoredCandidate extends Candidate {
    *  holds without qualification.
    *
    *  ITS ORDERING IS NOT GLOBALLY MONOTONE IN TRAVEL. Where a candidate ranks
-   *  depends on three things, not one: the angle between parent and phrase, how
-   *  far the candidate travelled, and whether the embeddings are
+   *  depends on the angle between parent and phrase, how far the candidate
+   *  travelled, how far off that aim it landed, and whether the embeddings are
    *  unit-normalized. Earlier versions of this comment gave a closed form and a
    *  "higher means further" rule read off the orthogonal case alone; both were
    *  wrong away from it, so do not restate this as a formula. The regimes that
@@ -48,9 +48,11 @@ export interface ScoredCandidate extends Candidate {
    *    barely-moved candidate outscore a real traveller off the unit sphere".
    *
    *  Outside those three the ordering is unmeasured; do not assume it. NOTHING
-   *  IN THIS REPO NORMALIZES OR ASSERTS EMBEDDING MAGNITUDE and no doc records
-   *  the assumption, which is what keeps the third case reachable rather than
-   *  theoretical.
+   *  ON THE PRODUCTION EMBEDDING PATH NORMALIZES OR ASSERTS MAGNITUDE —
+   *  `embedTexts` passes model output straight through — and no doc records the
+   *  assumption, which is what keeps the third case reachable rather than
+   *  theoretical. (`dev-fake-ai.ts` does normalize its pseudo-embeddings, so
+   *  tests exercise the sphere the real path never guarantees.)
    *
    *  The tether is a separate floor rather than a term in this score so the two
    *  stay independently tunable. */
