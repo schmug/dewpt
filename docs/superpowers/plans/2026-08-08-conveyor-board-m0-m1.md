@@ -1614,13 +1614,19 @@ export class BoardDO extends DurableObject<Env> {
     return this.belt.view();
   }
 
-  async seed(text: string): Promise<BoardView | null> {
+  /** `addSeed` returns false when the board is at MAX_LINEAGES. That boolean
+   *  MUST be honoured and surfaced: the first draft of this method discarded
+   *  it, which made a full board answer 200 with an unchanged view — the typed
+   *  word simply vanished with no error, no status and nothing for the client
+   *  to react to. Silent no-op on a user's direct action is worse than an
+   *  error, and it is invisible to `if (!res.ok)`. */
+  async seed(text: string): Promise<{ view: BoardView; accepted: boolean } | null> {
     await this.load();
     if (this.belt.stations().length === 0) return null;
-    this.belt.addSeed(text, Date.now());
+    const accepted = this.belt.addSeed(text, Date.now());
     await this.save();
     await this.schedulePump();
-    return this.belt.view();
+    return { view: this.belt.view(), accepted };
   }
 
   /** Expand each default term to a descriptive phrase and embed it. A bare
@@ -1789,8 +1795,15 @@ Then, inside `handleApi`, immediately before the line `const match = path.match(
       if (!body) return badRequest("expected a JSON object body");
       const text = parseText(body);
       if (!text) return badRequest(`text must be a non-empty string of at most ${MAX_TEXT_CHARS} characters`);
-      const view = await board.seed(text);
-      return view ? json(view) : json({ error: "no such board" }, 404);
+      const result = await board.seed(text);
+      if (!result) return json({ error: "no such board" }, 404);
+      // 409, not 200, when the board is at MAX_LINEAGES. The client cannot
+      // distinguish "accepted" from "silently dropped" if both answer 200 with
+      // a view, and the seed the user typed would just disappear. The view is
+      // still returned so the client can repaint without a follow-up GET —
+      // same pattern as the axes route's 409/422 responses in this file.
+      if (!result.accepted) return json({ error: "the board is full", ...result.view }, 409);
+      return json(result.view);
     }
 
     return json({ error: "not found" }, 404);
