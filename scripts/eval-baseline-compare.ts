@@ -81,7 +81,10 @@ function directionOf(metric: string): "higher" | "lower" | undefined {
   return hasOwn(METRIC_DIRECTION, metric) ? METRIC_DIRECTION[metric as MetricKey] : undefined;
 }
 
-function entryOf(baseline: Baseline, metric: string): BaselineEntry | undefined {
+/** `| null` is not in `Baseline`, and that is the point: the caller parses
+ *  eval-baseline.json off disk, where `"dewpointAuc": null` is a shape
+ *  hand-editing produces and the type cannot prevent. */
+function entryOf(baseline: Baseline, metric: string): BaselineEntry | null | undefined {
   return hasOwn(baseline.metrics, metric) ? baseline.metrics[metric as MetricKey] : undefined;
 }
 
@@ -117,7 +120,9 @@ export function compareToBaseline(
     // which the non-finite rule below treats as a failure rather than a zero.
     const value = raw ?? NaN;
     const entry = entryOf(baseline, metric);
-    const mean = entry !== undefined && Number.isFinite(entry.mean) ? entry.mean : null;
+    // Loose `!=` deliberately: a null entry has to reach the corrupt-baseline
+    // guard below, and `null !== undefined` walks it straight into `.mean`.
+    const mean = entry != null && Number.isFinite(entry.mean) ? entry.mean : null;
     // Deltas print on every run, gated or not: report-only mode is the exact
     // mode meant to answer "what changed when I switched models". A threshold,
     // in contrast, is only reported when one was actually applied.
@@ -144,8 +149,8 @@ export function compareToBaseline(
     if (entry === undefined) return report("skipped", "no baseline entry");
     // A corrupt baseline is not a green light. Without this, a missing stddev
     // makes the threshold NaN and every comparison against it passes.
-    if (!Number.isFinite(entry.mean) || !Number.isFinite(entry.stddev)) {
-      return report("fail", `corrupt baseline entry: mean=${entry.mean} stddev=${entry.stddev}`);
+    if (entry === null || !Number.isFinite(entry.mean) || !Number.isFinite(entry.stddev)) {
+      return report("fail", `corrupt baseline entry: mean=${entry?.mean} stddev=${entry?.stddev}`);
     }
     // A metric that failed to compute is a failure, not a pass: every NaN
     // comparison is false, so an unguarded NaN can never trip `failed`.
@@ -155,11 +160,23 @@ export function compareToBaseline(
 
     // The first recorded baseline comes from a single run, so stddev is 0 for
     // every metric and the raw band admits only bit-exact equality — a 1e-15
-    // drift would fail the gate. Floor it. The relative term (2% of the mean)
-    // scales with unbounded metrics like throughput (~14 candidates/sec); the
-    // absolute term covers metrics in [0,1] — the AUCs and the rates — where
-    // 2% of a small mean is itself smaller than the run-to-run noise.
-    const sigma = Math.max(entry.stddev, 0.02 * Math.abs(entry.mean), 0.005);
+    // drift would fail the gate. Floor it, but ONLY for such a degenerate
+    // baseline. Unconditionally, the relative term dominates for any mean above
+    // 0.25: a dewpointAuc stddev of 0.001 became 0.0172 (17.2x), a thirty-sigma
+    // 0.86 -> 0.83 drop reported "pass", and no n could ever make the gate
+    // sharper than +-3.4% of the mean. A baseline with n >= 2 and a real spread
+    // has measured its own noise; using it is what lets the gate keep
+    // tightening as n grows. Ordering matters: the guard above has already
+    // rejected a non-finite mean or stddev, so `degenerate` only has to decide
+    // between "no measurement" and "a measurement".
+    const degenerate = !(entry.n >= 2) || !(entry.stddev > 0);
+    // The relative term (2% of the mean) scales with unbounded metrics like
+    // throughput (~14 candidates/sec); the absolute term covers metrics in
+    // [0,1] — the AUCs and the rates — where 2% of a small mean is itself
+    // smaller than the run-to-run noise.
+    const sigma = degenerate
+      ? Math.max(entry.stddev, 0.02 * Math.abs(entry.mean), 0.005)
+      : entry.stddev;
     const threshold =
       direction === "lower" ? entry.mean + sigmas * sigma : entry.mean - sigmas * sigma;
     const failed = direction === "lower" ? value > threshold : value < threshold;

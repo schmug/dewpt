@@ -195,6 +195,74 @@ describe("compareToBaseline", () => {
     expect(slow.comparisons[0]!.verdict).toBe("fail");
   });
 
+  it("still floors a degenerate baseline, so float noise cannot fire the gate", () => {
+    // The reason the floor exists at all, restated as its own test so making
+    // it conditional cannot quietly drop it. 1e-12 is ~10^4 ulps of 0.86.
+    const noise = compareToBaseline(
+      { dewpointAuc: 0.86 - 1e-12 },
+      baseline({ dewpointAuc: { mean: 0.86, stddev: 0, n: 1 } }),
+      PROV,
+    );
+    expect(noise.comparisons[0]!.threshold).toBeCloseTo(0.86 - 2 * 0.0172, 12);
+    expect(noise.comparisons[0]!.verdict).toBe("pass");
+
+    // n < 2 is degenerate on its own: whatever a single run recorded as a
+    // spread is not a measurement of run-to-run noise, so the floor still
+    // applies and this 0.03 drop stays inside the floored band.
+    const singleRun = compareToBaseline(
+      { dewpointAuc: 0.83 },
+      baseline({ dewpointAuc: { mean: 0.86, stddev: 0.001, n: 1 } }),
+      PROV,
+    );
+    expect(singleRun.comparisons[0]!.threshold).toBeCloseTo(0.86 - 2 * 0.0172, 12);
+    expect(singleRun.comparisons[0]!.verdict).toBe("pass");
+  });
+
+  it("uses the measured stddev once the baseline has one, instead of the floor", () => {
+    // The floor exists for a degenerate baseline only. Applied unconditionally
+    // the relative term (2% of the mean) dominates above a mean of 0.25: a
+    // dewpointAuc stddev of 0.001 was widened to 0.0172 — 17.2x — and this
+    // thirty-sigma 0.86 -> 0.83 drop reported "pass". No n could ever make the
+    // gate sharper than +-3.4% of the mean.
+    const result = compareToBaseline(
+      { dewpointAuc: 0.83 },
+      baseline({ dewpointAuc: { mean: 0.86, stddev: 0.001, n: 10 } }),
+      PROV,
+    );
+    expect(result.comparisons[0]!.threshold).toBeCloseTo(0.858, 12);
+    expect(result.comparisons[0]!.verdict).toBe("fail");
+    expect(result.passed).toBe(false);
+  });
+
+  it("passes a well-measured baseline when the observation is inside its band", () => {
+    // The sharper band is only correct if it still admits genuine noise: 1.5
+    // sigma below a well-measured mean is not a regression.
+    const result = compareToBaseline(
+      { dewpointAuc: 0.8585 },
+      baseline({ dewpointAuc: { mean: 0.86, stddev: 0.001, n: 10 } }),
+      PROV,
+    );
+    expect(result.comparisons[0]!.threshold).toBeCloseTo(0.858, 12);
+    expect(result.comparisons[0]!.verdict).toBe("pass");
+    expect(result.passed).toBe(true);
+  });
+
+  it("fails rather than throws when a baseline entry is null", () => {
+    // Hand-edited or partially-written JSON produces `"dewpointAuc": null`.
+    // `null !== undefined` is true, so the entry walked past the no-entry skip
+    // and into `entry.mean`, throwing a TypeError instead of returning the
+    // corrupt-baseline failure written for exactly this shape.
+    const result = compareToBaseline(
+      { dewpointAuc: 0.86 },
+      baseline({ dewpointAuc: null } as unknown as Baseline["metrics"]),
+      PROV,
+    );
+    expect(result.comparisons[0]!.verdict).toBe("fail");
+    expect(result.comparisons[0]!.reason).toMatch(/corrupt baseline entry/);
+    expect(result.comparisons[0]!.baseline).toBeNull();
+    expect(result.passed).toBe(false);
+  });
+
   it("skips only throughput when the baseline came from another machine", () => {
     // throughput is wall-clock; the AUCs are model-dependent and stay
     // comparable across machines, so a machine change must not silence them.
