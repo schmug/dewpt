@@ -1,11 +1,10 @@
 /** Yield, zero-rate and throughput aggregation over generation calls.
  *
- *  Pure: no node APIs, no I/O — by convention, not by compiler. `tsconfig.json`
- *  sets `"types": []`, but that does not police this file: `@types/node` leaks
- *  in through vitest's own type surface, and `tsconfig.scripts.json` (which is
- *  what actually covers `scripts/**`) sets `"types": ["node"]`. So the
- *  typechecker will happily accept `process` or `node:fs` here. Keeping this
- *  module runtime-agnostic is a rule a dedicated test enforces, not the build. */
+ *  Runtime-agnostic by convention only: nothing currently enforces it. The
+ *  typechecker will not — tsconfig.scripts.json sets "types": ["node"] and
+ *  covers scripts/**, and @types/node leaks into the tsconfig.json program via
+ *  vitest's type surface, so `process` and `node:fs` resolve under both. A
+ *  guard test is planned; until it lands, this comment is the only guard. */
 
 /** The spawn loop in public/field.js:162 — `interval = 2400 - drizzle * 19` ms
  *  plus `Math.random() * 400` of jitter, one spawn attempt per tick. The same
@@ -31,7 +30,7 @@ export const STEADY_SPAWN_RATE = 1000 / MEAN_INTERVAL_MS;
 /** The instantaneous ceiling of the spawn loop at drizzle 100: 2.0 words/sec.
  *
  *  Treat this as a LOWER BOUND on the real generation requirement, not the
- *  requirement itself. Three things push the true number higher, none of them
+ *  requirement itself. Two things push the true number higher, neither of them
  *  measured here:
  *
  *  - **Draw amplification.** This counts spawns, not pool words. `pickWord`

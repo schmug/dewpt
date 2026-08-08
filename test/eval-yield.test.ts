@@ -76,8 +76,9 @@ describe("throughput", () => {
   it("derives the steady spawn rate from the loop's interval formula", () => {
     // Recomputed from the literals the constants are built out of, so editing
     // the base interval (2400), the ms-per-drizzle-step (19), the jitter span
-    // (400) or the slider max (100, public/index.html:118) fails here rather
-    // than silently drifting from public/field.js:162.
+    // (400) or the slider max (100) in the module fails here. This does not
+    // read public/field.js — the literals are duplicated, so it catches edits
+    // to the module constants only, not drift in the spawn loop itself.
     expect(STEADY_SPAWN_RATE).toBe(1000 / (2400 - 100 * 19 + 400 / 2));
   });
 
