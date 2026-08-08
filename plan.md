@@ -53,6 +53,26 @@ Two changes, both forced by facts checked against the repo rather than assumed:
 
 ---
 
+## File overlap is necessary but NOT sufficient
+
+The matrix below answers "can these two agents write at the same time without
+conflicting?" It does **not** answer "can these two agents work at the same
+time?" Those are different questions, and conflating them cost a wave.
+
+N2 and N3 were scheduled in parallel because their file sets are disjoint —
+correct for N2 as originally specced, a self-contained measurement script. Then
+review found that the script measured a prompt that never ships, and the fix was
+to call N3's `generateRewrites`. That created a **code** dependency where there
+had been no **file** dependency, on a branch that had forked before N3 existed.
+The fix agent's branch could not compile, and it correctly refused to work around
+it by copying N3's prompt locally — which would have reintroduced the very drift
+the fix existed to prevent.
+
+**The rule that was missing:** a node may only be scheduled in a wave if every
+symbol it imports already exists at the wave's base commit. Re-derive that after
+any brief changes, not once when the DAG is drawn. A remediation brief can
+introduce a dependency the original node never had.
+
 ## File-overlap matrix — who must be serialized
 
 These pairs touch a common file and **must not run concurrently**:
