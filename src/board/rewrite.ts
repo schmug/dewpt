@@ -19,7 +19,14 @@ export interface Candidate {
 }
 
 export interface ScoredCandidate extends Candidate {
-  /** Displacement projected onto the intended direction. Higher is further. */
+  /** COSINE between the candidate's displacement and the intended direction —
+   *  alignment, not distance. Higher means better aimed, NOT further travelled:
+   *  a tiny nudge exactly along `phrase - parent` outscores a large, mostly
+   *  aligned move. That is deliberate (it is also what `coordsFor` does for the
+   *  field, raw on purpose), and it is why the tether floor is a floor rather
+   *  than part of the score — the two pull in opposite directions and must stay
+   *  separable. Whether alignment-only selection actually makes a chain
+   *  progress rather than crawl is measured by scripts/board-calibrate.ts. */
   score: number;
   /** Cosine against the parent. Low means the "rewrite" drifted off-topic. */
   tether: number;
