@@ -1065,12 +1065,18 @@ describe("applyHop", () => {
 });
 
 describe("view", () => {
+  // NOTE: this substring form is WRONG and was replaced during implementation.
+  // A card whose text contains the word "embedding" fails it with nothing
+  // leaked, which is plausible on a board of LLM-generated fragments. The
+  // shipped version walks keys structurally via a `keysDeep` helper, and is
+  // paired with a companion test asserting keysDeep(serialize()) DOES contain
+  // "embedding" — without that, the guard could pass vacuously.
   it("never puts an embedding on the wire", () => {
     const belt = new BeltCore({ stations: stations() });
-    belt.addSeed("urban gardening", 1000);
+    belt.addSeed("word embedding tricks", 1000);
     const id = belt.lineages()[0]!.id;
     belt.applySeedFan(id, [child("a")], 1001);
-    expect(JSON.stringify(belt.view())).not.toContain("embedding");
+    expect(keysDeep(belt.view())).not.toContain("embedding");
   });
 
   it("trims ghosts beyond GHOST_DEPTH behind the head", () => {
@@ -1509,13 +1515,18 @@ describe("board wire format", () => {
     expect(first!.phrase).not.toBe("concretize");
   });
 
+  // A substring match on JSON.stringify was the FIRST version of this guard and
+  // it is wrong: a card whose text contains the word "embedding" — entirely
+  // plausible on a board of LLM-generated idea fragments — fails it with
+  // nothing leaked. Node N5 replaced it with a structural key walk; reuse that
+  // helper here rather than reintroducing the substring check.
   it("contains no embedding key anywhere, at any depth", () => {
     const belt = new BeltCore({ stations: readyStations() });
-    belt.addSeed("urban gardening", 1000);
+    belt.addSeed("word embedding tricks", 1000); // the input that broke the old guard
     belt.applySeedFan(belt.lineages()[0]!.id, [{ text: "rooftop bee lease", embedding: [1, 0, 0] }], 1001);
-    const wire = JSON.stringify(belt.view());
-    expect(wire).not.toContain("embedding");
-    expect(wire).toContain("rooftop bee lease");
+    const view = belt.view();
+    expect(keysDeep(view)).not.toContain("embedding");
+    expect(JSON.stringify(view)).toContain("rooftop bee lease");
   });
 
   it("marks a station not ready while its pole is still being embedded", () => {
