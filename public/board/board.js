@@ -73,6 +73,28 @@ async function poll() {
   setTimeout(poll, POLL_MS);
 }
 
+/** The board's words for a refused seed.
+ *
+ *  Only the server actually signalling capacity — 409, or an error body naming
+ *  it — earns the capacity line. Telling someone to wait for a row to blow off
+ *  the edge is advice they can act on when the board is full and a lie when it
+ *  is a 400 or a 500; on a 404 it is worse than a lie, because the board they
+ *  are waiting on no longer exists. */
+async function seedFailure(res) {
+  let reason = "";
+  try {
+    const body = await res.json();
+    if (body && typeof body.error === "string") reason = body.error;
+  } catch {
+    // No body, or not JSON. Decide on the status alone.
+  }
+  if (res.status === 409 || /\bfull\b|capacity/i.test(reason)) {
+    return "the board is full — wait for a row to blow off the edge";
+  }
+  if (res.status === 404) return "that board is gone — reload to start a new one";
+  return "the board would not take that one — try again";
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = input.value.trim();
@@ -86,7 +108,7 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify({ text }),
     });
     if (!res.ok) {
-      say("the board is full — wait for a row to blow off the edge");
+      say(await seedFailure(res));
       return;
     }
     say("");

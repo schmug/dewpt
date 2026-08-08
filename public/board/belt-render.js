@@ -62,9 +62,12 @@ export function renderEvaporated(list, evaporated) {
   list.replaceChildren(...ghosts.map((ghost) => el("li", "board-ghost", ghost.text)));
 }
 
-/** One entry point so board.js never has to remember the paint order. */
+/** One entry point so board.js never has to remember the paint order. Guards
+ *  `view` the same way renderStations and renderLineages do: a malformed or
+ *  empty body must paint an empty board, not throw halfway through and leave
+ *  the surface holding the previous tick's cards. */
 export function paintBoard(nodes, view) {
   renderStations(nodes.stations, view);
   renderLineages(nodes.belt, view);
-  renderEvaporated(nodes.evaporated, view.evaporated);
+  renderEvaporated(nodes.evaporated, view && view.evaporated);
 }

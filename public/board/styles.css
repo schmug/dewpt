@@ -27,6 +27,9 @@
   box-sizing: border-box;
   margin: 0;
   padding: 28px clamp(16px, 4vw, 48px);
+  /* vh first as the fallback for browsers without dvh, dvh second so it wins
+     where supported — same two-line idiom, same reason, as public/styles.css. */
+  min-height: 100vh;
   min-height: 100dvh;
   background: var(--board-ground);
   color: var(--board-ink);

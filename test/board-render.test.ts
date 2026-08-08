@@ -124,8 +124,11 @@ describe("ghostOpacity", () => {
 
 describe("placeCards", () => {
   it("puts a card in the column its stationIndex names, 1-based for CSS grid", () => {
-    const placements = placeCards(view([lineage("l1", ["seed", "child", "grandchild"])]));
-    expect(placements.map((p) => p.column)).toEqual([1, 2, 3]);
+    // Starts at station 2, not station 0. A lineage whose first visible card is
+    // the seed cannot tell `stationIndex + 1` apart from `cardIndex + 1` — both
+    // produce [1, 2, 3] — and the two are the same only by coincidence.
+    const placements = placeCards(view([lineage("l1", ["seed", "child", "grandchild"], { from: 2 })], 4));
+    expect(placements.map((p) => p.column)).toEqual([3, 4, 5]);
   });
 
   it("keeps the column tied to stationIndex when ghosts have been trimmed away", () => {
@@ -219,11 +222,15 @@ describe("columnCount", () => {
     expect(columnCount({ stations: [], lineages: [], evaporated: [] })).toBe(2);
   });
 
-  it("leaves room for every column placeCards actually uses", () => {
-    // A head that has passed the last station sits in the edge column, which is
-    // stations.length + 1. Undercounting here would clip it off the grid.
-    const board = view([lineage("l1", ["a", "b", "c", "d"])], 3);
+  it("leaves room for every column placeCards actually uses, edge column included", () => {
+    // The head sits one past the last station — stationIndex 4 with 3 stations,
+    // so column 5, the edge column belt-model.js reserves for a head that has
+    // finished the belt. A lineage that stops at the last station instead
+    // (widest = stations.length + 1) fits a grid one column too narrow, so it
+    // cannot tell a correct count from one that has dropped the edge column.
+    const board = view([lineage("l1", ["a", "b", "c", "d"], { from: 1 })], 3);
     const widest = Math.max(...placeCards(board).map((p) => p.column));
+    expect(widest).toBe(5);
     expect(widest).toBeLessThanOrEqual(columnCount(board));
   });
 });
