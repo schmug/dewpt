@@ -95,9 +95,16 @@ export function duplicateRate(vectors: number[][], threshold: number = DEDUPE_CO
   // 1 is unreachable and reports a flawless 0 for a batch of literal duplicates
   // — exactly what a NaN threshold does. `!(a && b)` also rejects NaN, which
   // compares false against both bounds.
-  if (!(threshold >= -1 && threshold <= 1)) {
+  //
+  // The interval is half-open, and deliberately asymmetric. The comparison
+  // below is strict `>`, and cosine is bounded ABOVE by 1, so a threshold of
+  // exactly 1 flags nothing — the same fail-open, one ulp inside a closed
+  // range. -1 stays legal because cosine attains it and a threshold of -1
+  // flags every pair except an exactly antipodal one: over-strict, which is
+  // fail-closed and gives a lower-is-better gate nothing to hide behind.
+  if (!(threshold >= -1 && threshold < 1)) {
     throw new EvalMetricError(
-      `threshold is outside cosine's [-1, 1] range (${threshold}): no pair could ever exceed it`,
+      `threshold is outside cosine's usable [-1, 1) range (${threshold}): no pair could ever exceed it`,
     );
   }
   const admitted: number[][] = [];

@@ -208,7 +208,7 @@ describe("non-finite inputs (guard C)", () => {
     ).toBe("EvalMetricError");
   });
 
-  it("duplicateRate rejects a threshold outside cosine's [-1, 1] range", () => {
+  it("duplicateRate rejects a threshold outside cosine's usable [-1, 1) range", () => {
     // A NaN threshold compares false against everything, reporting a flawless 0
     // for a batch of literal duplicates. So does any threshold above 1, because
     // cosine is bounded to [-1, 1] and can never exceed it — 5, 1.5 and even
@@ -220,38 +220,68 @@ describe("non-finite inputs (guard C)", () => {
       [1, 0],
     ];
     expect(() => duplicateRate(identical, Number.NaN)).toThrow(
-      /threshold is outside cosine's \[-1, 1\] range/,
+      /threshold is outside cosine's usable \[-1, 1\) range/,
     );
     expect(() => duplicateRate(identical, Number.POSITIVE_INFINITY)).toThrow(
-      /threshold is outside cosine's \[-1, 1\] range/,
+      /threshold is outside cosine's usable \[-1, 1\) range/,
     );
-    expect(() => duplicateRate(identical, 5)).toThrow(/threshold is outside cosine's \[-1, 1\] range/);
+    expect(() => duplicateRate(identical, 5)).toThrow(/threshold is outside cosine's usable \[-1, 1\) range/);
     expect(() => duplicateRate(identical, 1.5)).toThrow(
-      /threshold is outside cosine's \[-1, 1\] range/,
+      /threshold is outside cosine's usable \[-1, 1\) range/,
     );
     expect(() => duplicateRate(identical, 1.0000001)).toThrow(
-      /threshold is outside cosine's \[-1, 1\] range/,
+      /threshold is outside cosine's usable \[-1, 1\) range/,
     );
     expect(() => duplicateRate(identical, -1.0000001)).toThrow(
-      /threshold is outside cosine's \[-1, 1\] range/,
+      /threshold is outside cosine's usable \[-1, 1\) range/,
     );
     expect(thrownName(() => duplicateRate(identical, 5))).toBe("EvalMetricError");
     // The true rate for this batch, which every rejected threshold hid behind a 0.
     expect(duplicateRate(identical)).toBeCloseTo(2 / 3, 6);
   });
 
-  it("accepts the endpoints of the range", () => {
-    // 1 and -1 are values cosine actually attains, so the guard lets them
-    // through: -1 is the loosest legal setting and 1 the strictest. Note the
-    // comparison is strict `>`, so a threshold of exactly 1 still fires for
-    // nothing — the guard bounds the argument to cosine's range, it does not
-    // promise every in-range threshold is reachable.
-    const orthogonal = [
+  it("rejects a threshold of exactly 1, which no pair can ever exceed", () => {
+    // The endpoints are NOT symmetric, because the comparison is strict `>`.
+    // Cosine is bounded above by 1, so a threshold of 1.0 flags nothing at all
+    // — the same fail-OPEN as NaN or 5, just one ulp inside the closed range.
+    // These three IDENTICAL vectors have a true rate of 2/3 and would report
+    // flawless deduplication instead.
+    const identical = [
       [1, 0],
-      [0, 1],
+      [1, 0],
+      [1, 0],
     ];
-    expect(duplicateRate(orthogonal, 1)).toBe(0);
-    expect(duplicateRate(orthogonal, -1)).toBeCloseTo(0.5, 6);
+    expect(() => duplicateRate(identical, 1)).toThrow(
+      /threshold is outside cosine's usable \[-1, 1\) range/,
+    );
+    expect(thrownName(() => duplicateRate(identical, 1))).toBe("EvalMetricError");
+    expect(duplicateRate(identical)).toBeCloseTo(2 / 3, 6);
+  });
+
+  it("accepts -1, the loosest attainable threshold", () => {
+    // The lower endpoint stays legal, and the asymmetry is principled: cosine
+    // attains -1, and with strict `>` a threshold of -1 flags every pair EXCEPT
+    // an exactly antipodal one. That is fail-CLOSED — over-strict in the
+    // direction that reports too MANY duplicates — so there is nothing here for
+    // a lower-is-better gate to hide behind.
+    expect(
+      duplicateRate(
+        [
+          [1, 0],
+          [0, 1],
+        ],
+        -1,
+      ),
+    ).toBeCloseTo(0.5, 6);
+    expect(
+      duplicateRate(
+        [
+          [1, 0],
+          [-1, 0],
+        ],
+        -1,
+      ),
+    ).toBe(0);
   });
 
   it("dewpointAuc rejects non-finite components in the seed or either band", () => {
