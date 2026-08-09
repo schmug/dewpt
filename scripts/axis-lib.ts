@@ -44,36 +44,10 @@ export function cosine(a: number[], b: number[]): number {
 }
 
 // ── ranking metrics ────────────────────────────────────────────────────────
+// Re-exported from src/metrics.ts, which band-spike.ts also uses. One AUC in
+// the codebase, so two spikes cannot disagree about what the number means.
 
-/** Probability a random positive outranks a random negative (Mann-Whitney U).
- *  1.0 = perfect ordering, 0.5 = chance. This is the spike's headline number. */
-export function auc(posScores: number[], negScores: number[]): number {
-  const all = [
-    ...posScores.map((s) => ({ s, p: true })),
-    ...negScores.map((s) => ({ s, p: false })),
-  ];
-  all.sort((a, b) => a.s - b.s);
-  let rankSum = 0;
-  all.forEach((item, i) => {
-    if (item.p) rankSum += i + 1;
-  });
-  return (rankSum - (posScores.length * (posScores.length + 1)) / 2) / (posScores.length * negScores.length);
-}
-
-/** Standardised mean difference — how far apart the two groups sit, in pooled
- *  standard deviations. Complements AUC: AUC says "ordered correctly", d says
- *  "and by a wide margin". */
-export function cohensD(a: number[], b: number[]): number {
-  const m = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
-  const variance = (xs: number[]) => {
-    const mu = m(xs);
-    return xs.reduce((s, x) => s + (x - mu) ** 2, 0) / (xs.length - 1);
-  };
-  const pooled = Math.sqrt(
-    ((a.length - 1) * variance(a) + (b.length - 1) * variance(b)) / (a.length + b.length - 2),
-  );
-  return (m(a) - m(b)) / (pooled || 1);
-}
+export { auc, cohensD } from "../src/metrics";
 
 // ── Workers AI ─────────────────────────────────────────────────────────────
 
