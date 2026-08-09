@@ -36,6 +36,21 @@
       />
       <button type="submit" class="board-seed-button">condense</button>
     </form>
+    <div class="board-controls">
+      <button
+        id="board-pause"
+        type="button"
+        class="board-control-button board-pause"
+        aria-pressed="false"
+      >
+        pause
+      </button>
+      <div class="board-speed" role="radiogroup" aria-label="belt speed">
+        <button type="button" class="board-control-button board-speed-option" data-speed="brisk" role="radio" aria-checked="false">brisk</button>
+        <button type="button" class="board-control-button board-speed-option" data-speed="steady" role="radio" aria-checked="true">steady</button>
+        <button type="button" class="board-control-button board-speed-option" data-speed="slow" role="radio" aria-checked="false">slow</button>
+      </div>
+    </div>
     <p id="board-status" class="board-status" role="status" aria-live="polite"></p>
 
     <div id="board-stations" class="board-grid"></div>

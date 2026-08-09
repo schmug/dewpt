@@ -67,3 +67,24 @@ export function placeCards(view) {
   });
   return placements;
 }
+
+/** The speed presets, in belt order. These strings are the wire values — they
+ *  must match src/board/types.ts's BELT_SPEEDS exactly, because they go
+ *  straight into the request body and anything else is a 400. */
+export const BELT_SPEED_NAMES = ["brisk", "steady", "slow"];
+
+export const DEFAULT_SPEED = "steady";
+
+/** Normalize a view's control state.
+ *
+ *  Total by design. A dropped poll body, a 404 payload, or a response from a
+ *  server that predates this feature must still paint a coherent control row:
+ *  an undefined speed checks none of the three radios and leaves the group
+ *  unreadable and unoperable. */
+export function controlsState(view) {
+  const controls = view && typeof view.controls === "object" && view.controls !== null ? view.controls : {};
+  return {
+    speed: BELT_SPEED_NAMES.includes(controls.speed) ? controls.speed : DEFAULT_SPEED,
+    paused: controls.paused === true,
+  };
+}

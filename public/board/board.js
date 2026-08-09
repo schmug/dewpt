@@ -2,9 +2,15 @@
 // belt-model.js and DOM writing in belt-render.js; this file owns the network
 // and nothing else.
 
-import { paintBoard } from "./belt-render.js";
+import { paintBoard, renderControls } from "./belt-render.js";
+import { controlsState } from "./belt-model.js";
 
 const POLL_MS = 900;
+
+/** Poll cadence while paused. Nothing can change server-side except another
+ *  viewer of the same board URL resuming it, so polling at the running rate is
+ *  the same waste the read path's write-skip was added to remove. */
+const POLL_PAUSED_MS = 3000;
 
 /** The session URL is the session, as in SPEC.md — the id rides in the hash so
  *  a reload resumes rather than starting a fresh board. */
@@ -14,6 +20,8 @@ const nodes = {
   stations: document.getElementById("board-stations"),
   belt: document.getElementById("board-belt"),
   evaporated: document.getElementById("board-evaporated"),
+  pause: document.getElementById("board-pause"),
+  speeds: [...document.querySelectorAll(".board-speed-option")],
 };
 const form = document.getElementById("board-seed-form");
 const input = document.getElementById("board-seed-input");
@@ -21,12 +29,53 @@ const status = document.getElementById("board-status");
 
 let boardId = null;
 
+/** The last view painted, so a failed control request can put the row back. */
+let lastView = null;
+
 function say(message) {
   status.textContent = message;
 }
 
 function paint(view) {
+  lastView = view;
   paintBoard(nodes, view);
+}
+
+/** Send a control patch, painting the row optimistically so the click lands
+ *  immediately rather than at the next poll.
+ *
+ *  Only the ROW is painted optimistically, never the belt: the client has no
+ *  basis to predict what the belt does next, and guessing would flicker cards
+ *  in and out. The response carries the authoritative view for everything. */
+async function sendControls(patch) {
+  if (!boardId) return;
+  renderControls(nodes, { controls: { ...controlsState(lastView), ...patch } });
+  try {
+    const res = await fetch(boardUrl(boardId, "/controls"), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      say("the board would not take that — try again");
+      renderControls(nodes, lastView);
+      return;
+    }
+    say("");
+    paint(await res.json());
+  } catch (err) {
+    console.error("controls failed", err);
+    say("the board would not take that — try again");
+    renderControls(nodes, lastView);
+  }
+}
+
+nodes.pause?.addEventListener("click", () => {
+  sendControls({ paused: !controlsState(lastView).paused });
+});
+
+for (const button of nodes.speeds) {
+  button.addEventListener("click", () => sendControls({ speed: button.dataset.speed }));
 }
 
 function boardUrl(id, suffix = "") {
@@ -70,7 +119,7 @@ async function poll() {
       // Offline, a flaky hop, a DO still waking up. Try again next tick.
     }
   }
-  setTimeout(poll, POLL_MS);
+  setTimeout(poll, controlsState(lastView).paused ? POLL_PAUSED_MS : POLL_MS);
 }
 
 /** The board's words for a refused seed.

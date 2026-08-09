@@ -52,11 +52,15 @@ interface Placement {
   atEdge: boolean;
 }
 
-const { columnCount, ghostOpacity, placeCards } = beltModelUntyped as {
-  ghostOpacity: (behind: number) => number;
-  placeCards: (view: BoardView) => Placement[];
-  columnCount: (view: BoardView) => number;
-};
+const { columnCount, ghostOpacity, placeCards, controlsState, BELT_SPEED_NAMES, DEFAULT_SPEED } =
+  beltModelUntyped as unknown as {
+    ghostOpacity: (behind: number) => number;
+    placeCards: (view: BoardView) => Placement[];
+    columnCount: (view: BoardView) => number;
+    controlsState(view: unknown): { speed: string; paused: boolean };
+    BELT_SPEED_NAMES: string[];
+    DEFAULT_SPEED: string;
+  };
 
 function stations(n: number): StationView[] {
   return Array.from({ length: n }, (_, i) => ({
@@ -232,5 +236,40 @@ describe("columnCount", () => {
     const widest = Math.max(...placeCards(board).map((p) => p.column));
     expect(widest).toBe(5);
     expect(widest).toBeLessThanOrEqual(columnCount(board));
+  });
+});
+
+describe("controlsState", () => {
+  it("reads the speed and paused state a view carries", () => {
+    expect(controlsState({ controls: { speed: "slow", paused: true } })).toEqual({
+      speed: "slow",
+      paused: true,
+    });
+  });
+
+  it("falls back to a coherent row when the view carries no controls", () => {
+    // A dropped poll body, a 404 payload, or a response from a server that
+    // predates this feature must still paint a control row. An undefined speed
+    // would check none of the three radios and leave the group unreadable.
+    for (const view of [null, undefined, {}, { controls: null }, { controls: "slow" }]) {
+      expect(controlsState(view)).toEqual({ speed: DEFAULT_SPEED, paused: false });
+    }
+  });
+
+  it("refuses a speed it does not know rather than passing it through", () => {
+    expect(controlsState({ controls: { speed: "ludicrous", paused: false } }).speed).toBe(DEFAULT_SPEED);
+  });
+
+  it("treats anything but a literal true as running", () => {
+    for (const paused of ["true", 1, null, undefined]) {
+      expect(controlsState({ controls: { speed: "steady", paused } }).paused).toBe(false);
+    }
+  });
+
+  it("names exactly the presets the server accepts", () => {
+    // These strings go straight into the request body. Drifting from the
+    // server's isBeltSpeed means every click 400s.
+    expect(BELT_SPEED_NAMES).toEqual(["brisk", "steady", "slow"]);
+    expect(BELT_SPEED_NAMES).toContain(DEFAULT_SPEED);
   });
 });
