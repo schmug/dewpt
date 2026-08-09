@@ -75,9 +75,22 @@ const STALLS_KEY = "stalls";
  *  forever. There is no second chance at a fan.
  *
  *  So the width has to FOLLOW the fan: k children need k-1 more candidates
- *  than one child does. Raising SEED_FANOUT widens the request automatically —
- *  which a future reader raising it needs to know, because the calibrated
- *  number it is added to is a per-child quantity and nothing else scales it. */
+ *  than one child does. Raising SEED_FANOUT widens the request automatically,
+ *  because the calibrated number it is added to is a per-child quantity and
+ *  nothing else scales it.
+ *
+ *  This MOVES the cliff, it does not remove it. Measured law:
+ *  `delivered = min(k, dedupe-clusters among tether survivors)`. At the shipped
+ *  k=3 and width 6, a fan under-fills once the survivors span fewer than 3
+ *  clusters — 5 survivors tolerate 2 collisions, 4 tolerate 1, 3 tolerate none.
+ *  Width 4 broke on the FIRST collision, so the reported defect is closed, but
+ *  the margin is one collision rather than a guarantee.
+ *
+ *  The widening also does not preserve that margin as k grows. Reading M0's
+ *  rejection proportionally rather than absolutely, tolerance is 1 collision at
+ *  k=3-6 and ZERO at k=8-9. Width 6 was itself never measured — M0 only ever
+ *  measured width 4 — so anyone raising SEED_FANOUT past ~6 should re-run
+ *  `npm run board-calibrate` rather than trust this formula to keep up. */
 export function candidateWidth(childCount: number): number {
   return childCount > 1 ? CANDIDATES_PER_HOP + childCount - 1 : CANDIDATES_PER_HOP;
 }
