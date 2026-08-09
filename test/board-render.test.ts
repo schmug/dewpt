@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BELT_SPEEDS, DEFAULT_BELT_SPEED } from "../src/board/types";
 
 // public/board/belt-model.js is plain JS served raw from public/ (no build
 // step), so it sits outside tsconfig's include — same arrangement as
@@ -269,8 +270,12 @@ describe("controlsState", () => {
 
   it("names exactly the presets the server accepts", () => {
     // These strings go straight into the request body. Drifting from the
-    // server's isBeltSpeed means every click 400s.
-    expect(BELT_SPEED_NAMES).toEqual(["brisk", "steady", "slow"]);
+    // server's isBeltSpeed means every click 400s. Asserted against the real
+    // source of truth in src/board/types.ts — not a second literal that
+    // merely happens to read the same — so renaming a preset there fails
+    // this test rather than leaving it green while every click starts 400ing.
+    expect(BELT_SPEED_NAMES).toEqual(Object.keys(BELT_SPEEDS));
+    expect(DEFAULT_SPEED).toBe(DEFAULT_BELT_SPEED);
     expect(BELT_SPEED_NAMES).toContain(DEFAULT_SPEED);
   });
 });
