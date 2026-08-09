@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { BeltCore } from "../src/board/belt-core";
-import { GHOST_DEPTH, MAX_HOP_FAILURES, MAX_LINEAGES, SEED_FANOUT, type Station } from "../src/board/types";
+import {
+  BELT_SPEEDS,
+  DEFAULT_BELT_SPEED,
+  GHOST_DEPTH,
+  hopDwellMs,
+  isBeltSpeed,
+  MAX_HOP_FAILURES,
+  MAX_LINEAGES,
+  SEED_FANOUT,
+  type Station,
+} from "../src/board/types";
 
 function stations(n = 3): Station[] {
   return Array.from({ length: n }, (_, i) => ({
@@ -64,7 +74,7 @@ describe("hungry", () => {
   it("reports a fresh seed as needing a fan-width first hop", () => {
     const belt = new BeltCore({ stations: stations() });
     belt.addSeed("urban gardening", 1000);
-    const [hop] = belt.hungry();
+    const [hop] = belt.hungry(1_000_000, 0);
     expect(hop!.stationIndex).toBe(1);
     expect(hop!.count).toBe(SEED_FANOUT);
     expect(hop!.parentText).toBe("urban gardening");
@@ -75,7 +85,7 @@ describe("hungry", () => {
     belt.addSeed("urban gardening", 1000);
     const id = belt.lineages()[0]!.id;
     belt.applySeedFan(id, [child("rooftop bee lease")], 1001);
-    const [hop] = belt.hungry();
+    const [hop] = belt.hungry(1_000_000, 0);
     expect(hop!.stationIndex).toBe(2);
     expect(hop!.count).toBe(1);
   });
@@ -88,7 +98,7 @@ describe("hungry", () => {
     // The fan retires the seed lineage and spawns fresh ids, so the head has to
     // be driven by the post-fan id — as the applyHop and ghost-trim tests do.
     advance(belt, belt.lineages()[0]!.id, 2, 2);
-    expect(belt.hungry()).toHaveLength(0);
+    expect(belt.hungry(1_000_000, 0)).toHaveLength(0);
   });
 });
 
@@ -168,9 +178,9 @@ describe("hungry release", () => {
     const belt = new BeltCore({ stations: stations() });
     belt.addSeed("urban gardening", 1000);
     const id = belt.lineages()[0]!.id;
-    expect(belt.hungry()).toHaveLength(1);
+    expect(belt.hungry(1_000_000, 0)).toHaveLength(1);
     belt.markArrived(id, 1001);
-    expect(belt.hungry()).toHaveLength(0);
+    expect(belt.hungry(1_000_000, 0)).toHaveLength(0);
   });
 
   it("stops asking for hops once a lineage is released to the edge", () => {
@@ -179,7 +189,7 @@ describe("hungry release", () => {
     const id = belt.lineages()[0]!.id;
     for (let i = 0; i < MAX_HOP_FAILURES; i++) belt.noteHopFailure(id, 1000 + i);
     expect(belt.lineages()[0]!.edgeAt).not.toBeNull();
-    expect(belt.hungry()).toHaveLength(0);
+    expect(belt.hungry(1_000_000, 0)).toHaveLength(0);
   });
 });
 
@@ -412,7 +422,7 @@ describe("tick", () => {
     // The premise, asserted rather than assumed: the head really is short of
     // the last station, and really has no way to advance itself.
     expect(belt.lineages()[0]!.cards.at(-1)!.stationIndex).toBe(1);
-    expect(belt.hungry()).toHaveLength(0);
+    expect(belt.hungry(1_000_000, 0)).toHaveLength(0);
 
     belt.tick(2000);
     expect(belt.lineages()[0]!.edgeAt).toBe(2000);
@@ -440,5 +450,145 @@ describe("tick", () => {
     // pin that "newest first" is what the order MEANS.
     const times = belt.evaporated().map((e) => e.evaporatedAt);
     expect(times).toEqual([...times].sort((a, b) => b - a));
+  });
+});
+
+describe("belt speed presets", () => {
+  it("names exactly the three shipped presets, at the calibrated dwells", () => {
+    expect(Object.keys(BELT_SPEEDS).sort()).toEqual(["brisk", "slow", "steady"]);
+    expect(hopDwellMs("brisk")).toBe(0);
+    expect(hopDwellMs("steady")).toBe(3000);
+    expect(hopDwellMs("slow")).toBe(8000);
+  });
+
+  it("defaults to steady, not to the generation-bound pace", () => {
+    // brisk is what the board shipped as, and its unreadability is the reason
+    // this control exists. The default moving is deliberate; see the spec.
+    expect(DEFAULT_BELT_SPEED).toBe("steady");
+    expect(hopDwellMs(DEFAULT_BELT_SPEED)).toBeGreaterThan(0);
+  });
+
+  it("orders the presets strictly, so a slower name is never a faster belt", () => {
+    expect(hopDwellMs("brisk")).toBeLessThan(hopDwellMs("steady"));
+    expect(hopDwellMs("steady")).toBeLessThan(hopDwellMs("slow"));
+  });
+
+  it("recognises the presets and refuses everything else", () => {
+    for (const name of ["brisk", "steady", "slow"]) expect(isBeltSpeed(name)).toBe(true);
+    for (const junk of ["BRISK", "fast", "", null, undefined, 3000, {}]) {
+      expect(isBeltSpeed(junk)).toBe(false);
+    }
+  });
+
+  it("does not mistake an inherited Object property for a preset", () => {
+    // A plain `value in BELT_SPEEDS` or `BELT_SPEEDS[value] !== undefined`
+    // passes for "constructor" and "toString", which then index to a function
+    // and read `.hopDwellMs` as undefined — a NaN dwell, i.e. a lineage that is
+    // never hungry and a board that silently stops.
+    for (const inherited of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+      expect(isBeltSpeed(inherited)).toBe(false);
+    }
+  });
+});
+
+describe("hungry with a station dwell", () => {
+  it("holds a lineage whose head has not sat out the dwell", () => {
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("urban gardening", 1000);
+    const [seeded] = belt.lineages();
+    belt.applySeedFan(seeded!.id, [child("rooftop hives")], 1000);
+    const [lineage] = belt.lineages();
+    expect(lineage!.cards).toHaveLength(2); // head born at 1000
+
+    expect(belt.hungry(1500, 3000)).toHaveLength(0);
+    expect(belt.hungry(3999, 3000)).toHaveLength(0);
+  });
+
+  it("releases it the moment the dwell has elapsed", () => {
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("urban gardening", 1000);
+    const [seeded] = belt.lineages();
+    belt.applySeedFan(seeded!.id, [child("rooftop hives")], 1000);
+
+    expect(belt.hungry(4000, 3000)).toHaveLength(1);
+    expect(belt.hungry(9000, 3000)).toHaveLength(1);
+  });
+
+  it("is exactly today's behaviour at a zero dwell", () => {
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("urban gardening", 1000);
+    const [seeded] = belt.lineages();
+    belt.applySeedFan(seeded!.id, [child("rooftop hives")], 1000);
+    expect(belt.hungry(1000, 0)).toHaveLength(1);
+  });
+
+  it("exempts a seed's first hop, so a fresh board never looks like waiting", () => {
+    // Gating the fan would leave a brand new board doing nothing for the whole
+    // dwell — up to eight seconds of blank belt — which is precisely the
+    // "will look like waiting" failure the seed fan was introduced to prevent.
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("urban gardening", 1000);
+    const [hop] = belt.hungry(1000, 8000);
+    expect(hop).toBeDefined();
+    expect(hop!.count).toBe(SEED_FANOUT);
+  });
+
+  it("still skips arrived, edge-parked and finished lineages under a dwell", () => {
+    // The dwell is an extra reason to hold, never a reason to release. Without
+    // this the gate could be written as the only condition and pass the tests
+    // above while resurrecting lineages that are done.
+    const belt = new BeltCore({ stations: stations(1) });
+    belt.addSeed("a", 1000);
+    const [seeded] = belt.lineages();
+    belt.applySeedFan(seeded!.id, [child("b")], 1000);
+    const [lineage] = belt.lineages();
+    belt.markArrived(lineage!.id, 1000);
+    expect(belt.hungry(99_000, 3000)).toHaveLength(0);
+  });
+});
+
+describe("nextHopAt", () => {
+  it("returns null when no lineage is hungry at any future time", () => {
+    const belt = new BeltCore({ stations: stations() });
+    expect(belt.nextHopAt(3000)).toBeNull();
+  });
+
+  it("names the instant a dwelling lineage comes due", () => {
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("urban gardening", 1000);
+    const [seeded] = belt.lineages();
+    belt.applySeedFan(seeded!.id, [child("rooftop hives")], 2000);
+    expect(belt.nextHopAt(3000)).toBe(5000); // head bornAt 2000 + 3000
+  });
+
+  it("returns the soonest across several lineages, not the first", () => {
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("a", 1000);
+    const [firstSeed] = belt.lineages();
+    belt.applySeedFan(firstSeed!.id, [child("a1")], 5000);
+    belt.addSeed("b", 1000);
+    const second = belt.lineages().find((l) => l.cards.length === 1);
+    belt.applySeedFan(second!.id, [child("b1")], 2000);
+    expect(belt.nextHopAt(3000)).toBe(5000); // 2000 + 3000 beats 5000 + 3000
+  });
+
+  it("agrees with hungry at every instant, so the alarm cannot sleep through work", () => {
+    // This is the invariant the DO's rearm arithmetic rests on: hungry() is
+    // non-empty exactly when nextHopAt is non-null and already due. Two
+    // separate traversals that could drift apart is precisely how a board ends
+    // up either spinning or sleeping forever.
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("a", 1000);
+    const [firstSeed] = belt.lineages();
+    belt.applySeedFan(firstSeed!.id, [child("a1")], 2000);
+    belt.addSeed("b", 4000);
+
+    for (let now = 0; now <= 12_000; now += 250) {
+      for (const dwell of [0, 3000, 8000]) {
+        const due = belt.nextHopAt(dwell);
+        const isDue = due !== null && due <= now;
+        expect(belt.hungry(now, dwell).length > 0, `now=${now} dwell=${dwell}`).toBe(isDue);
+      }
+    }
   });
 });

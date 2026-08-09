@@ -110,7 +110,7 @@ describe("never-blocks guard", () => {
     expect(view.lineages[0]!.cards.map((c) => c.text)).toEqual(["urban gardening"]);
     // ...and the hop that would fill this row is still outstanding, so the row
     // above was served while generation was pending rather than after it.
-    expect(belt.hungry().map((h) => h.lineageId)).toEqual([view.lineages[0]!.id]);
+    expect(belt.hungry(1_000_000, 0).map((h) => h.lineageId)).toEqual([view.lineages[0]!.id]);
   });
 
   it("keeps serving the head of a lineage whose next hop is still outstanding", () => {
@@ -119,7 +119,7 @@ describe("never-blocks guard", () => {
     belt.applySeedFan(belt.lineages()[0]!.id, [child("rooftop bee lease")], 1001);
     const live = belt.lineages()[0]!;
 
-    expect(belt.hungry().map((h) => h.lineageId)).toContain(live.id);
+    expect(belt.hungry(1_000_000, 0).map((h) => h.lineageId)).toContain(live.id);
     const row = belt.view().lineages.find((l) => l.id === live.id)!;
     expect(row.cards.at(-1)!.text).toBe("rooftop bee lease");
     expect(row.atEdge).toBe(false);
@@ -138,7 +138,7 @@ describe("never-blocks guard", () => {
     const view = belt.view();
     expect(view.stations.map((s) => s.ready)).toEqual([false, false, false]);
     expect(view.lineages[0]!.cards[0]!.text).toBe("urban gardening");
-    expect(belt.hungry()).toHaveLength(1);
+    expect(belt.hungry(1_000_000, 0)).toHaveLength(1);
     // Nor does an unembedded CARD hide a row: a seed card is born with
     // `embedding: null` and is the only thing the user has to look at.
     expect(belt.lineages()[0]!.cards[0]!.embedding).toBeNull();
@@ -155,7 +155,7 @@ describe("never-blocks guard", () => {
     expect(belt.lineages()).toHaveLength(1);
     expect(belt.evaporated()).toHaveLength(0);
     expect(belt.view().lineages[0]!.cards[0]!.text).toBe("urban gardening");
-    expect(belt.hungry()).toHaveLength(1);
+    expect(belt.hungry(1_000_000, 0)).toHaveLength(1);
   });
 
   it("returns a state read as a value, not as something still being awaited", () => {

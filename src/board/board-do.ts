@@ -18,7 +18,7 @@ import { fakeAiRunner } from "../dev-fake-ai";
 import { embedTexts, expandPole, type AiRunner } from "../generation";
 import { BeltCore, type BeltCoreState, type BoardView } from "./belt-core";
 import { generateRewrites, hasArrived, selectChild, type Candidate } from "./rewrite";
-import { CANDIDATES_PER_HOP, DEFAULT_STATION_TERMS, type Station } from "./types";
+import { CANDIDATES_PER_HOP, DEFAULT_BELT_SPEED, DEFAULT_STATION_TERMS, hopDwellMs, type Station } from "./types";
 
 const PUMP_MS = 500;
 /** Ceiling on the backoff below. A board can be legitimately stuck forever —
@@ -423,7 +423,7 @@ export class BoardDO extends DurableObject<Env> {
   }
 
   private hasPendingWork(): boolean {
-    if (this.belt.hungry().length > 0) return true;
+    if (this.belt.nextHopAt(hopDwellMs(DEFAULT_BELT_SPEED)) !== null) return true;
     // An edge-parked lineage still needs the tick that evicts it.
     return this.belt.lineages().some((l) => l.edgeAt !== null);
   }
@@ -432,7 +432,7 @@ export class BoardDO extends DurableObject<Env> {
    *  contained: an embedding or generation fault abandons the hop and counts
    *  against MAX_HOP_FAILURES rather than propagating. */
   private async pumpOnce(): Promise<PumpResult> {
-    const hop = this.belt.hungry()[0];
+    const hop = this.belt.hungry(Date.now(), hopDwellMs(DEFAULT_BELT_SPEED))[0];
     if (!hop) return "idle";
     const station = this.belt.stations()[hop.stationIndex - 1];
     // Hold rather than guess. Selecting without a station embedding produces
