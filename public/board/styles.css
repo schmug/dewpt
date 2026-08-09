@@ -1,0 +1,326 @@
+/* Conveyor board styling.
+ *
+ * EVERY selector here is scoped under .board-surface (the board's <body>
+ * class), and every custom property is declared on .board-surface rather than
+ * :root. That is deliberate: public/styles.css and public/press.css own the
+ * field surface and share the global namespace with this file if the two are
+ * ever loaded into one document. Nothing below can reach the field, because
+ * the field's body carries no .board-surface class. Keep it that way — no bare
+ * element rules, no :root, no unscoped class.
+ *
+ * The two grids (#board-stations and #board-belt) are siblings sharing one
+ * --board-columns count and one column template, so they stay aligned while
+ * the document scrolls horizontally as a single scroller. Two independent
+ * scroll containers would desync the headers from the cards.
+ */
+
+.board-surface {
+  --board-ink: #f2f1ed;
+  --board-ground: #0b0a09;
+  --board-rule: rgba(242, 241, 237, 0.28);
+  --board-flag: #d98555;
+  --board-column: 150px;
+  --board-columns: 5;
+
+  /* on the body too, not only its descendants — otherwise the padding lands
+     outside 100dvh and the page grows a scrollbar it does not need */
+  box-sizing: border-box;
+  margin: 0;
+  padding: 28px clamp(16px, 4vw, 48px);
+  /* vh first as the fallback for browsers without dvh, dvh second so it wins
+     where supported — same two-line idiom, same reason, as public/styles.css. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--board-ground);
+  color: var(--board-ink);
+  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+.board-surface * {
+  box-sizing: border-box;
+}
+
+/* ── masthead ─────────────────────────────────────────────────────────── */
+
+.board-surface .board-masthead {
+  margin: 0 0 22px;
+}
+
+.board-surface .board-title {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.board-surface .board-subtitle {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 13px;
+  opacity: 0.6;
+}
+
+/* Visually hidden, still read aloud — the seed input's label. */
+.board-surface .board-vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── seed ─────────────────────────────────────────────────────────────── */
+
+.board-surface .board-seed {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+
+/* 44px minimum on both controls — the touch-target floor, not a look. */
+.board-surface .board-seed-input {
+  flex: 1 1 auto;
+  max-width: 320px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--board-rule);
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.board-surface .board-seed-input::placeholder {
+  color: currentColor;
+  opacity: 0.38;
+}
+
+.board-surface .board-seed-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.board-surface .board-seed-input:focus-visible {
+  outline: 1px solid var(--board-ink);
+  outline-offset: 2px;
+}
+
+.board-surface .board-seed-button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--board-rule);
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.board-surface .board-seed-button:hover {
+  border-color: var(--board-ink);
+}
+
+.board-surface .board-seed-button:focus-visible {
+  outline: 1px solid var(--board-ink);
+  outline-offset: 2px;
+}
+
+.board-surface .board-status {
+  margin: 0 0 20px;
+  min-height: 1.5em;
+  font-size: 12px;
+  opacity: 0.55;
+}
+
+/* ── the belt ─────────────────────────────────────────────────────────── */
+
+.board-surface .board-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--board-columns, 5), minmax(var(--board-column), 1fr));
+  gap: 8px 10px;
+}
+
+.board-surface .board-grid--belt {
+  min-height: 160px;
+  grid-auto-rows: minmax(44px, auto);
+  align-content: start;
+}
+
+.board-surface .board-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 7px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--board-rule);
+}
+
+.board-surface .board-lane--seed,
+.board-surface .board-lane--edge {
+  font: 600 10px/1.4 ui-monospace, Menlo, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.4;
+}
+
+.board-surface .board-lane--pending {
+  opacity: 0.45;
+}
+
+.board-surface .board-lane-term {
+  font: 600 10px/1.4 ui-monospace, Menlo, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.62;
+}
+
+.board-surface .board-lane-phrase {
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.42;
+}
+
+/* A station running on a bare term emits rewrites that look entirely normal.
+ * It has to look wrong, or the degradation is silent. */
+.board-surface .board-lane-phrase--degraded {
+  color: var(--board-flag);
+  font-style: normal;
+  opacity: 0.85;
+}
+
+.board-surface .board-card {
+  padding: 8px 10px;
+  border: 1px solid var(--board-rule);
+  border-radius: 3px;
+  background: rgba(242, 241, 237, 0.07);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  animation: board-card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition:
+    opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.board-surface .board-card--ghost {
+  border-style: dashed;
+  background: transparent;
+}
+
+.board-surface .board-card--arrived {
+  border-color: rgba(217, 133, 85, 0.8);
+}
+
+.board-surface .board-card--dying {
+  font-style: italic;
+}
+
+@keyframes board-card-in {
+  from {
+    transform: translateX(-10px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* ── evaporated ───────────────────────────────────────────────────────── */
+
+.board-surface .board-evaporated {
+  margin-top: 28px;
+  padding-top: 12px;
+  border-top: 1px solid var(--board-rule);
+}
+
+.board-surface .board-evaporated-title {
+  margin: 0;
+  font: 600 9px/1 ui-monospace, Menlo, monospace;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+
+.board-surface .board-evaporated-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board-surface .board-ghost {
+  font-size: 12px;
+  opacity: 0.42;
+}
+
+/* dewpt's field rule is fade-only-no-drift. Here the drift IS the belt, so
+ * reduced motion becomes step-only: the transition and the entry animation are
+ * removed outright, not shortened. Ghosts still render at their static reduced
+ * opacity, which belt-model.js sets inline. */
+@media (prefers-reduced-motion: reduce) {
+  .board-surface .board-card {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* ── controls ─────────────────────────────────────────────────────────── */
+
+.board-surface .board-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 0;
+}
+
+.board-surface .board-speed {
+  display: flex;
+  gap: 4px;
+}
+
+.board-surface .board-control-button {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--board-rule);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.board-surface .board-control-button:hover {
+  border-color: var(--board-ink);
+}
+
+.board-surface .board-control-button:focus-visible {
+  outline: 1px solid var(--board-ink);
+  outline-offset: 2px;
+}
+
+/* --board-rule's own alpha (0.28) reads as too faint for a state that means
+   "selected" — the tokens have nothing stronger, so this stays a literal
+   value, but built from --board-ink's own rgb() so it stays in the same
+   colour family rather than drifting to pure white. */
+.board-surface .board-control-button[aria-pressed="true"],
+.board-surface .board-control-button[aria-checked="true"] {
+  border-color: rgba(242, 241, 237, 0.5);
+  background: rgba(242, 241, 237, 0.1);
+}
+
+/* Marked, not dimmed. The whole reason to pause a board is to read it, so the
+   cue is a border on the belt rather than anything that costs legibility.
+   Lower alpha than --board-rule for the same reason: subtle is the point. */
+.board-surface .board-grid--paused {
+  box-shadow: inset 0 0 0 1px rgba(242, 241, 237, 0.14);
+}

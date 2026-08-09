@@ -19,16 +19,16 @@ export const DISTRACTORS = [
 
 // ── vector math and ranking metrics ────────────────────────────────────────
 
-// These now live in eval-vec.ts, which must stay free of node APIs so tests can
-// import it — this file reads process.env below. Re-exported here so the axis
-// spikes keep their existing import site.
-//
-// auc: probability a random positive outranks a random negative (Mann-Whitney
-// U); 1.0 = perfect ordering, 0.5 = chance. The spikes' headline number.
-// cohensD: standardised mean difference — how far apart the two groups sit, in
-// pooled standard deviations. AUC says "ordered correctly", d says "by a wide
-// margin".
-export { auc, cohensD, cosine, dot, mean, norm, sub } from "./eval-vec";
+// Vector math lives in eval-vec.ts, which must stay free of node APIs so tests
+// can import it — this file reads process.env below. Re-exported here so the
+// axis spikes keep their existing import site.
+export { cosine, dot, mean, norm, sub } from "./eval-vec";
+
+// ── ranking metrics ────────────────────────────────────────────────────────
+// Re-exported from src/metrics.ts, which band-spike.ts also uses. One AUC in
+// the codebase, so two spikes cannot disagree about what the number means.
+
+export { auc, cohensD } from "../src/metrics";
 
 // ── Workers AI ─────────────────────────────────────────────────────────────
 
