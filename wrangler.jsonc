@@ -14,9 +14,17 @@
     "run_worker_first": ["/api/*"]
   },
   "durable_objects": {
-    "bindings": [{ "name": "SESSION_DO", "class_name": "SessionDO" }]
+    "bindings": [
+      { "name": "SESSION_DO", "class_name": "SessionDO" },
+      { "name": "BOARD_DO", "class_name": "BoardDO" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SessionDO"] }],
+  // Migration tags are an append-only ledger: v1 is already applied in
+  // production, so it is never edited. A new class gets a new tag.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SessionDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["BoardDO"] }
+  ],
   "ai": { "binding": "AI", "remote": true },
   "observability": { "enabled": true },
   "vars": {
