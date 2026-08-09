@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>dewpt · board</title>
+    <meta
+      name="description"
+      content="Seed a word and watch it get rewritten station by station until it blows off the edge."
+    />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" />
+    <!-- Only this stylesheet. The field's styles.css and press.css are a
+         different surface; every selector below is scoped to .board-surface so
+         the two can never collide. -->
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="board-surface">
+    <header class="board-masthead">
+      <h1 class="board-title">board</h1>
+      <p class="board-subtitle">
+        Seed a word. Watch it get cooked, station by station, until it blows off the edge.
+      </p>
+    </header>
+
+    <form id="board-seed-form" class="board-seed">
+      <label class="board-vh" for="board-seed-input">seed the board</label>
+      <input
+        id="board-seed-input"
+        class="board-seed-input"
+        type="text"
+        maxlength="64"
+        placeholder="a topic, a phrase…"
+        autocomplete="off"
+        disabled
+      />
+      <button type="submit" class="board-seed-button">condense</button>
+    </form>
+    <p id="board-status" class="board-status" role="status" aria-live="polite"></p>
+
+    <div id="board-stations" class="board-grid"></div>
+    <div id="board-belt" class="board-grid board-grid--belt"></div>
+
+    <section class="board-evaporated">
+      <h2 class="board-evaporated-title">evaporated</h2>
+      <ul id="board-evaporated" class="board-evaporated-list"></ul>
+    </section>
+
+    <script type="module" src="./board.js"></script>
+  </body>
+</html>

@@ -5,6 +5,7 @@
 import { parsePoleTerms } from "./axis-core";
 import { BUCKET_KEYS, MAX_AXES, MAX_POLE_TERM_CHARS, type BucketKey, type DewptParams, type Tier } from "./types";
 
+export { BoardDO } from "./board/board-do";
 export { SessionDO } from "./session-do";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -57,6 +58,42 @@ function isBucketKey(value: unknown): value is BucketKey {
   return typeof value === "string" && (BUCKET_KEYS as readonly string[]).includes(value);
 }
 
+/** Throw if an `embedding` key appears anywhere in a board payload, at any
+ *  depth.
+ *
+ *  BeltCore.view() is embedding-free by construction and its comment calls
+ *  itself the only path to the wire — but lineages(), stations(), hungry() and
+ *  serialize() all expose embeddings, so that guarantee is BoardDO discipline
+ *  rather than anything the type system enforces. One `serialize()` where a
+ *  `view()` belonged ships a few thousand floats per card. This is the check
+ *  that does not depend on discipline.
+ *
+ *  Structural, NOT a substring match on the serialized JSON: a card whose text
+ *  contains the word "embedding" is entirely plausible on a board of
+ *  LLM-generated fragments, and would fail a substring guard with nothing
+ *  leaked.
+ *
+ *  It throws rather than stripping, so the outer handler answers 500. A silent
+ *  strip would hide the bug that produced it; a 500 is visible. */
+export function assertNoEmbeddings(value: unknown, path = "board response"): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => assertNoEmbeddings(item, `${path}[${i}]`));
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+  for (const [key, inner] of Object.entries(value)) {
+    if (key === "embedding") throw new Error(`${path}.${key}: embeddings must never reach the wire`);
+    assertNoEmbeddings(inner, `${path}.${key}`);
+  }
+}
+
+/** Every board response goes out through here, so the guard cannot be skipped
+ *  by adding a route and forgetting it. */
+function boardJson(data: unknown, status = 200): Response {
+  assertNoEmbeddings(data);
+  return json(data, status);
+}
+
 async function handleApi(request: Request, env: Env, path: string): Promise<Response> {
   const method = request.method;
 
@@ -84,6 +121,50 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     const id = crypto.randomUUID();
     const info = await env.SESSION_DO.getByName(id).init(id, seed, patch);
     return json(info, 201);
+  }
+
+  // ── /api/board/* ─────────────────────────────────────────────────────────
+  // Ahead of the session matcher, which is anchored on /api/session and would
+  // not catch these anyway; the ordering is for readability, not correctness.
+
+  if (path === "/api/board" && method === "POST") {
+    const id = crypto.randomUUID();
+    const view = await env.BOARD_DO.getByName(id).init();
+    // The spread comes FIRST so the id minted here wins. Ordered the other way
+    // round (`{ id, ...view }`), a BoardView that ever grew its own `id` would
+    // silently override it and the client would poll a board that isn't this
+    // one — a bug with no error to catch it.
+    return boardJson({ ...view, id }, 201);
+  }
+
+  const boardMatch = path.match(/^\/api\/board\/([^/]+)(\/.*)?$/);
+  if (boardMatch) {
+    const [, boardId, boardRest = ""] = boardMatch;
+    if (!boardId || !UUID_RE.test(boardId)) return badRequest("invalid board id");
+    const board = env.BOARD_DO.getByName(boardId);
+
+    if (boardRest === "" && method === "GET") {
+      const view = await board.getView();
+      return view ? boardJson(view) : json({ error: "no such board" }, 404);
+    }
+
+    if (boardRest === "/seed" && method === "POST") {
+      const body = await readBody(request);
+      if (!body) return badRequest("expected a JSON object body");
+      const text = parseText(body);
+      if (!text) return badRequest(`text must be a non-empty string of at most ${MAX_TEXT_CHARS} characters`);
+      const result = await board.seed(text);
+      if (!result) return json({ error: "no such board" }, 404);
+      // 409, not 200, when the board is at MAX_LINEAGES. If both answered 200
+      // with a view the client could not tell "accepted" from "silently
+      // dropped", and the seed the user typed would just disappear. The view
+      // rides along so the client can repaint without a follow-up GET — the
+      // same pattern as the axes route's 409/422 responses below.
+      if (!result.accepted) return boardJson({ ...result.view, error: "the board is full" }, 409);
+      return boardJson(result.view);
+    }
+
+    return json({ error: "not found" }, 404);
   }
 
   const match = path.match(/^\/api\/session\/([^/]+)(\/.*)?$/);
