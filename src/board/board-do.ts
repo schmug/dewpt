@@ -549,7 +549,19 @@ export class BoardDO extends DurableObject<Env> {
       }
       this.belt.tick(this.beltNow());
       result = await this.pumpOnce();
-      await this.save();
+      // saveIfChanged, not save(): the dwell gate creates a wake this file did
+      // not have before it — pumpOnce() returns "idle" while hasPendingWork()
+      // is still true, because a dwelling head is pending work but is not yet
+      // due. getView's schedulePump(PUMP_MS) pulls the alarm forward on every
+      // client poll, so that alarm fires repeatedly mid-dwell, finds nothing
+      // to do, and rearm() puts it right back mid-dwell — roughly once per
+      // poll for the whole dwell. An unconditional save() there would write
+      // the full belt record, 1024-dim embeddings included, for no change,
+      // every one of those times. saveIfChanged is strictly cheaper than
+      // save() here, not a tradeoff: save() already computes beltFingerprint
+      // to update persistedBelt, so this trades a `put` for a string
+      // comparison. Do not "simplify" this back to save().
+      await this.saveIfChanged();
     } catch (error) {
       // Force the failure state. `result` is assigned as soon as pumpOnce
       // returns, so a save() that throws underneath a successful pump would

@@ -627,12 +627,32 @@ describe("read-path cost guard", () => {
 
   it("uses a scan that finds the unconditional write where it legitimately lives", () => {
     // Companion: if this scan cannot see `this.save()` on the paths that do
-    // write unconditionally, it could not see one restored to getView either.
+    // write unconditionally, it could not see one restored to getView (or the
+    // alarm) either. alarm() itself is NOT one of these any more — see the
+    // next test — so the companion points at prepareStations, which still
+    // writes unconditionally on every station it prepares.
     const proto = BoardDO.prototype as unknown as Record<string, () => string>;
     expect(proto.seed!.toString()).toMatch(/this\.save\(\)/);
-    expect(proto.alarm!.toString()).toMatch(/this\.save\(\)/);
+    expect(proto.prepareStations!.toString()).toMatch(/this\.save\(\)/);
     // ...and it distinguishes the two writers, rather than matching on "save".
     expect(proto.seed!.toString()).not.toMatch(/saveIfChanged/);
+  });
+
+  it("uses saveIfChanged for the alarm's post-pump write, not an unconditional save", () => {
+    // The dwell gate creates a wake the alarm did not have before:
+    // pumpOnce() returns "idle" while hasPendingWork() is still true, because
+    // a dwelling head is pending work that is not yet due. getView's
+    // schedulePump(PUMP_MS) pulls the alarm forward on every client poll, so
+    // that alarm fires repeatedly mid-dwell, finds nothing to do, and rearm()
+    // puts it right back mid-dwell — roughly once per poll for the whole
+    // dwell. An unconditional `this.save()` there would write the full belt
+    // record, 1024-dim embeddings included, for no change, on every one of
+    // those wakes — the exact per-poll write 14b8974 removed from the read
+    // path, reintroduced on the alarm path instead.
+    const alarm = BoardDO.prototype.alarm.toString();
+    expect(alarm).toMatch(/pumpOnce/); // non-vacuity
+    expect(alarm).toMatch(/saveIfChanged/);
+    expect(alarm).not.toMatch(/this\.save\(\)/);
   });
 });
 
