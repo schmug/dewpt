@@ -38,6 +38,29 @@ export function isPaused(clock: ClockState): boolean {
   return clock.since === null;
 }
 
+/** Whether a value is a well-formed `ClockState`: finite `base`, and `since`
+ *  either `null` or finite.
+ *
+ *  Parity with `isBeltSpeed` (src/board/types.ts) for the record it sits
+ *  beside in storage, and for a worse failure mode. A non-finite `base` makes
+ *  `beltNow()` return `NaN`, and from there: `hungry()`'s
+ *  `now < bornAt + dwell` comparison is false for every lineage — every
+ *  lineage looks hungry forever, i.e. unbounded metered generation — and
+ *  `tick()`'s `now - edgeAt >= EDGE_DWELL_MS` comparison is also false for
+ *  every lineage, so nothing ever evicts, silently breaking the ephemerality
+ *  premise this clock exists to protect (see the file header).
+ *
+ *  Not reachable through any current writer — `saveControls` always writes a
+ *  well-formed `ClockState` — so this is defence-in-depth, not a fix for an
+ *  observed corruption. */
+export function isClockState(value: unknown): value is ClockState {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as { base?: unknown; since?: unknown };
+  if (typeof candidate.base !== "number" || !Number.isFinite(candidate.base)) return false;
+  if (candidate.since === null) return true;
+  return typeof candidate.since === "number" && Number.isFinite(candidate.since);
+}
+
 /** Belt time now.
  *
  *  The `Math.max(0, …)` is not defensive dressing. A backward host-clock jump

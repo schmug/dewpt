@@ -17,7 +17,7 @@ import { DurableObject } from "cloudflare:workers";
 import { fakeAiRunner } from "../dev-fake-ai";
 import { embedTexts, expandPole, type AiRunner } from "../generation";
 import { BeltCore, type BeltCoreState, type BoardView } from "./belt-core";
-import { beltNow, isPaused, pauseClock, resumeClock, startedClock, type ClockState } from "./clock";
+import { beltNow, isClockState, isPaused, pauseClock, resumeClock, startedClock, type ClockState } from "./clock";
 import { generateRewrites, hasArrived, selectChild, type Candidate } from "./rewrite";
 import {
   CANDIDATES_PER_HOP,
@@ -337,12 +337,26 @@ export class BoardDO extends DurableObject<Env> {
       );
     }
     this.speed = controls !== undefined && isBeltSpeed(controls.speed) ? controls.speed : DEFAULT_BELT_SPEED;
-    // A board with no controls record — every board that predates this feature
-    // — gets a clock started now. `startedClock` is epoch-seeded, so belt time
-    // is continuous with the bornAt/edgeAt values already in its belt record and
-    // no migration is needed. Nothing is written: a board that is simply running
-    // re-derives the same running clock on every load.
-    this.clock = controls?.clock ?? startedClock(Date.now());
+    // isClockState, not a bare presence check, mirroring the isBeltSpeed guard
+    // just above but for the failure mode it does not cover: a MISSING clock
+    // is the ordinary case handled below — speed shipped before the clock did
+    // (see git history), so a speed-only controls record with no `clock`
+    // field at all is not corruption. A PRESENT-but-malformed clock is: it
+    // makes beltNow() return NaN, which makes every lineage look hungry
+    // forever (unbounded metered generation) and nothing ever evict (silently
+    // breaking ephemerality) — see isClockState's doc comment.
+    if (controls?.clock !== undefined && !isClockState(controls.clock)) {
+      console.warn(
+        JSON.stringify({ level: "warn", message: "invalid stored belt clock, using a fresh clock", clock: controls.clock }),
+      );
+    }
+    // A board with no controls record, or no clock on its controls record —
+    // every board that predates this feature — gets a clock started now.
+    // `startedClock` is epoch-seeded, so belt time is continuous with the
+    // bornAt/edgeAt values already in its belt record and no migration is
+    // needed. Nothing is written: a board that is simply running re-derives
+    // the same running clock on every load.
+    this.clock = controls?.clock !== undefined && isClockState(controls.clock) ? controls.clock : startedClock(Date.now());
     this.persistedControls = controls === undefined ? null : JSON.stringify(controls);
     // No id factory: BeltCore defaults to crypto.randomUUID(). It must NOT be
     // given a counter here — this object hibernates and wakes on a fresh

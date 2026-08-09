@@ -6,7 +6,7 @@
 // there is no DO test harness in this repo (issue #31).
 
 import { describe, expect, it } from "vitest";
-import { beltNow, isPaused, pauseClock, resumeClock, startedClock } from "../src/board/clock";
+import { beltNow, isClockState, isPaused, pauseClock, resumeClock, startedClock } from "../src/board/clock";
 
 describe("startedClock", () => {
   it("starts running, reading the real clock it was started from", () => {
@@ -86,5 +86,48 @@ describe("resumeClock", () => {
       clock = resumeClock(clock, real);
     }
     expect(beltNow(clock, real)).toBe(1000);
+  });
+});
+
+describe("isClockState", () => {
+  it("accepts a running clock", () => {
+    expect(isClockState(startedClock(1000))).toBe(true);
+  });
+
+  it("accepts a paused clock", () => {
+    expect(isClockState(pauseClock(startedClock(1000), 4000))).toBe(true);
+  });
+
+  it("rejects a non-finite base", () => {
+    // A NaN or infinite base makes beltNow() return NaN, and from there every
+    // dwell comparison in hungry() is false (unbounded metered generation)
+    // and every eviction comparison in tick() is false (nothing ever
+    // evaporates) — see the doc comment on isClockState.
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      expect(isClockState({ base: bad, since: null })).toBe(false);
+      expect(isClockState({ base: bad, since: 1000 })).toBe(false);
+    }
+  });
+
+  it("rejects a non-finite since", () => {
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      expect(isClockState({ base: 1000, since: bad })).toBe(false);
+    }
+  });
+
+  it("rejects the shapes a corrupted or absent record can take", () => {
+    for (const junk of [
+      null,
+      undefined,
+      {},
+      "clock",
+      1000,
+      [1000, null],
+      { base: "1000", since: null },
+      { since: null }, // base missing entirely
+      { base: 1000 }, // since missing entirely
+    ]) {
+      expect(isClockState(junk)).toBe(false);
+    }
   });
 });
