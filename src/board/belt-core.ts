@@ -152,7 +152,12 @@ export class BeltCore {
       const head = lineage.cards.at(-1)!;
       if (head.stationIndex >= this.stationList.length) continue;
       const count = lineage.cards.length === 1 ? SEED_FANOUT : 1;
-      if (now < head.bornAt + (count === 1 ? hopDwellMs : 0)) continue;
+      // Keyed on `cards.length === 1` — the spec's actual exemption condition
+      // — not on `count === 1`. The two agree only because SEED_FANOUT > 1;
+      // setting SEED_FANOUT = 1 would silently delete the seed-fan exemption
+      // if this were keyed on `count` instead, leaving a fresh board blank
+      // for up to a full dwell.
+      if (now < head.bornAt + (lineage.cards.length === 1 ? 0 : hopDwellMs)) continue;
       out.push({
         lineageId: lineage.id,
         parentText: head.text,
@@ -186,8 +191,11 @@ export class BeltCore {
       if (lineage.arrivedAt !== null || lineage.edgeAt !== null) continue;
       const head = lineage.cards.at(-1)!;
       if (head.stationIndex >= this.stationList.length) continue;
-      const count = lineage.cards.length === 1 ? SEED_FANOUT : 1;
-      const due = head.bornAt + (count === 1 ? hopDwellMs : 0);
+      // Must stay character-for-character the expression in `hungry` above —
+      // see that method's comment on `count` vs `cards.length`, and the class
+      // comment above `nextHopAt` on why the two due expressions have to
+      // match.
+      const due = head.bornAt + (lineage.cards.length === 1 ? 0 : hopDwellMs);
       if (soonest === null || due < soonest) soonest = due;
     }
     return soonest;
