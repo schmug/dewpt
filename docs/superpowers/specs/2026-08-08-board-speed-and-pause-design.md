@@ -223,7 +223,7 @@ Gates: `npm run typecheck` and `npm test`, counts reported.
 | --- | --- |
 | `src/board/clock.ts` | new — pure belt clock |
 | `src/board/types.ts` | `BELT_SPEEDS`, `DEFAULT_BELT_SPEED`, `BeltSpeed`, `BoardControls` |
-| `src/board/belt-core.ts` | `hungry(now, hopDwellMs)`, `nextHopAt(now, hopDwellMs)` |
+| `src/board/belt-core.ts` | `hungry(now, hopDwellMs)`, `nextHopAt(hopDwellMs)` |
 | `src/board/board-do.ts` | clock + controls state, `setControls`, paused guards, belt time throughout |
 | `src/index.ts` | `POST /api/board/:id/controls` and its validation |
 | `public/board/index.html` | control row markup |
