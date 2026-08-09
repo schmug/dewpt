@@ -186,17 +186,23 @@ describe("never-blocks guard", () => {
   /** Every symbol in board-do.ts that reaches, or drives, an AI call. */
   const GENERATES = /aiRunner|embedTexts|generateRewrites|expandPole|pumpOnce|prepareStations/;
 
-  it("keeps generation out of BoardDO's read and seed paths", () => {
+  it("keeps generation out of BoardDO's read, seed and setControls paths", () => {
     const readPath = BoardDO.prototype.getView.toString();
     const seedPath = BoardDO.prototype.seed.toString();
+    // setControls is a third user-facing state RPC on the same must-not-await
+    // -generation footing as getView and seed: a client sets speed or paused
+    // and gets the new view back, not a wait on the pump.
+    const controlsPath = BoardDO.prototype.setControls.toString();
 
     // Non-vacuity: these really are the method bodies, not stubs or [native
-    // code]. Without this the two `not.toMatch`es below pass on an empty string.
+    // code]. Without this the three `not.toMatch`es below pass on an empty string.
     expect(readPath).toMatch(/schedulePump/);
     expect(seedPath).toMatch(/addSeed/);
+    expect(controlsPath).toMatch(/schedulePump/);
 
     expect(readPath).not.toMatch(GENERATES);
     expect(seedPath).not.toMatch(GENERATES);
+    expect(controlsPath).not.toMatch(GENERATES);
   });
 
   it("uses a scan that finds generation where it legitimately lives", () => {
