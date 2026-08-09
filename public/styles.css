@@ -204,6 +204,10 @@ header{transition-delay:calc(var(--press-stagger) * 1);}
    opening a non-modal about panel in the evaporated-sidebar family (no
    backdrop, no focus trap; the field keeps condensing beside it) */
 #aboutWrap{position:relative;}
+/* door back to the night-walk landing — styled as #aboutBtn's sibling */
+#walkLink{color:var(--label); text-decoration:none; padding:2px 4px; border-radius:var(--press-radius);}
+#walkLink:hover{color:var(--t0);}
+#walkLink:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}
 #aboutBtn{background:none; border:none; color:var(--label); cursor:pointer; padding:2px 4px; border-radius:var(--press-radius);}
 #aboutBtn:hover, #aboutBtn[aria-expanded="true"]{color:var(--t0);}
 #aboutBtn:focus-visible{outline:2px solid var(--pin); outline-offset:2px;}

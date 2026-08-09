@@ -47,6 +47,27 @@
   margin: 0 0 22px;
 }
 
+.board-surface .board-doors {
+  margin: 0 0 10px;
+  display: flex;
+  gap: 18px;
+  font-size: 12px;
+}
+
+.board-surface .board-doors a {
+  color: var(--board-ink);
+  opacity: 0.55;
+  text-decoration: none;
+  padding-bottom: 1px;
+  border-bottom: 1px solid var(--board-rule);
+}
+
+.board-surface .board-doors a:hover,
+.board-surface .board-doors a:focus-visible {
+  opacity: 1;
+  border-color: var(--board-flag);
+}
+
 .board-surface .board-title {
   margin: 0 0 4px;
   font-size: 20px;

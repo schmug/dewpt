@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- viewport-fit=cover exposes env(safe-area-inset-*) on notched devices;
+     zoom stays enabled (no maximum-scale/user-scalable) for accessibility -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>dewpt</title>
+<!-- PWA: installable standalone app. Manifest + icons are static files served
+     from ./public (wrangler assets); theme-color paints the browser/OS chrome
+     to match the field's --ink. See docs/mobile-research.md workstream C. -->
+<meta name="theme-color" content="#0d0c14">
+<meta name="description" content="An ambient ideation canvas where words condense out of latent space.">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="dewpt">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Space+Grotesk:wght@300..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/press.css">
+<link rel="stylesheet" href="/styles.css">
+<!-- No-JS fallback: header/#controls/#tray start at opacity:0 in styles.css,
+     released by .press-go once app.js's entrance gate runs. With scripting
+     off, that gate never fires, so restore the finished state here — same
+     principle as the prefers-reduced-motion override, same rule, just gated
+     on <noscript> instead of the media feature. -->
+<noscript><style>header, #controls, #tray{opacity:1; transform:none;}</style></noscript>
+</head>
+<body>
+<header>
+  <h1>dew<em>pt</em></h1>
+  <div class="seed press-label" id="seedDisplay" hidden>seed: <b id="seedText"></b></div>
+  <form id="seedForm">
+    <input id="seedInput" type="text" placeholder="seed the field with a topic…" maxlength="200" autocomplete="off" aria-label="Seed topic">
+    <button type="submit" class="press-label">condense</button>
+  </form>
+  <div id="aboutWrap">
+    <button id="aboutBtn" class="press-label" type="button" aria-expanded="false" aria-controls="about"><span class="q" aria-hidden="true">?</span> what is this?</button>
+    <!-- non-modal (issue #12): no backdrop, no focus trap — the field keeps
+         condensing while this is open. Copy from docs/explainer-research.md.
+         The ? by the sliders stays the interaction legend; this is the concept. -->
+    <aside id="about" aria-labelledby="aboutTitle" hidden>
+      <div class="abouthead">
+        <h2 id="aboutTitle" class="press-label">what is dewpt</h2>
+        <button id="aboutClose" type="button" aria-label="Close about panel">&times;</button>
+      </div>
+      <p>an ambient ideation canvas. give it a seed — a topic, a question, a half-idea — and words condense out of latent space: some obvious, some strange. each one lives a few seconds, then evaporates. that's not a bug — ephemerality is the point. pin the words that catch you and they crystallize, gold, into your condensate. play, not productivity.</p>
+      <p class="note">the name is the meteorological abbreviation for dew point: the threshold where invisible vapor becomes visible water.</p>
+      <h3 class="press-label">the weather, glossed</h3>
+      <dl>
+        <dt class="press-label">dewpoint</dt><dd>how strange the words get. low: only the obvious condenses. high: far-field vapor precipitates.</dd>
+        <dt class="press-label">altitude</dt><dd>how abstract. ground level is concrete tactics; high altitude is underlying concepts.</dd>
+        <dt class="press-label">drizzle</dt><dd>how fast new words condense.</dd>
+        <dt class="press-label">condensate</dt><dd>the harvest: words you've pinned — or your own, typed straight in — ready to copy out.</dd>
+        <dt class="press-label">evaporated</dt><dd>the ghost trail: the last twenty words that faded. click one to condense it again.</dd>
+        <dt class="press-label">condense / evaporate</dt><dd>the verbs: words condense (appear) and evaporate (fade). every word does both unless you pin it.</dd>
+      </dl>
+      <p>inspired by kevin kelly's <a href="https://kevinkelly.substack.com/p/latent-space-as-a-new-medium" target="_blank" rel="noopener">"latent space as a new medium"</a> (july 2026) — the idea that a model's space of almost-ideas is a place you can wander, and that the white space between the known ideas is worth prospecting.</p>
+      <p class="note">the moves themselves — prospect, pin, release — are glossed under the <b>?</b> beside the sliders.</p>
+    </aside>
+  </div>
+  <a id="walkLink" class="press-label" href="/"><span aria-hidden="true">←</span> night walk</a>
+</header>
+
+<div id="stage">
+  <div id="fieldFrame">
+  <i class="press-rule" data-edge="top" aria-hidden="true"></i>
+  <i class="press-rule" data-edge="bottom" aria-hidden="true"></i>
+  <i class="press-rule" data-axis="y" data-edge="left" aria-hidden="true"></i>
+  <i class="press-rule" data-axis="y" data-edge="right" aria-hidden="true"></i>
+  <i class="press-cross" data-corner="tl" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 0Q13.1 10.9 24 12Q13.1 13.1 12 24Q10.9 13.1 0 12Q10.9 10.9 12 0Z"/></svg></i>
+  <i class="press-cross" data-corner="tr" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 0Q13.1 10.9 24 12Q13.1 13.1 12 24Q10.9 13.1 0 12Q10.9 10.9 12 0Z"/></svg></i>
+  <i class="press-cross" data-corner="bl" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 0Q13.1 10.9 24 12Q13.1 13.1 12 24Q10.9 13.1 0 12Q10.9 10.9 12 0Z"/></svg></i>
+  <i class="press-cross" data-corner="br" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 0Q13.1 10.9 24 12Q13.1 13.1 12 24Q10.9 13.1 0 12Q10.9 10.9 12 0Z"/></svg></i>
+  <div id="field" tabindex="0" role="application" aria-label="Idea field. Words appear and fade. Click blank space to prospect, click a word to pin it.">
+    <!-- pre-seed manifesto (issue #11): aria-hidden inside role="application";
+         #manifestoSr below mirrors it for assistive tech (the hint's pattern).
+         public/preseed.js unhides it and tears it down when a session starts. -->
+    <div id="manifesto" aria-hidden="true" hidden>
+      <p>words condense out of latent space — they linger, then evaporate.</p>
+      <p>pin the ones that catch you; the rest is weather.</p>
+    </div>
+    <!-- aria-hidden: #hintLive below mirrors this text for screen readers —
+         a polite live region inside role="application" is unreliable -->
+    <div class="hint" id="fieldHint" aria-hidden="true">enter a seed to begin condensation</div>
+  </div>
+  </div>
+  <aside id="evaporated" aria-label="Evaporated words, most recent first. Click one to condense it again.">
+    <h2 class="press-label">evaporated</h2>
+    <!-- aria-hidden: verbatim promotion of the aside's aria-label guidance,
+         made visible for sighted users without double-announcing -->
+    <p class="subline" aria-hidden="true">click a word to condense it again</p>
+    <div id="ghosts"><span class="empty">nothing has evaporated yet</span></div>
+  </aside>
+</div>
+<div id="hintLive" class="vh" aria-live="polite">enter a seed to begin condensation</div>
+<!-- static mirror of the pre-seed manifesto (not a live region: it never
+     announces, and the transient meta-words are aria-hidden entirely) -->
+<p id="manifestoSr" class="vh" hidden>words condense out of latent space — they linger, then evaporate. pin the ones that catch you; the rest is weather.</p>
+
+<div id="controls">
+  <div class="ctl">
+    <label class="press-label">dewpoint <span id="sVal">35</span></label>
+    <input type="range" id="strange" min="0" max="100" value="35" step="1" aria-label="dewpoint" aria-describedby="strangeGloss">
+    <div class="ends press-label" aria-hidden="true"><span>obvious</span><span>surreal</span></div>
+    <span class="vh" id="strangeGloss">how far from the seed the vapor condenses: low, only the obvious; high, far-field and surreal.</span>
+  </div>
+  <div class="ctl">
+    <label class="press-label">altitude <span id="aVal">25</span></label>
+    <input type="range" id="alt" min="0" max="100" value="25" step="1" aria-label="altitude" aria-describedby="altGloss">
+    <div class="ends press-label" aria-hidden="true"><span>concrete</span><span>abstract</span></div>
+    <span class="vh" id="altGloss">what kind of words condense: low, concrete and specific; high, underlying concepts.</span>
+  </div>
+  <div class="ctl">
+    <label class="press-label">drizzle <span id="fVal">50</span></label>
+    <input type="range" id="flux" min="0" max="100" value="50" step="1" aria-label="drizzle" aria-describedby="fluxGloss">
+    <div class="ends press-label" aria-hidden="true"><span>sparse</span><span>dense</span></div>
+    <span class="vh" id="fluxGloss">how fast new words condense — pace only, it doesn't change what appears.</span>
+  </div>
+  <div id="legendWrap">
+    <button id="legendBtn" type="button" aria-expanded="false" aria-controls="legend" aria-label="Interaction legend">?</button>
+    <div id="legend" tabindex="0" hidden>
+      <dl>
+        <dt class="press-label">prospect</dt><dd>click blank space: a pulse draws a burst of slightly stranger words there</dd>
+        <dt class="press-label">pin</dt><dd>click a word: it crystallizes, joins the condensate, and steers what condenses next</dd>
+        <dt class="press-label">add your own</dt><dd>type a word or phrase into the condensate to steer generation toward an idea the field hasn't offered</dd>
+        <dt class="press-label">release</dt><dd>click a pinned word again, or its &times; in the tray</dd>
+        <dt class="press-label">dewpoint</dt><dd>how far from the seed the vapor condenses: obvious &harr; surreal</dd>
+        <dt class="press-label">altitude</dt><dd>what kind of words condense: concrete &harr; abstract</dd>
+        <dt class="press-label">drizzle</dt><dd>how fast new words condense: sparse &harr; dense (pace only)</dd>
+        <dt class="press-label">evaporated</dt><dd>unpinned words fade after a few seconds and rest in the sidebar; click one to condense it again</dd>
+        <dt class="press-label">copy list</dt><dd>copies the condensate as plain lines</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<div id="tray">
+  <div class="trayhead">
+    <h2 class="press-label">condensate</h2>
+    <button id="copyBtn" class="press-label">Copy list</button>
+  </div>
+  <!-- add your own word (issue #20): inject a word/phrase the AI hasn't offered.
+       It condenses immediately as a pinned anchor and steers what comes next.
+       Disabled until a session exists; the placeholder self-teaches (layer 1). -->
+  <form id="addForm">
+    <input id="addInput" type="text" placeholder="add your own word or phrase…" maxlength="64" autocomplete="off" aria-label="Add your own word or phrase to the condensate" disabled>
+    <button type="submit" class="press-label">condense</button>
+  </form>
+  <div id="chips"><span class="empty">nothing has condensed yet — click words that catch you</span></div>
+</div>
+
+<!-- Press entrance gate, deliberately standalone: no imports, no getElementById
+     lookups, nothing that can throw before it reaches document.body. It runs
+     (and releases header/#controls/#tray) even if app.js 404s, throws on a
+     missing element, or fails for any other reason — the previous version
+     lived at the end of app.js, where a single throw anywhere earlier in that
+     module meant the gate line was never reached and the chrome stayed
+     invisible forever. Double rAF so the transitions actually run instead of
+     being the initial state; runs once, so it cannot double-fire the entrance. -->
+<script>
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => document.body.classList.add('press-go'));
+  });
+</script>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
