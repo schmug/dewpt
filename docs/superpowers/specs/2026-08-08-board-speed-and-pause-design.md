@@ -1,7 +1,7 @@
 # Board speed and pause controls
 
 **Date:** 2026-08-08
-**Status:** approved, not yet implemented
+**Status:** implemented
 **Scope:** A speed preset and a pause toggle for the `/board` surface. Amends
 one decision in
 [the conveyor board design](2026-08-08-conveyor-board-design.md); everything
