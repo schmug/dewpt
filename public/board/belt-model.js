@@ -89,6 +89,15 @@ export function controlsState(view) {
   };
 }
 
+/** Whether a speed change is worth sending to the server. False when
+ *  `requested` is already the speed in effect — clicking the currently
+ *  selected preset, or a held arrow key whose repeat lands back on it, would
+ *  otherwise cost a `/controls` POST and a `saveControls` storage write for
+ *  no change. */
+export function speedChanged(current, requested) {
+  return requested !== current;
+}
+
 /** Whether a response tagged `seq` should still be painted, given `latestSeq`
  *  is the sequence number board.js had most recently SENT (not applied) at
  *  the moment the response is being considered.

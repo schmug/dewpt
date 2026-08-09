@@ -3,7 +3,7 @@
 // and nothing else.
 
 import { paintBoard, renderControls } from "./belt-render.js";
-import { controlsState, shouldApply } from "./belt-model.js";
+import { controlsState, shouldApply, speedChanged } from "./belt-model.js";
 
 const POLL_MS = 900;
 
@@ -93,8 +93,19 @@ nodes.pause?.addEventListener("click", () => {
   sendControls({ paused: !controlsState(lastView).paused });
 });
 
+/** Send a speed change, unless it is a no-op. The cheapest correct guard
+ *  against a held arrow key's ~30/s repeat, and against clicking the preset
+ *  that is already selected: both would otherwise fire a `/controls` POST —
+ *  and a `saveControls` storage write — for a speed the board is already at.
+ *  No debounce, no timer: this only ever drops requests that would not have
+ *  changed anything. */
+function requestSpeed(speed) {
+  if (!speedChanged(controlsState(lastView).speed, speed)) return;
+  sendControls({ speed });
+}
+
 for (const button of nodes.speeds) {
-  button.addEventListener("click", () => sendControls({ speed: button.dataset.speed }));
+  button.addEventListener("click", () => requestSpeed(button.dataset.speed));
 }
 
 /** Roving tabindex for the speed radiogroup: the checked option is the one
@@ -114,7 +125,7 @@ speedGroup?.addEventListener("keydown", (event) => {
   event.preventDefault();
   const next = nodes.speeds[(from + step + nodes.speeds.length) % nodes.speeds.length];
   next.focus();
-  sendControls({ speed: next.dataset.speed });
+  requestSpeed(next.dataset.speed);
 });
 
 function boardUrl(id, suffix = "") {

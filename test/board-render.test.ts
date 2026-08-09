@@ -53,7 +53,7 @@ interface Placement {
   atEdge: boolean;
 }
 
-const { columnCount, ghostOpacity, placeCards, controlsState, BELT_SPEED_NAMES, DEFAULT_SPEED, shouldApply } =
+const { columnCount, ghostOpacity, placeCards, controlsState, BELT_SPEED_NAMES, DEFAULT_SPEED, shouldApply, speedChanged } =
   beltModelUntyped as unknown as {
     ghostOpacity: (behind: number) => number;
     placeCards: (view: BoardView) => Placement[];
@@ -62,6 +62,7 @@ const { columnCount, ghostOpacity, placeCards, controlsState, BELT_SPEED_NAMES, 
     BELT_SPEED_NAMES: string[];
     DEFAULT_SPEED: string;
     shouldApply(seq: number, latestSeq: number): boolean;
+    speedChanged(current: string, requested: string): boolean;
   };
 
 function stations(n: number): StationView[] {
@@ -277,6 +278,24 @@ describe("controlsState", () => {
     expect(BELT_SPEED_NAMES).toEqual(Object.keys(BELT_SPEEDS));
     expect(DEFAULT_SPEED).toBe(DEFAULT_BELT_SPEED);
     expect(BELT_SPEED_NAMES).toContain(DEFAULT_SPEED);
+  });
+});
+
+describe("speedChanged", () => {
+  it("is false when the requested preset is already the one in effect", () => {
+    // The guard board.js uses before sending a /controls POST — a click on
+    // the currently selected preset, or a held arrow key's repeat landing
+    // back on it, must not fire a request for a speed the board is already
+    // at.
+    for (const speed of BELT_SPEED_NAMES) {
+      expect(speedChanged(speed, speed)).toBe(false);
+    }
+  });
+
+  it("is true for any other preset", () => {
+    expect(speedChanged("steady", "slow")).toBe(true);
+    expect(speedChanged("steady", "brisk")).toBe(true);
+    expect(speedChanged("brisk", "steady")).toBe(true);
   });
 });
 
