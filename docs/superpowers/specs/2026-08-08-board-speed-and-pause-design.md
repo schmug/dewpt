@@ -116,10 +116,17 @@ watching would advance on the poll interval rather than the dwell. So
 ```ts
 /** Belt-time at which the next hop becomes eligible, or null when no lineage
  *  is hungry at any future time. At or before `now` means work is due. */
-nextHopAt(now: number, hopDwellMs: number): number | null
+nextHopAt(hopDwellMs: number): number | null
 ```
 
-and `rearm()` schedules `max(PUMP_MS, nextHopAt - beltNow)`. A dwelling lineage
+It takes no `now`, and must compute its eligibility instant with the *same*
+expression `hungry` compares against. Written as two independent rules — "skip
+if still dwelling" in one, "`bornAt + dwell`" in the other — they disagree for a
+head whose `bornAt` is ahead of the queried time, and the alarm then either
+spins or sleeps through work it was just told existed. The two are one rule with
+two readings, and a property test asserts they agree at every instant.
+
+`rearm()` schedules `max(PUMP_MS, nextHopAt - beltNow)`. A dwelling lineage
 counts as pending work. The edge-parked case is unchanged and still counts
 independently: `hasPendingWork` already returns true for any lineage with
 `edgeAt !== null`, and that clause must survive, or a board whose last lineage
