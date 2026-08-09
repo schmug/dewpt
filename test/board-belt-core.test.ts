@@ -533,16 +533,40 @@ describe("hungry with a station dwell", () => {
     expect(hop!.count).toBe(SEED_FANOUT);
   });
 
-  it("still skips arrived, edge-parked and finished lineages under a dwell", () => {
-    // The dwell is an extra reason to hold, never a reason to release. Without
-    // this the gate could be written as the only condition and pass the tests
-    // above while resurrecting lineages that are done.
-    const belt = new BeltCore({ stations: stations(1) });
+  it("still skips an arrived lineage under a dwell, with a station left to go", () => {
+    // stations(3) is the point: the head's stationIndex (1) sits well short of
+    // stationList.length, so — unlike a stations(1) fixture, where hungry()
+    // would bail at the `head.stationIndex >= this.stationList.length` guard
+    // before ever consulting arrivedAt — the only thing that can explain a
+    // skip here is the arrived/edge guard. Delete
+    // `if (lineage.arrivedAt !== null || lineage.edgeAt !== null) continue;`
+    // from belt-core.ts and this goes red.
+    const belt = new BeltCore({ stations: stations(3) });
     belt.addSeed("a", 1000);
     const [seeded] = belt.lineages();
     belt.applySeedFan(seeded!.id, [child("b")], 1000);
     const [lineage] = belt.lineages();
+    // The premise: there is a station left to advance to, so nothing but the
+    // arrived guard could be holding this lineage back.
+    expect(lineage!.cards.at(-1)!.stationIndex).toBeLessThan(3);
     belt.markArrived(lineage!.id, 1000);
+    expect(belt.hungry(99_000, 3000)).toHaveLength(0);
+  });
+
+  it("still skips an edge-parked lineage under a dwell, with a station left to go", () => {
+    // Sibling of the above, covering the other half of the same guard:
+    // lineage.edgeAt rather than lineage.arrivedAt. noteHopFailure sets edgeAt
+    // directly, without ever touching arrivedAt, so this cannot pass by
+    // accident of the arrived check alone.
+    const belt = new BeltCore({ stations: stations(3) });
+    belt.addSeed("a", 1000);
+    const [seeded] = belt.lineages();
+    belt.applySeedFan(seeded!.id, [child("b")], 1000);
+    const [lineage] = belt.lineages();
+    expect(lineage!.cards.at(-1)!.stationIndex).toBeLessThan(3);
+    for (let i = 0; i < MAX_HOP_FAILURES; i++) belt.noteHopFailure(lineage!.id, 1000 + i);
+    expect(belt.lineages()[0]!.arrivedAt).toBeNull();
+    expect(belt.lineages()[0]!.edgeAt).not.toBeNull();
     expect(belt.hungry(99_000, 3000)).toHaveLength(0);
   });
 });
