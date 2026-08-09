@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 // The explainer surfaces (issues #11/#12) are static markup in
-// public/index.html; this suite pins the copy the acceptance criteria name so
+// public/app/index.html; this suite pins the copy the acceptance criteria name so
 // a rewording that drops a required line fails CI.
 import { readFileSync } from "node:fs";
 
-const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+const html = readFileSync(new URL("../public/app/index.html", import.meta.url), "utf8");
 
 /** The #about aside's markup, from its opening tag to its closing </aside>. */
 function aboutSection(): string {

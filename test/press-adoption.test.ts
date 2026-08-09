@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 // ID-selectored rule re-declares a property .press-label already supplies.
 const css = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
 const pressCss = readFileSync(new URL("../public/press.css", import.meta.url), "utf8");
-const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+const html = readFileSync(new URL("../public/app/index.html", import.meta.url), "utf8");
 
 /**
  * Every `selector { body }` rule in a stylesheet, comments stripped.
