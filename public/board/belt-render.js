@@ -74,7 +74,13 @@ export function renderControls(nodes, view) {
     nodes.pause.textContent = paused ? "resume" : "pause";
   }
   for (const button of nodes.speeds ?? []) {
-    button.setAttribute("aria-checked", String(button.dataset.speed === speed));
+    const checked = button.dataset.speed === speed;
+    button.setAttribute("aria-checked", String(checked));
+    // Roving tabindex: the checked option is the group's one tab stop. This
+    // has to move in lockstep with aria-checked, or a server-driven repaint
+    // (the poll, or a rejected click restoring the last known view) can leave
+    // Tab landing on a button that no longer reads as checked.
+    button.tabIndex = checked ? 0 : -1;
   }
   // Marked, not dimmed. Someone paused the board in order to read it.
   if (nodes.belt) nodes.belt.classList.toggle("board-grid--paused", paused);

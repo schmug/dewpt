@@ -52,7 +52,7 @@ interface Placement {
   atEdge: boolean;
 }
 
-const { columnCount, ghostOpacity, placeCards, controlsState, BELT_SPEED_NAMES, DEFAULT_SPEED } =
+const { columnCount, ghostOpacity, placeCards, controlsState, BELT_SPEED_NAMES, DEFAULT_SPEED, shouldApply } =
   beltModelUntyped as unknown as {
     ghostOpacity: (behind: number) => number;
     placeCards: (view: BoardView) => Placement[];
@@ -60,6 +60,7 @@ const { columnCount, ghostOpacity, placeCards, controlsState, BELT_SPEED_NAMES, 
     controlsState(view: unknown): { speed: string; paused: boolean };
     BELT_SPEED_NAMES: string[];
     DEFAULT_SPEED: string;
+    shouldApply(seq: number, latestSeq: number): boolean;
   };
 
 function stations(n: number): StationView[] {
@@ -271,5 +272,33 @@ describe("controlsState", () => {
     // server's isBeltSpeed means every click 400s.
     expect(BELT_SPEED_NAMES).toEqual(["brisk", "steady", "slow"]);
     expect(BELT_SPEED_NAMES).toContain(DEFAULT_SPEED);
+  });
+});
+
+describe("shouldApply", () => {
+  it("applies a response tagged with the latest sequence sent", () => {
+    expect(shouldApply(5, 5)).toBe(true);
+  });
+
+  it("discards a response once a newer request has already been sent", () => {
+    // The poll-vs-control race this guards against: a poll GET goes out at
+    // seq 5, then a control POST goes out after it at seq 6. Even though the
+    // GET was sent first, its response must not overwrite state set by the
+    // request that left later — regardless of which response lands first.
+    expect(shouldApply(5, 6)).toBe(false);
+  });
+
+  it("applies every response up to and including the latest sent, never past it", () => {
+    for (let seq = 1; seq <= 5; seq++) {
+      expect(shouldApply(seq, 5)).toBe(seq === 5);
+    }
+  });
+
+  it("fails open, not closed, if a seq somehow arrives ahead of the counter", () => {
+    // This should not happen given board.js's monotonic counter, but the
+    // alternative failure mode — a stray future seq making every later,
+    // legitimate response compare false forever — is worse than the one
+    // extra response this lets through.
+    expect(shouldApply(6, 5)).toBe(true);
   });
 });

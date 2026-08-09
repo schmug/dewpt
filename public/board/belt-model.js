@@ -88,3 +88,26 @@ export function controlsState(view) {
     paused: controls.paused === true,
   };
 }
+
+/** Whether a response tagged `seq` should still be painted, given `latestSeq`
+ *  is the sequence number board.js had most recently SENT (not applied) at
+ *  the moment the response is being considered.
+ *
+ *  This is what stops a slow poll GET from clobbering a faster control POST's
+ *  result with stale data, and the reverse: board.js has several fetches that
+ *  can be in flight at once (the poll loop, a control click, a seed submit),
+ *  the server view carries no version or timestamp to order them by, and
+ *  network latency does not respect send order. Stamping each request with a
+ *  monotonic counter when it goes out, and only painting a response whose
+ *  stamp is still the latest one sent, means whichever request left LAST wins
+ *  — never whichever response happens to arrive last.
+ *
+ *  `>=`, not `===`: the counter only grows, so in normal operation a response
+ *  can never carry a seq ahead of the latest one sent. Writing it as `>=`
+ *  means a caller that ever violates that invariant fails open — one
+ *  unexpected response gets painted — rather than failing closed, where a
+ *  single out-of-order seq would make every future response compare `false`
+ *  and freeze the board silently. */
+export function shouldApply(seq, latestSeq) {
+  return seq >= latestSeq;
+}

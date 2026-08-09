@@ -45,10 +45,15 @@
       >
         pause
       </button>
+      <!-- Roving tabindex: tabindex="0" sits on whichever button is
+           aria-checked="true", so the group is one tab stop, not three, and
+           board.js's arrow-key handler moves both together. Keep the two in
+           sync by hand here; belt-render.js's renderControls keeps them in
+           sync after that. -->
       <div class="board-speed" role="radiogroup" aria-label="belt speed">
-        <button type="button" class="board-control-button board-speed-option" data-speed="brisk" role="radio" aria-checked="false">brisk</button>
-        <button type="button" class="board-control-button board-speed-option" data-speed="steady" role="radio" aria-checked="true">steady</button>
-        <button type="button" class="board-control-button board-speed-option" data-speed="slow" role="radio" aria-checked="false">slow</button>
+        <button type="button" class="board-control-button board-speed-option" data-speed="brisk" role="radio" aria-checked="false" tabindex="-1">brisk</button>
+        <button type="button" class="board-control-button board-speed-option" data-speed="steady" role="radio" aria-checked="true" tabindex="0">steady</button>
+        <button type="button" class="board-control-button board-speed-option" data-speed="slow" role="radio" aria-checked="false" tabindex="-1">slow</button>
       </div>
     </div>
     <p id="board-status" class="board-status" role="status" aria-live="polite"></p>
