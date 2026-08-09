@@ -552,12 +552,23 @@ Replace the existing `hungry()` method with:
   }
 ```
 
-- [ ] **Step 5: Fix the one production call site so the build stays green**
+- [ ] **Step 5: Update the two production call sites in `src/board/board-do.ts`**
 
-In `src/board/board-do.ts`, temporarily satisfy the new signature — Task 3 replaces both lines properly:
+This task leaves the board running at the default speed on the wall clock: the dwell is real and correct, it is just not yet configurable and there is no pause. Task 3 makes it both. Add `DEFAULT_BELT_SPEED, hopDwellMs` to the existing `./types` import, then:
 
-- `hasPendingWork()`: `if (this.belt.hungry(Date.now(), 0).length > 0) return true;`
-- `pumpOnce()`: `const hop = this.belt.hungry(Date.now(), 0)[0];`
+- `hasPendingWork()` — replace the `hungry` call with `nextHopAt`, which is the correct form and is available now:
+
+```ts
+    if (this.belt.nextHopAt(hopDwellMs(DEFAULT_BELT_SPEED)) !== null) return true;
+```
+
+- `pumpOnce()`:
+
+```ts
+    const hop = this.belt.hungry(Date.now(), hopDwellMs(DEFAULT_BELT_SPEED))[0];
+```
+
+Do **not** hardcode a `0` dwell in either — that would silently ship the brisk pace regardless of the preset, which is the whole behaviour this task exists to change.
 
 - [ ] **Step 6: Run the tests and confirm they pass**
 
