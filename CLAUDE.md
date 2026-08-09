@@ -51,6 +51,16 @@ Two independent traps, and they stack. Probe before debugging app code —
 node rather than through a binding. Prefer that shape for any offline
 calibration or measurement work.
 
+All inference goes through one seam — `AiRunner` in
+[src/generation.ts](src/generation.ts), selected by `selectAiRunner` in
+[src/ai-runner.ts](src/ai-runner.ts). Setting `LOCAL_AI_BASE_URL` in `.dev.vars`
+points it at any OpenAI-compatible server (Ollama et al.), which removes the
+Access dependency but *not* the WARP one — WARP blocks workerd's egress to
+localhost too. `DEV_FAKE_AI=1` still wins over it. Never put these in
+`wrangler.jsonc`: production is Workers AI, and a localhost URL in deployed
+config would break generation silently. Local-model gotchas (thinking models,
+embedding dimensions) are in the README.
+
 ## Scripts
 
 All take `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` (needs *Workers AI -

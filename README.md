@@ -30,6 +30,39 @@ curl http://localhost:8787/api/debug/ai   # {"ok":true,...} means generation wil
 > canned offline generator (`src/dev-fake-ai.ts`) so the field machinery can be
 > exercised without egress. Production generation is Workers AI only.
 
+### Local inference
+
+Generation and embedding can run against any OpenAI-compatible server — Ollama,
+llama.cpp's server, LM Studio, vLLM — by pointing `.dev.vars` at it:
+
+```sh
+LOCAL_AI_BASE_URL=http://localhost:11434/v1
+GEN_MODEL=qwen2.5-coder:7b
+EMBED_MODEL=bge-m3
+```
+
+`/api/debug/ai` reports which backend answered (`"mode":"local"`), so the probe
+stays honest once you switch. `LOCAL_AI_API_KEY` is there for servers that want
+one; Ollama ignores it. This is a dev convenience — production is Workers AI,
+and these vars live only in `.dev.vars`, never in `wrangler.jsonc`.
+
+Two things that bite:
+
+- **Thinking models return nothing.** They spend the whole `max_tokens` budget
+  on `message.reasoning` and hand back an empty `content`, which parses to zero
+  candidates and a field that never fills. Add
+  `LOCAL_AI_CHAT_OPTIONS={"reasoning_effort":"none"}` — measured on
+  `qwen3.5:4b`, that turns 0 candidates into 8. Ollama silently ignores both
+  `think: false` and `chat_template_kwargs.enable_thinking`; only
+  `reasoning_effort` works there.
+- **Embeddings are persisted per session.** Vectors live in the DO's SQLite, so
+  changing `EMBED_MODEL` mid-session mixes incompatible dimensions into the
+  cosine scoring. Start a new session after a model change.
+
+WARP blocks workerd's egress to `localhost` too, so this is not a way around
+that trap — it is a way to stop needing a Cloudflare account and an Access token
+to develop.
+
 ## Tests & checks
 
 ```sh

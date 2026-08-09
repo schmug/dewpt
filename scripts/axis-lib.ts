@@ -17,31 +17,12 @@ export const DISTRACTORS = [
   "tributary", "handshake", "linoleum", "monsoon", "escalator",
 ];
 
-// ── vector math ────────────────────────────────────────────────────────────
+// ── vector math and ranking metrics ────────────────────────────────────────
 
-export function dot(a: number[], b: number[]): number {
-  let s = 0;
-  for (let i = 0; i < a.length; i++) s += a[i]! * b[i]!;
-  return s;
-}
-
-export function norm(v: number[]): number {
-  return Math.sqrt(dot(v, v));
-}
-
-export function sub(a: number[], b: number[]): number[] {
-  return a.map((x, i) => x - b[i]!);
-}
-
-export function mean(vs: number[][]): number[] {
-  const out = new Array(vs[0]!.length).fill(0);
-  for (const v of vs) for (let i = 0; i < v.length; i++) out[i] += v[i]!;
-  return out.map((x) => x / vs.length);
-}
-
-export function cosine(a: number[], b: number[]): number {
-  return dot(a, b) / (norm(a) * norm(b) || 1);
-}
+// Vector math lives in eval-vec.ts, which must stay free of node APIs so tests
+// can import it — this file reads process.env below. Re-exported here so the
+// axis spikes keep their existing import site.
+export { cosine, dot, mean, norm, sub } from "./eval-vec";
 
 // ── ranking metrics ────────────────────────────────────────────────────────
 // Re-exported from src/metrics.ts, which band-spike.ts also uses. One AUC in
