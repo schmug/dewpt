@@ -262,6 +262,16 @@ describe("board touch targets clear 44px", () => {
   });
 });
 
+describe("board control buttons clear 44px", () => {
+  it("gives every control button 44px in both dimensions", () => {
+    const body = bodyForExactSelector(css, ".board-surface .board-control-button");
+    for (const prop of ["min-height", "min-width"]) {
+      expect(pxLength(body, prop), `control button declares no px ${prop}`).not.toBeNull();
+      expect(pxLength(body, prop), `control button ${prop} is under the 44px floor`).toBeGreaterThanOrEqual(44);
+    }
+  });
+});
+
 describe("board sizes itself in dvh", () => {
   it("measures the surface in 100dvh with 100vh only as the line above it", () => {
     // 100vh alone puts the seed row under the iOS URL bar. The vh line has to

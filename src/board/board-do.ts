@@ -17,8 +17,18 @@ import { DurableObject } from "cloudflare:workers";
 import { fakeAiRunner } from "../dev-fake-ai";
 import { embedTexts, expandPole, type AiRunner } from "../generation";
 import { BeltCore, type BeltCoreState, type BoardView } from "./belt-core";
+import { beltNow, isClockState, isPaused, pauseClock, resumeClock, startedClock, type ClockState } from "./clock";
 import { generateRewrites, hasArrived, selectChild, type Candidate } from "./rewrite";
-import { CANDIDATES_PER_HOP, DEFAULT_STATION_TERMS, type Station } from "./types";
+import {
+  CANDIDATES_PER_HOP,
+  DEFAULT_BELT_SPEED,
+  DEFAULT_STATION_TERMS,
+  hopDwellMs,
+  isBeltSpeed,
+  type BeltSpeed,
+  type BoardControls,
+  type Station,
+} from "./types";
 
 const PUMP_MS = 500;
 /** Ceiling on the backoff below. A board can be legitimately stuck forever —
@@ -58,6 +68,65 @@ const MAX_CONSECUTIVE_STALLS = PUMP_BACKOFF_MAX_SHIFT;
  *  way. The probe covers both: a hot isolate and a fresh one per wake stop at
  *  the same point. */
 const STALLS_KEY = "stalls";
+
+/** Storage key for the speed preset and the belt clock. Deliberately NOT part
+ *  of the "belt" record: `beltFingerprint` compares that record byte for byte
+ *  to decide whether the read path may skip its write, and its safety argument
+ *  is that it can only ever err toward writing. Folding a clock into it — a
+ *  value that moves on its own — would make every poll a change and put the
+ *  per-poll write straight back. */
+const CONTROLS_KEY = "controls";
+
+interface ControlsRecord {
+  speed: BeltSpeed;
+  clock: ClockState;
+}
+
+/** The board's wire shape: the belt's projection plus the control state. */
+export interface BoardResponse extends BoardView {
+  controls: BoardControls;
+}
+
+/** Real-ms until the alarm should next fire.
+ *
+ *  Exported and pure for the same reason `candidateWidth` and
+ *  `beltFingerprint` are: there is no Durable Object test harness in this repo
+ *  (issue #31), so arithmetic that decides whether a board spins, sleeps, or
+ *  stops has to be reachable without one.
+ *
+ *  `nextHopAt - beltNow` is a BELT-ms delta, and this function hands it back
+ *  as if it were real-ms — correct only because its sole caller,
+ *  `schedulePump`, refuses to arm anything while the board is paused, so belt
+ *  time is always advancing 1:1 with real time at the moment this delay is
+ *  actually used. A clock whose running rate could differ from 1:1 (a
+ *  fast-forward preset, say) would break this silently; it would need its own
+ *  conversion here, not just in `beltNow`.
+ *
+ *  `edgeParked` short-circuits to zero rather than computing an instant,
+ *  because eviction is due continuously — the tick either finds the dwell
+ *  elapsed or it does not. Letting a long station dwell win instead would hold
+ *  a finished card on the belt for up to eight seconds past EDGE_DWELL_MS.
+ *
+ *  Every input is treated as untrusted arithmetic, not just untrusted origin:
+ *  a NaN or infinite `nextHopAt`/`beltNow` is dropped rather than propagated
+ *  into the result, and a still-non-finite result (a broken `backoffMs`)
+ *  falls back to 0 rather than reaching `setAlarm` — a non-finite alarm
+ *  target is a caller bug that must not read as "no alarm was scheduled". */
+export function pumpDelayMs(input: {
+  backoffMs: number;
+  nextHopAt: number | null;
+  edgeParked: boolean;
+  beltNow: number;
+}): number {
+  const waits: number[] = [];
+  if (input.edgeParked) waits.push(0);
+  if (input.nextHopAt !== null && Number.isFinite(input.nextHopAt) && Number.isFinite(input.beltNow)) {
+    waits.push(Math.max(0, input.nextHopAt - input.beltNow));
+  }
+  const soonest = waits.length === 0 ? 0 : Math.min(...waits);
+  const delay = Math.max(input.backoffMs, soonest);
+  return Number.isFinite(delay) ? delay : 0;
+}
 
 /** Candidates to request from one generation call for a hop that needs
  *  `childCount` children.
@@ -192,6 +261,49 @@ export class BoardDO extends DurableObject<Env> {
   private persistedBelt: string | null = null;
   private devFakeAi: AiRunner | null = null;
 
+  private speed: BeltSpeed = DEFAULT_BELT_SPEED;
+  /** Running, not paused, as the pre-`load()` default.
+   *
+   *  `load()` overwrites this the moment it succeeds, so the only observer of
+   *  the field initializer is a DO whose `load()` itself throws (a
+   *  `storage.get` failure). For that DO, `{ since: null }` (paused) would
+   *  make `schedulePump` refuse to arm anything — a board that cannot read
+   *  its own state would also never retry reading it, silently, forever.
+   *  Before this feature existed there was no such thing as paused and the
+   *  board just kept scheduling on real time; a running default reproduces
+   *  that fallback exactly, rather than inventing a new failure mode. */
+  private clock: ClockState = startedClock(Date.now());
+  /** Last controls record written, so a board that is merely running never
+   *  writes its clock at all. */
+  private persistedControls: string | null = null;
+
+  /** Belt time: real time while running, frozen while paused. Everything the
+   *  belt is given as `now` comes through here — a stray Date.now() reaching
+   *  BeltCore would keep ticking through a pause and evict parked lineages. */
+  private beltNow(): number {
+    return beltNow(this.clock, Date.now());
+  }
+
+  private paused(): boolean {
+    return isPaused(this.clock);
+  }
+
+  private dwell(): number {
+    return hopDwellMs(this.speed);
+  }
+
+  private response(): BoardResponse {
+    return { ...this.belt.view(), controls: { speed: this.speed, paused: this.paused() } };
+  }
+
+  private async saveControls(): Promise<void> {
+    const record: ControlsRecord = { speed: this.speed, clock: this.clock };
+    const fingerprint = JSON.stringify(record);
+    if (fingerprint === this.persistedControls) return;
+    await this.ctx.storage.put(CONTROLS_KEY, record);
+    this.persistedControls = fingerprint;
+  }
+
   private aiRunner(): AiRunner {
     // dev-only escape hatch for local runtimes with no egress; see dev-fake-ai.ts
     if ((this.env as Env & { DEV_FAKE_AI?: string }).DEV_FAKE_AI === "1") {
@@ -211,6 +323,41 @@ export class BoardDO extends DurableObject<Env> {
     // must still be given up after the eviction that its own backoff invites.
     this.pumpFailures = (await this.ctx.storage.get<number>(STALLS_KEY)) ?? 0;
     this.persistedFailures = this.pumpFailures;
+    const controls = await this.ctx.storage.get<ControlsRecord>(CONTROLS_KEY);
+    // isBeltSpeed, not a bare presence check: a non-key speed makes
+    // hopDwellMs's BELT_SPEEDS[speed] undefined, so every dwell comparison in
+    // BeltCore.hungry is `now < bornAt + NaN`, which is false — every lineage
+    // looks hungry forever, i.e. unbounded metered generation against a live
+    // account. The fallback is silent by design (DEFAULT_BELT_SPEED always
+    // works); the warning is what makes the corrupted record visible instead
+    // of merely survived.
+    if (controls !== undefined && !isBeltSpeed(controls.speed)) {
+      console.warn(
+        JSON.stringify({ level: "warn", message: "invalid stored belt speed, using default", speed: controls.speed }),
+      );
+    }
+    this.speed = controls !== undefined && isBeltSpeed(controls.speed) ? controls.speed : DEFAULT_BELT_SPEED;
+    // isClockState, not a bare presence check, mirroring the isBeltSpeed guard
+    // just above but for the failure mode it does not cover: a MISSING clock
+    // is the ordinary case handled below — speed shipped before the clock did
+    // (see git history), so a speed-only controls record with no `clock`
+    // field at all is not corruption. A PRESENT-but-malformed clock is: it
+    // makes beltNow() return NaN, which makes every lineage look hungry
+    // forever (unbounded metered generation) and nothing ever evict (silently
+    // breaking ephemerality) — see isClockState's doc comment.
+    if (controls?.clock !== undefined && !isClockState(controls.clock)) {
+      console.warn(
+        JSON.stringify({ level: "warn", message: "invalid stored belt clock, using a fresh clock", clock: controls.clock }),
+      );
+    }
+    // A board with no controls record, or no clock on its controls record —
+    // every board that predates this feature — gets a clock started now.
+    // `startedClock` is epoch-seeded, so belt time is continuous with the
+    // bornAt/edgeAt values already in its belt record and no migration is
+    // needed. Nothing is written: a board that is simply running re-derives
+    // the same running clock on every load.
+    this.clock = controls?.clock !== undefined && isClockState(controls.clock) ? controls.clock : startedClock(Date.now());
+    this.persistedControls = controls === undefined ? null : JSON.stringify(controls);
     // No id factory: BeltCore defaults to crypto.randomUUID(). It must NOT be
     // given a counter here — this object hibernates and wakes on a fresh
     // isolate, so a module-scope counter replays its sequence against hydrated
@@ -256,7 +403,7 @@ export class BoardDO extends DurableObject<Env> {
    *  the background: a station without an embedding reports not-ready and holds
    *  its lineages rather than falling through to unscored selection, which
    *  would be indistinguishable from working. */
-  async init(): Promise<BoardView> {
+  async init(): Promise<BoardResponse> {
     await this.load();
     if (this.belt.stations().length === 0) {
       const stations: Station[] = DEFAULT_STATION_TERMS.map((term, i) => ({
@@ -272,7 +419,7 @@ export class BoardDO extends DurableObject<Env> {
       this.ctx.waitUntil(this.prepareStations());
     }
     await this.schedulePump(PUMP_MS);
-    return this.belt.view();
+    return this.response();
   }
 
   /** Never awaits generation — see the header. Ticking here is what evicts
@@ -283,13 +430,13 @@ export class BoardDO extends DurableObject<Env> {
    *  its alarm lapse, so the poll is the only thing left driving time forward —
    *  but the tick is a no-op on almost all of those reads, and persisting an
    *  unchanged belt is a metered storage write bought for nothing. */
-  async getView(): Promise<BoardView | null> {
+  async getView(): Promise<BoardResponse | null> {
     await this.load();
     if (this.belt.stations().length === 0) return null;
-    this.belt.tick(Date.now());
+    this.belt.tick(this.beltNow());
     await this.saveIfChanged();
     await this.schedulePump(PUMP_MS);
-    return this.belt.view();
+    return this.response();
   }
 
   /** `addSeed` returns false when the board is at MAX_LINEAGES. That boolean
@@ -298,15 +445,56 @@ export class BoardDO extends DurableObject<Env> {
    *  status, and nothing for `if (!res.ok)` to catch. A silent no-op on a user's
    *  direct action is worse than an error. The route turns `accepted: false`
    *  into a 409 with the view attached. */
-  async seed(text: string): Promise<{ view: BoardView; accepted: boolean } | null> {
+  async seed(text: string): Promise<{ view: BoardResponse; accepted: boolean } | null> {
     await this.load();
     if (this.belt.stations().length === 0) return null;
-    const accepted = this.belt.addSeed(text, Date.now());
+    const accepted = this.belt.addSeed(text, this.beltNow());
     if (accepted) {
       await this.save();
       await this.schedulePump(0);
     }
-    return { view: this.belt.view(), accepted };
+    return { view: this.response(), accepted };
+  }
+
+  /** Set the speed preset, the paused state, or both.
+   *
+   *  Pausing ticks once at the frozen time before answering, so the snapshot
+   *  the client is handed accounts for every millisecond up to the pause rather
+   *  than deferring that work to whenever the board next resumes. Resuming
+   *  unfreezes first and then asks for an immediate pump, so anything seeded
+   *  during the pause releases at once — and, incidentally, so a board whose
+   *  stall backoff had saturated recovers, by the same route getView and seed
+   *  already use.
+   *
+   *  Does not cancel an alarm already armed before the pause: that one wake
+   *  still fires, finds `paused()` true in `alarm()`, does no work and rearms
+   *  nothing. Harmless (0 AI calls, 0 further alarms), but it means "a paused
+   *  board arms no alarm and pumps nothing" holds from the SECOND wake after
+   *  pausing, not instantly. */
+  async setControls(patch: { speed?: BeltSpeed; paused?: boolean }): Promise<BoardResponse | null> {
+    await this.load();
+    if (this.belt.stations().length === 0) return null;
+    const realNow = Date.now();
+    if (patch.speed !== undefined) {
+      // Runtime-checked despite the parameter type: this RPC's caller is a
+      // route (task 4) parsing an untrusted request body into this shape, and
+      // a bad value here is the same NaN-dwell, unbounded-generation failure
+      // load() guards against above. Two checks on one spend-rate path is
+      // deliberate defence in depth, not redundancy.
+      if (isBeltSpeed(patch.speed)) {
+        this.speed = patch.speed;
+      } else {
+        console.warn(JSON.stringify({ level: "warn", message: "invalid speed patch, ignoring", speed: patch.speed }));
+      }
+    }
+    if (patch.paused !== undefined) {
+      this.clock = patch.paused ? pauseClock(this.clock, realNow) : resumeClock(this.clock, realNow);
+    }
+    await this.saveControls();
+    this.belt.tick(this.beltNow());
+    await this.saveIfChanged();
+    await this.schedulePump(0);
+    return this.response();
   }
 
   // ---- station preparation ----------------------------------------------------
@@ -344,6 +532,11 @@ export class BoardDO extends DurableObject<Env> {
   // ---- generation pump ---------------------------------------------------------
 
   private async schedulePump(delayMs: number): Promise<void> {
+    // The one choke point for pause. init, getView, seed, prepareStations and
+    // rearm all arm the alarm through here, so a paused board spends nothing
+    // because of this line rather than because five callers each remembered.
+    // Resume unfreezes the clock BEFORE calling in, so it is not blocked by it.
+    if (this.paused()) return;
     const target = Date.now() + delayMs;
     const existing = await this.ctx.storage.getAlarm();
     // Pull the alarm forward on user activity; never push it out.
@@ -361,9 +554,28 @@ export class BoardDO extends DurableObject<Env> {
     let result: PumpResult = "stalled";
     try {
       await this.load();
-      this.belt.tick(Date.now());
+      // Paused: request no work. "idle" rather than "stalled" keeps the backoff
+      // ladder out of it — pause is not a fault, and a board resumed after a
+      // long pause must not wake into a saturated backoff or a given-up state.
+      if (this.paused()) {
+        result = "idle";
+        return;
+      }
+      this.belt.tick(this.beltNow());
       result = await this.pumpOnce();
-      await this.save();
+      // saveIfChanged, not save(): the dwell gate creates a wake this file did
+      // not have before it — pumpOnce() returns "idle" while hasPendingWork()
+      // is still true, because a dwelling head is pending work but is not yet
+      // due. getView's schedulePump(PUMP_MS) pulls the alarm forward on every
+      // client poll, so that alarm fires repeatedly mid-dwell, finds nothing
+      // to do, and rearm() puts it right back mid-dwell — roughly once per
+      // poll for the whole dwell. An unconditional save() there would write
+      // the full belt record, 1024-dim embeddings included, for no change,
+      // every one of those times. saveIfChanged is strictly cheaper than
+      // save() here, not a tradeoff: save() already computes beltFingerprint
+      // to update persistedBelt, so this trades a `put` for a string
+      // comparison. Do not "simplify" this back to save().
+      await this.saveIfChanged();
     } catch (error) {
       // Force the failure state. `result` is assigned as soon as pumpOnce
       // returns, so a save() that throws underneath a successful pump would
@@ -412,10 +624,27 @@ export class BoardDO extends DurableObject<Env> {
       if (this.ready && !this.hasPendingWork()) return;
       if (this.pumpFailures >= MAX_CONSECUTIVE_STALLS) return;
       const shift = Math.min(this.pumpFailures, PUMP_BACKOFF_MAX_SHIFT);
+      const backoffMs = Math.min(PUMP_RETRY_MAX_MS, PUMP_MS * 2 ** shift);
+      // `this.belt` is unset when `load()` itself threw before assigning it —
+      // the same case `hasPendingWork()` is skipped for, two lines up, via
+      // `this.ready &&`. This dereference needs the identical guard: a raw
+      // `pumpDelayMs` call here regressed to a TypeError on exactly that DO,
+      // which stopped it from ever re-arming (confirmed by review). The plain
+      // backoff is what this method scheduled before `pumpDelayMs` existed,
+      // so falling back to it is not a special case, just the one place
+      // `this.ready` still has to be checked explicitly.
+      const delay = this.ready
+        ? pumpDelayMs({
+            backoffMs,
+            nextHopAt: this.belt.nextHopAt(this.dwell()),
+            edgeParked: this.belt.lineages().some((l) => l.edgeAt !== null),
+            beltNow: this.beltNow(),
+          })
+        : backoffMs;
       // Through schedulePump, NOT a raw setAlarm: this must pull the alarm
       // forward and never push it out. A seed landing mid-pump has already
       // asked for 0ms, and a raw set here moved it to the full 30s backoff.
-      await this.schedulePump(Math.min(PUMP_RETRY_MAX_MS, PUMP_MS * 2 ** shift));
+      await this.schedulePump(delay);
     } catch (error) {
       // Storage itself is failing; there is no way left to reschedule.
       console.error(JSON.stringify({ level: "error", message: "board rearm failed", error: String(error) }));
@@ -423,7 +652,11 @@ export class BoardDO extends DurableObject<Env> {
   }
 
   private hasPendingWork(): boolean {
-    if (this.belt.hungry().length > 0) return true;
+    // nextHopAt, not hungry: a lineage still sitting out its dwell is pending
+    // work. Asking hungry() here would report an all-dwelling board as idle,
+    // the alarm would lapse, and the belt would advance only when someone
+    // happened to poll.
+    if (this.belt.nextHopAt(this.dwell()) !== null) return true;
     // An edge-parked lineage still needs the tick that evicts it.
     return this.belt.lineages().some((l) => l.edgeAt !== null);
   }
@@ -432,7 +665,7 @@ export class BoardDO extends DurableObject<Env> {
    *  contained: an embedding or generation fault abandons the hop and counts
    *  against MAX_HOP_FAILURES rather than propagating. */
   private async pumpOnce(): Promise<PumpResult> {
-    const hop = this.belt.hungry()[0];
+    const hop = this.belt.hungry(this.beltNow(), this.dwell())[0];
     if (!hop) return "idle";
     const station = this.belt.stations()[hop.stationIndex - 1];
     // Hold rather than guess. Selecting without a station embedding produces
@@ -440,7 +673,7 @@ export class BoardDO extends DurableObject<Env> {
     if (!station || station.embedding === null) return "stalled";
 
     const ai = this.aiRunner();
-    const now = () => Date.now();
+    const now = () => this.beltNow();
     try {
       let parentEmb = hop.parentEmbedding;
       if (parentEmb === null) {

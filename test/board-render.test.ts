@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BELT_SPEEDS, DEFAULT_BELT_SPEED } from "../src/board/types";
 
 // public/board/belt-model.js is plain JS served raw from public/ (no build
 // step), so it sits outside tsconfig's include — same arrangement as
@@ -52,11 +53,17 @@ interface Placement {
   atEdge: boolean;
 }
 
-const { columnCount, ghostOpacity, placeCards } = beltModelUntyped as {
-  ghostOpacity: (behind: number) => number;
-  placeCards: (view: BoardView) => Placement[];
-  columnCount: (view: BoardView) => number;
-};
+const { columnCount, ghostOpacity, placeCards, controlsState, BELT_SPEED_NAMES, DEFAULT_SPEED, shouldApply, speedChanged } =
+  beltModelUntyped as unknown as {
+    ghostOpacity: (behind: number) => number;
+    placeCards: (view: BoardView) => Placement[];
+    columnCount: (view: BoardView) => number;
+    controlsState(view: unknown): { speed: string; paused: boolean };
+    BELT_SPEED_NAMES: string[];
+    DEFAULT_SPEED: string;
+    shouldApply(seq: number, latestSeq: number): boolean;
+    speedChanged(current: string, requested: string): boolean;
+  };
 
 function stations(n: number): StationView[] {
   return Array.from({ length: n }, (_, i) => ({
@@ -232,5 +239,90 @@ describe("columnCount", () => {
     const widest = Math.max(...placeCards(board).map((p) => p.column));
     expect(widest).toBe(5);
     expect(widest).toBeLessThanOrEqual(columnCount(board));
+  });
+});
+
+describe("controlsState", () => {
+  it("reads the speed and paused state a view carries", () => {
+    expect(controlsState({ controls: { speed: "slow", paused: true } })).toEqual({
+      speed: "slow",
+      paused: true,
+    });
+  });
+
+  it("falls back to a coherent row when the view carries no controls", () => {
+    // A dropped poll body, a 404 payload, or a response from a server that
+    // predates this feature must still paint a control row. An undefined speed
+    // would check none of the three radios and leave the group unreadable.
+    for (const view of [null, undefined, {}, { controls: null }, { controls: "slow" }]) {
+      expect(controlsState(view)).toEqual({ speed: DEFAULT_SPEED, paused: false });
+    }
+  });
+
+  it("refuses a speed it does not know rather than passing it through", () => {
+    expect(controlsState({ controls: { speed: "ludicrous", paused: false } }).speed).toBe(DEFAULT_SPEED);
+  });
+
+  it("treats anything but a literal true as running", () => {
+    for (const paused of ["true", 1, null, undefined]) {
+      expect(controlsState({ controls: { speed: "steady", paused } }).paused).toBe(false);
+    }
+  });
+
+  it("names exactly the presets the server accepts", () => {
+    // These strings go straight into the request body. Drifting from the
+    // server's isBeltSpeed means every click 400s. Asserted against the real
+    // source of truth in src/board/types.ts — not a second literal that
+    // merely happens to read the same — so renaming a preset there fails
+    // this test rather than leaving it green while every click starts 400ing.
+    expect(BELT_SPEED_NAMES).toEqual(Object.keys(BELT_SPEEDS));
+    expect(DEFAULT_SPEED).toBe(DEFAULT_BELT_SPEED);
+    expect(BELT_SPEED_NAMES).toContain(DEFAULT_SPEED);
+  });
+});
+
+describe("speedChanged", () => {
+  it("is false when the requested preset is already the one in effect", () => {
+    // The guard board.js uses before sending a /controls POST — a click on
+    // the currently selected preset, or a held arrow key's repeat landing
+    // back on it, must not fire a request for a speed the board is already
+    // at.
+    for (const speed of BELT_SPEED_NAMES) {
+      expect(speedChanged(speed, speed)).toBe(false);
+    }
+  });
+
+  it("is true for any other preset", () => {
+    expect(speedChanged("steady", "slow")).toBe(true);
+    expect(speedChanged("steady", "brisk")).toBe(true);
+    expect(speedChanged("brisk", "steady")).toBe(true);
+  });
+});
+
+describe("shouldApply", () => {
+  it("applies a response tagged with the latest sequence sent", () => {
+    expect(shouldApply(5, 5)).toBe(true);
+  });
+
+  it("discards a response once a newer request has already been sent", () => {
+    // The poll-vs-control race this guards against: a poll GET goes out at
+    // seq 5, then a control POST goes out after it at seq 6. Even though the
+    // GET was sent first, its response must not overwrite state set by the
+    // request that left later — regardless of which response lands first.
+    expect(shouldApply(5, 6)).toBe(false);
+  });
+
+  it("applies every response up to and including the latest sent, never past it", () => {
+    for (let seq = 1; seq <= 5; seq++) {
+      expect(shouldApply(seq, 5)).toBe(seq === 5);
+    }
+  });
+
+  it("fails open, not closed, if a seq somehow arrives ahead of the counter", () => {
+    // This should not happen given board.js's monotonic counter, but the
+    // alternative failure mode — a stray future seq making every later,
+    // legitimate response compare false forever — is worse than the one
+    // extra response this lets through.
+    expect(shouldApply(6, 5)).toBe(true);
   });
 });

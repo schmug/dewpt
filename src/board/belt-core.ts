@@ -127,22 +127,78 @@ export class BeltCore {
   }
 
   /** Lineages that need their next card. A lineage still sitting on its seed
-   *  asks for SEED_FANOUT children; every later hop asks for one. */
-  hungry(): HungryHop[] {
+   *  asks for SEED_FANOUT children; every later hop asks for one.
+   *
+   *  `hopDwellMs` is the speed preset's minimum station dwell: a head has to
+   *  have sat that long, in belt time, before its next hop is requested. Both
+   *  parameters are required rather than defaulted — a call site that forgets
+   *  the dwell should fail to compile, not silently run that lineage at brisk.
+   *
+   *  The seed fan is EXEMPT — its dwell is zero. Gating a lineage's first hop
+   *  leaves a brand new board doing nothing for the whole dwell, which is the
+   *  "will look like waiting" failure the fan was introduced to prevent. The
+   *  dwell paces the interval between things there are to read; before the fan
+   *  there is nothing to read.
+   *
+   *  Both this and `nextHopAt` compute the same `due` instant and differ only in
+   *  what they do with it. That is deliberate: written as two separate rules —
+   *  "skip if still dwelling" here, "return bornAt + dwell" there — they
+   *  disagree for a head whose bornAt is ahead of `now`, and the alarm either
+   *  spins or sleeps through work it was told existed. */
+  hungry(now: number, hopDwellMs: number): HungryHop[] {
     const out: HungryHop[] = [];
     for (const lineage of this.lineageList) {
       if (lineage.arrivedAt !== null || lineage.edgeAt !== null) continue;
       const head = lineage.cards.at(-1)!;
       if (head.stationIndex >= this.stationList.length) continue;
+      const count = lineage.cards.length === 1 ? SEED_FANOUT : 1;
+      // Keyed on `cards.length === 1` — the spec's actual exemption condition
+      // — not on `count === 1`. The two agree only because SEED_FANOUT > 1;
+      // setting SEED_FANOUT = 1 would silently delete the seed-fan exemption
+      // if this were keyed on `count` instead, leaving a fresh board blank
+      // for up to a full dwell.
+      if (now < head.bornAt + (lineage.cards.length === 1 ? 0 : hopDwellMs)) continue;
       out.push({
         lineageId: lineage.id,
         parentText: head.text,
         parentEmbedding: head.embedding,
         stationIndex: head.stationIndex + 1,
-        count: lineage.cards.length === 1 ? SEED_FANOUT : 1,
+        count,
       });
     }
     return out;
+  }
+
+  /** Belt-time at which the next hop becomes eligible, or null when no lineage
+   *  will ever be hungry from this state. A value at or before `now` means work
+   *  is already due.
+   *
+   *  This exists so the alarm can sleep until the dwell expires instead of
+   *  either spinning at PUMP_MS or — worse — lapsing. Without it, a board where
+   *  every lineage is dwelling reports no pending work, the alarm is not
+   *  re-armed, and the belt advances only as a side effect of somebody polling.
+   *
+   *  Deliberately takes no `now`: the answer does not depend on one, and a
+   *  version that took one could disagree with `hungry` about the present.
+   *
+   *  The `due` expression below must stay character-for-character the one in
+   *  `hungry`. `hungry` includes a lineage exactly when `now >= due`, so this
+   *  returning `min(due)` is what makes "nextHopAt is non-null and at or before
+   *  now" mean the same thing as "hungry is non-empty". */
+  nextHopAt(hopDwellMs: number): number | null {
+    let soonest: number | null = null;
+    for (const lineage of this.lineageList) {
+      if (lineage.arrivedAt !== null || lineage.edgeAt !== null) continue;
+      const head = lineage.cards.at(-1)!;
+      if (head.stationIndex >= this.stationList.length) continue;
+      // Must stay character-for-character the expression in `hungry` above —
+      // see that method's comment on `count` vs `cards.length`, and the class
+      // comment above `nextHopAt` on why the two due expressions have to
+      // match.
+      const due = head.bornAt + (lineage.cards.length === 1 ? 0 : hopDwellMs);
+      if (soonest === null || due < soonest) soonest = due;
+    }
+    return soonest;
   }
 
   /** Split a seed lineage into one lineage per child, each keeping a copy of

@@ -14,16 +14,26 @@
 // can still see what it is looking for.
 //
 // LIMITS, stated up front so this file is not mistaken for proof that the board
-// works: there is no Durable Object test harness in this repo (issue #31), so
-// BoardDO's alarm loop, pump and rehydration are never executed here. The
-// never-blocks guard therefore reaches the DO only lexically — it reads the
-// method bodies and asserts which symbols they do and do not name. That catches
-// "someone awaited generation inside a state read"; it cannot catch a read path
-// that blocks for some other reason.
+// works: there is still no Durable Object test harness in this repo (issue
+// #31), so most of BoardDO's alarm loop, pump and rehydration are only
+// reachable lexically here — the never-blocks guard reads method bodies and
+// asserts which symbols they do and do not name, which catches "someone
+// awaited generation inside a state read" and nothing that blocks any other
+// way.
+//
+// One exception, added for the rearm-after-a-throwing-load regression near
+// the bottom of this file: a hand-rolled, `Map`-backed storage stub (no DO
+// semantics — no serialization boundary, no real alarm-firing scheduler, no
+// hibernation) lets a few tests construct a real `BoardDO` and drive
+// `load()`/`alarm()`/`getView()`/`setControls()` directly. That is real
+// coverage of this file's own control flow, but it is still not #31: nothing
+// here proves how the actual Durable Object runtime behaves.
 
 import { describe, expect, it, vi } from "vitest";
 import { BeltCore } from "../src/board/belt-core";
+import { beltNow, pauseClock, startedClock } from "../src/board/clock";
 import {
+  DEFAULT_BELT_SPEED,
   EDGE_DWELL_MS,
   GHOST_DEPTH,
   MAX_LINEAGES,
@@ -110,7 +120,7 @@ describe("never-blocks guard", () => {
     expect(view.lineages[0]!.cards.map((c) => c.text)).toEqual(["urban gardening"]);
     // ...and the hop that would fill this row is still outstanding, so the row
     // above was served while generation was pending rather than after it.
-    expect(belt.hungry().map((h) => h.lineageId)).toEqual([view.lineages[0]!.id]);
+    expect(belt.hungry(1_000_000, 0).map((h) => h.lineageId)).toEqual([view.lineages[0]!.id]);
   });
 
   it("keeps serving the head of a lineage whose next hop is still outstanding", () => {
@@ -119,7 +129,7 @@ describe("never-blocks guard", () => {
     belt.applySeedFan(belt.lineages()[0]!.id, [child("rooftop bee lease")], 1001);
     const live = belt.lineages()[0]!;
 
-    expect(belt.hungry().map((h) => h.lineageId)).toContain(live.id);
+    expect(belt.hungry(1_000_000, 0).map((h) => h.lineageId)).toContain(live.id);
     const row = belt.view().lineages.find((l) => l.id === live.id)!;
     expect(row.cards.at(-1)!.text).toBe("rooftop bee lease");
     expect(row.atEdge).toBe(false);
@@ -138,7 +148,7 @@ describe("never-blocks guard", () => {
     const view = belt.view();
     expect(view.stations.map((s) => s.ready)).toEqual([false, false, false]);
     expect(view.lineages[0]!.cards[0]!.text).toBe("urban gardening");
-    expect(belt.hungry()).toHaveLength(1);
+    expect(belt.hungry(1_000_000, 0)).toHaveLength(1);
     // Nor does an unembedded CARD hide a row: a seed card is born with
     // `embedding: null` and is the only thing the user has to look at.
     expect(belt.lineages()[0]!.cards[0]!.embedding).toBeNull();
@@ -155,7 +165,7 @@ describe("never-blocks guard", () => {
     expect(belt.lineages()).toHaveLength(1);
     expect(belt.evaporated()).toHaveLength(0);
     expect(belt.view().lineages[0]!.cards[0]!.text).toBe("urban gardening");
-    expect(belt.hungry()).toHaveLength(1);
+    expect(belt.hungry(1_000_000, 0)).toHaveLength(1);
   });
 
   it("returns a state read as a value, not as something still being awaited", () => {
@@ -176,17 +186,23 @@ describe("never-blocks guard", () => {
   /** Every symbol in board-do.ts that reaches, or drives, an AI call. */
   const GENERATES = /aiRunner|embedTexts|generateRewrites|expandPole|pumpOnce|prepareStations/;
 
-  it("keeps generation out of BoardDO's read and seed paths", () => {
+  it("keeps generation out of BoardDO's read, seed and setControls paths", () => {
     const readPath = BoardDO.prototype.getView.toString();
     const seedPath = BoardDO.prototype.seed.toString();
+    // setControls is a third user-facing state RPC on the same must-not-await
+    // -generation footing as getView and seed: a client sets speed or paused
+    // and gets the new view back, not a wait on the pump.
+    const controlsPath = BoardDO.prototype.setControls.toString();
 
     // Non-vacuity: these really are the method bodies, not stubs or [native
-    // code]. Without this the two `not.toMatch`es below pass on an empty string.
+    // code]. Without this the three `not.toMatch`es below pass on an empty string.
     expect(readPath).toMatch(/schedulePump/);
     expect(seedPath).toMatch(/addSeed/);
+    expect(controlsPath).toMatch(/schedulePump/);
 
     expect(readPath).not.toMatch(GENERATES);
     expect(seedPath).not.toMatch(GENERATES);
+    expect(controlsPath).not.toMatch(GENERATES);
   });
 
   it("uses a scan that finds generation where it legitimately lives", () => {
@@ -221,6 +237,7 @@ interface BoardStub {
   init?: () => Promise<unknown>;
   getView?: () => Promise<unknown>;
   seed?: (text: string) => Promise<unknown>;
+  setControls?: (patch: unknown) => Promise<unknown>;
 }
 
 /** Drive the real exported fetch handler against a stub BOARD_DO. */
@@ -290,13 +307,17 @@ async function allBoardResponses(project: (belt: BeltCore) => unknown): Promise<
       { seed: async (text: string) => ({ view: project(full), accepted: full.addSeed(text, 2000) }) },
       post(`/api/board/${BOARD_ID}/seed`, { text: "one too many" }),
     ),
+    controls: await callRoute(
+      { setControls: async () => project(clean) },
+      post(`/api/board/${BOARD_ID}/controls`, { paused: true }),
+    ),
   };
 }
 
 describe("wire-format guard", () => {
   it("puts no embedding key at any depth in any board response", async () => {
     const responses = await allBoardResponses((belt) => belt.view());
-    const expected: Record<string, number> = { create: 201, read: 200, seed: 200, refused: 409 };
+    const expected: Record<string, number> = { create: 201, read: 200, seed: 200, refused: 409, controls: 200 };
 
     for (const [name, response] of Object.entries(responses)) {
       // The status matters as much as the walk: a leak that assertNoEmbeddings
@@ -612,11 +633,224 @@ describe("read-path cost guard", () => {
 
   it("uses a scan that finds the unconditional write where it legitimately lives", () => {
     // Companion: if this scan cannot see `this.save()` on the paths that do
-    // write unconditionally, it could not see one restored to getView either.
+    // write unconditionally, it could not see one restored to getView (or the
+    // alarm) either. alarm() itself is NOT one of these any more — see the
+    // next test — so the companion points at prepareStations, which still
+    // writes unconditionally on every station it prepares.
     const proto = BoardDO.prototype as unknown as Record<string, () => string>;
     expect(proto.seed!.toString()).toMatch(/this\.save\(\)/);
-    expect(proto.alarm!.toString()).toMatch(/this\.save\(\)/);
+    expect(proto.prepareStations!.toString()).toMatch(/this\.save\(\)/);
     // ...and it distinguishes the two writers, rather than matching on "save".
     expect(proto.seed!.toString()).not.toMatch(/saveIfChanged/);
+  });
+
+  it("uses saveIfChanged for the alarm's post-pump write, not an unconditional save", () => {
+    // The dwell gate creates a wake the alarm did not have before:
+    // pumpOnce() returns "idle" while hasPendingWork() is still true, because
+    // a dwelling head is pending work that is not yet due. getView's
+    // schedulePump(PUMP_MS) pulls the alarm forward on every client poll, so
+    // that alarm fires repeatedly mid-dwell, finds nothing to do, and rearm()
+    // puts it right back mid-dwell — roughly once per poll for the whole
+    // dwell. An unconditional `this.save()` there would write the full belt
+    // record, 1024-dim embeddings included, for no change, on every one of
+    // those wakes — the exact per-poll write 14b8974 removed from the read
+    // path, reintroduced on the alarm path instead.
+    const alarm = BoardDO.prototype.alarm.toString();
+    expect(alarm).toMatch(/pumpOnce/); // non-vacuity
+    expect(alarm).toMatch(/saveIfChanged/);
+    expect(alarm).not.toMatch(/this\.save\(\)/);
+  });
+});
+
+// ── guard 6: pause stops the work, and loses nothing ────────────────────────
+//
+// Pause has to stop metered generation, not merely stop the picture, and it
+// must not cost the user the cards they paused to read. The first half is only
+// reachable lexically (issue #31 again — no DO harness), the second half is a
+// real property of BeltCore and is executed.
+
+describe("pause guard", () => {
+  it("evaporates nothing while belt time is frozen, however long the pause", () => {
+    // THE reason pause is a frozen clock rather than a flag. Under a flag,
+    // wall-clock time keeps running against edgeAt, and the first tick after a
+    // long pause evicts every parked lineage at once.
+    const belt = new BeltCore({ stations: stations(1) });
+    belt.addSeed("urban gardening", 1000);
+    const [seeded] = belt.lineages();
+    belt.applySeedFan(seeded!.id, [child("rooftop hives")], 1000);
+    const [lineage] = belt.lineages();
+    belt.markArrived(lineage!.id, 1000);
+
+    const frozen = beltNow(pauseClock(startedClock(1000), 2000), 2000);
+    for (let i = 0; i < 200; i++) belt.tick(frozen); // ~ minutes of real time
+    expect(belt.lineages()).toHaveLength(1);
+    expect(belt.evaporated()).toHaveLength(0);
+
+    // Non-vacuity: the same lineage does evaporate once belt time moves past
+    // the dwell, so the assertion above is about the freeze, not about a
+    // lineage that was never going to evaporate.
+    belt.tick(frozen + EDGE_DWELL_MS);
+    expect(belt.lineages()).toHaveLength(0);
+    expect(belt.evaporated()).toHaveLength(1);
+  });
+
+  it("arms no alarm while the board is paused, whoever asks", () => {
+    // One choke point. init, getView, seed, prepareStations and rearm all route
+    // through schedulePump, so the check living here is what makes "paused
+    // spends nothing" true for all of them at once rather than five times over.
+    const proto = BoardDO.prototype as unknown as Record<string, () => string>;
+    const schedulePump = proto.schedulePump!.toString();
+    expect(schedulePump).toMatch(/setAlarm/); // non-vacuity: this is the real body
+    expect(schedulePump).toMatch(/paused\(\)/);
+  });
+
+  it("returns from the alarm before pumping when paused", () => {
+    const alarm = BoardDO.prototype.alarm.toString();
+    expect(alarm).toMatch(/pumpOnce/); // non-vacuity
+    const guard = alarm.indexOf("paused()");
+    const pump = alarm.indexOf("pumpOnce");
+    expect(guard, "alarm never checks paused()").toBeGreaterThan(-1);
+    expect(guard, "alarm checks paused() only after pumping").toBeLessThan(pump);
+  });
+
+  it("does not count a pause as a stall, so a resumed board is not in backoff", () => {
+    // A paused board that scored "stalled" would saturate MAX_CONSECUTIVE_STALLS
+    // and wake into a 30s ladder — or a given-up state — the moment it resumed.
+    // Pause is not a fault.
+    const alarm = BoardDO.prototype.alarm.toString();
+    const guard = alarm.indexOf("paused()");
+    const pump = alarm.indexOf("pumpOnce");
+    expect(guard).toBeGreaterThan(-1);
+    expect(alarm.slice(guard, pump), "the paused branch never sets idle").toMatch(/idle/);
+  });
+});
+
+// ── regression: rearm survives a throwing load() ────────────────────────────
+//
+// Found in review: `rearm()`'s delay computation dereferenced `this.belt`
+// unconditionally, so a DO whose `load()` itself throws (a `storage.get`
+// failure) crashed `rearm()` with a TypeError instead of rescheduling with the
+// plain backoff — the alarm loop `rearm()` exists to keep alive. Confirmed
+// regression, reproduced by driving the real methods below: before the fix,
+// zero alarms armed and `rearm failed` logged; after, one alarm armed.
+//
+// A lexical guard cannot catch this — the bug is in what a real call does,
+// not in which symbols a method body names — so this is the one place in this
+// file that constructs and drives a real `BoardDO` (see the file header).
+
+interface StorageStub {
+  get: (key: string) => Promise<unknown>;
+  put: (key: string, value: unknown) => Promise<void>;
+  getAlarm: () => Promise<number | null>;
+  setAlarm: (time: number) => Promise<void>;
+}
+
+/** A storage stub whose `get` always throws — modelling a DO whose read path
+ *  is down but whose write path (`put`, `setAlarm`) still works, which is
+ *  exactly the shape a `rearm()` crash would strand: stall counter written,
+ *  no alarm left to retry it. */
+function throwingReadStorage(): StorageStub & { armedAt: () => number | null } {
+  let armedAt: number | null = null;
+  return {
+    get: async () => {
+      throw new Error("storage read failed");
+    },
+    put: async () => {},
+    getAlarm: async () => armedAt,
+    setAlarm: async (time) => {
+      armedAt = time;
+    },
+    armedAt: () => armedAt,
+  };
+}
+
+/** A storage stub over a plain map of records, for tests that need `load()`
+ *  to succeed against specific stored state. */
+function seededStorage(records: Record<string, unknown>): StorageStub {
+  const map = new Map<string, unknown>(Object.entries(records));
+  let armedAt: number | null = null;
+  return {
+    get: async (key) => map.get(key),
+    put: async (key, value) => {
+      map.set(key, value);
+    },
+    getAlarm: async () => armedAt,
+    setAlarm: async (time) => {
+      armedAt = time;
+    },
+  };
+}
+
+interface TestableBoard {
+  ctx: { storage: StorageStub; waitUntil: (p: Promise<unknown>) => void };
+  env: Record<string, unknown>;
+  alarm(): Promise<void>;
+  getView(): Promise<{ controls: { speed: string; paused: boolean } } | null>;
+  setControls(patch: {
+    speed?: string;
+    paused?: boolean;
+  }): Promise<{ controls: { speed: string; paused: boolean } } | null>;
+}
+
+/** `new BoardDO()` with no constructor args — the mocked `DurableObject` base
+ *  class at the top of this file is `class {}`, which does not set `ctx`/`env`
+ *  the way the real `cloudflare:workers` base class's constructor does, so
+ *  they are assigned directly afterward. Same cast idiom the lexical guards
+ *  elsewhere in this file already use (`BoardDO.prototype as unknown as
+ *  ...`), applied to an instance instead of the prototype. */
+function testableBoard(storage: StorageStub): TestableBoard {
+  const board = new (BoardDO as unknown as new () => TestableBoard)();
+  board.ctx = { storage, waitUntil: (p) => void p };
+  board.env = {};
+  return board;
+}
+
+describe("rearm after a throwing load()", () => {
+  it("still arms an alarm, rather than crashing on the belt it never loaded", async () => {
+    const storage = throwingReadStorage();
+    const board = testableBoard(storage);
+
+    // load() throws inside; must not leave rearm() unable to reschedule.
+    await board.alarm();
+
+    expect(storage.armedAt()).not.toBeNull();
+    expect(storage.armedAt()!).toBeGreaterThan(Date.now());
+  });
+});
+
+// ── regression: an invalid belt speed never reaches hopDwellMs ─────────────
+//
+// hopDwellMs(speed) is BELT_SPEEDS[speed].hopDwellMs. A speed that is not one
+// of BELT_SPEEDS' keys makes that undefined, so every dwell comparison in
+// BeltCore.hungry is `now < bornAt + undefined`, i.e. always false — every
+// lineage looks hungry forever, which is unbounded metered generation against
+// a live account. Both entry points a speed can reach `this.speed` through —
+// a stored controls record and a `setControls` patch — validate with
+// `isBeltSpeed` before trusting the value.
+
+describe("belt speed validation", () => {
+  it("falls back to the default speed when the stored controls record is corrupted", async () => {
+    const belt = new BeltCore({ stations: stations() });
+    const storage = seededStorage({
+      belt: belt.serialize(),
+      controls: { speed: "warpspeed", clock: startedClock(1000) },
+    });
+    const board = testableBoard(storage);
+
+    const response = await board.getView();
+
+    expect(response).not.toBeNull();
+    expect(response!.controls.speed).toBe(DEFAULT_BELT_SPEED);
+  });
+
+  it("ignores an invalid speed patch to setControls, rather than corrupting the dwell", async () => {
+    const belt = new BeltCore({ stations: stations() });
+    const storage = seededStorage({ belt: belt.serialize() });
+    const board = testableBoard(storage);
+
+    const response = await board.setControls({ speed: "warpspeed" });
+
+    expect(response).not.toBeNull();
+    expect(response!.controls.speed).toBe(DEFAULT_BELT_SPEED);
   });
 });

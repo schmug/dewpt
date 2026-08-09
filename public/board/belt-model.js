@@ -67,3 +67,56 @@ export function placeCards(view) {
   });
   return placements;
 }
+
+/** The speed presets, in belt order. These strings are the wire values — they
+ *  must match src/board/types.ts's BELT_SPEEDS exactly, because they go
+ *  straight into the request body and anything else is a 400. */
+export const BELT_SPEED_NAMES = ["brisk", "steady", "slow"];
+
+export const DEFAULT_SPEED = "steady";
+
+/** Normalize a view's control state.
+ *
+ *  Total by design. A dropped poll body, a 404 payload, or a response from a
+ *  server that predates this feature must still paint a coherent control row:
+ *  an undefined speed checks none of the three radios and leaves the group
+ *  unreadable and unoperable. */
+export function controlsState(view) {
+  const controls = view && typeof view.controls === "object" && view.controls !== null ? view.controls : {};
+  return {
+    speed: BELT_SPEED_NAMES.includes(controls.speed) ? controls.speed : DEFAULT_SPEED,
+    paused: controls.paused === true,
+  };
+}
+
+/** Whether a speed change is worth sending to the server. False when
+ *  `requested` is already the speed in effect — clicking the currently
+ *  selected preset, or a held arrow key whose repeat lands back on it, would
+ *  otherwise cost a `/controls` POST and a `saveControls` storage write for
+ *  no change. */
+export function speedChanged(current, requested) {
+  return requested !== current;
+}
+
+/** Whether a response tagged `seq` should still be painted, given `latestSeq`
+ *  is the sequence number board.js had most recently SENT (not applied) at
+ *  the moment the response is being considered.
+ *
+ *  This is what stops a slow poll GET from clobbering a faster control POST's
+ *  result with stale data, and the reverse: board.js has several fetches that
+ *  can be in flight at once (the poll loop, a control click, a seed submit),
+ *  the server view carries no version or timestamp to order them by, and
+ *  network latency does not respect send order. Stamping each request with a
+ *  monotonic counter when it goes out, and only painting a response whose
+ *  stamp is still the latest one sent, means whichever request left LAST wins
+ *  — never whichever response happens to arrive last.
+ *
+ *  `>=`, not `===`: the counter only grows, so in normal operation a response
+ *  can never carry a seq ahead of the latest one sent. Writing it as `>=`
+ *  means a caller that ever violates that invariant fails open — one
+ *  unexpected response gets painted — rather than failing closed, where a
+ *  single out-of-order seq would make every future response compare `false`
+ *  and freeze the board silently. */
+export function shouldApply(seq, latestSeq) {
+  return seq >= latestSeq;
+}

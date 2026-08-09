@@ -21,8 +21,8 @@ vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 
 // Imported after the vi.mock above purely for readability — vitest hoists the
 // mock above every import regardless of where it is written.
-import { candidateWidth, selectFan } from "../src/board/board-do";
-import worker, { assertNoEmbeddings } from "../src/index";
+import { candidateWidth, pumpDelayMs, selectFan } from "../src/board/board-do";
+import worker, { assertNoEmbeddings, parseControlsPatch } from "../src/index";
 
 /** Collect every key at any depth. The substring form of this guard
  *  (`JSON.stringify(view)).not.toContain("embedding")`) is WRONG: a card whose
@@ -246,6 +246,7 @@ interface BoardStub {
   init?: () => Promise<unknown>;
   getView?: () => Promise<unknown>;
   seed?: (text: string) => Promise<unknown>;
+  setControls?: (patch: unknown) => Promise<unknown>;
 }
 
 /** Drive the real exported fetch handler against a stub BOARD_DO. */
@@ -388,5 +389,148 @@ describe("POST /api/board/:id/seed", () => {
   it("400s a non-object body", async () => {
     const res = await callRoute({}, post(`/api/board/${BOARD_ID}/seed`)).response;
     expect(res.status).toBe(400);
+  });
+});
+
+describe("parseControlsPatch", () => {
+  it("accepts each shipped preset", () => {
+    for (const speed of ["brisk", "steady", "slow"]) {
+      expect(parseControlsPatch({ speed })).toEqual({ speed });
+    }
+  });
+
+  it("accepts either half on its own, and both together", () => {
+    expect(parseControlsPatch({ paused: true })).toEqual({ paused: true });
+    expect(parseControlsPatch({ paused: false })).toEqual({ paused: false });
+    expect(parseControlsPatch({ speed: "slow", paused: true })).toEqual({ speed: "slow", paused: true });
+  });
+
+  it("refuses an unknown speed rather than falling back to the default", () => {
+    // A silent fallback means a typo in the client ships a board running at a
+    // speed nobody selected, with a 200 and a control row that looks right.
+    for (const speed of ["fast", "BRISK", "", 3000, null, {}]) {
+      expect(parseControlsPatch({ speed })).toBeNull();
+    }
+  });
+
+  it("refuses a non-boolean paused", () => {
+    for (const paused of ["true", 1, 0, null, {}]) {
+      expect(parseControlsPatch({ paused })).toBeNull();
+    }
+  });
+
+  it("refuses a patch that asks for nothing", () => {
+    // A no-op answering 200 is indistinguishable from a control that works.
+    expect(parseControlsPatch({})).toBeNull();
+    expect(parseControlsPatch({ speeed: "slow" })).toBeNull();
+  });
+});
+
+describe("POST /api/board/:id/controls", () => {
+  it("passes the patch through and returns the view", async () => {
+    const seen: unknown[] = [];
+    const { response } = callRoute(
+      {
+        setControls: async (patch) => {
+          seen.push(patch);
+          return { ...CLEAN_VIEW, controls: { speed: "slow", paused: true } };
+        },
+      },
+      post(`/api/board/${BOARD_ID}/controls`, { speed: "slow", paused: true }),
+    );
+    const res = await response;
+    expect(res.status).toBe(200);
+    expect(seen).toEqual([{ speed: "slow", paused: true }]);
+    const body = (await res.json()) as { controls: { speed: string; paused: boolean } };
+    expect(body.controls).toEqual({ speed: "slow", paused: true });
+  });
+
+  it("404s against an unknown board", async () => {
+    const res = await callRoute(
+      { setControls: async () => null },
+      post(`/api/board/${BOARD_ID}/controls`, { paused: true }),
+    ).response;
+    expect(res.status).toBe(404);
+  });
+
+  it("400s an unknown speed without touching the board", async () => {
+    let called = false;
+    const res = await callRoute(
+      {
+        setControls: async () => {
+          called = true;
+          return CLEAN_VIEW;
+        },
+      },
+      post(`/api/board/${BOARD_ID}/controls`, { speed: "ludicrous" }),
+    ).response;
+    expect(res.status).toBe(400);
+    expect(called).toBe(false);
+  });
+
+  it("400s a non-object body", async () => {
+    const res = await callRoute({}, post(`/api/board/${BOARD_ID}/controls`)).response;
+    expect(res.status).toBe(400);
+  });
+
+  it("400s an invalid board id before reaching the DO", async () => {
+    const { response, names } = callRoute({}, post("/api/board/not-a-uuid/controls", { paused: true }));
+    expect((await response).status).toBe(400);
+    expect(names).toEqual([]);
+  });
+});
+
+describe("pumpDelayMs", () => {
+  const BACKOFF = 500;
+
+  it("waits out the dwell when the only work is a lineage still dwelling", () => {
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: 9000, edgeParked: false, beltNow: 1000 })).toBe(8000);
+  });
+
+  it("never returns less than the backoff, so a saturated board still backs off", () => {
+    expect(pumpDelayMs({ backoffMs: 30_000, nextHopAt: 1100, edgeParked: false, beltNow: 1000 })).toBe(30_000);
+  });
+
+  it("keeps polling at the backoff while anything is parked at the edge", () => {
+    // An edge-parked lineage needs the tick that evicts it, and that tick is
+    // due continuously rather than at a computed instant. Letting a long dwell
+    // win here would hold a finished card on the belt for the whole dwell past
+    // its EDGE_DWELL_MS — visibly wrong, and it breaks ephemerality's timing.
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: 20_000, edgeParked: true, beltNow: 1000 })).toBe(BACKOFF);
+  });
+
+  it("treats an overdue hop as due now rather than as a negative delay", () => {
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: 500, edgeParked: false, beltNow: 1000 })).toBe(BACKOFF);
+  });
+
+  it("falls back to the backoff when there is no work at all", () => {
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: null, edgeParked: false, beltNow: 1000 })).toBe(BACKOFF);
+  });
+
+  it("never returns a negative or non-finite delay", () => {
+    // NaN and (positive/negative) Infinity are in the sweep, not just large
+    // finite numbers: the guard this test is named for is specifically about
+    // non-finite inputs, and a sweep that never tries one would pass
+    // vacuously against a `pumpDelayMs` that propagates NaN straight through.
+    for (const nextHopAt of [null, -1e9, 0, 1e9, NaN, Infinity, -Infinity]) {
+      for (const beltNow of [0, 1e9, NaN, Infinity]) {
+        for (const edgeParked of [false, true]) {
+          const delay = pumpDelayMs({ backoffMs: BACKOFF, nextHopAt, edgeParked, beltNow });
+          expect(Number.isFinite(delay)).toBe(true);
+          expect(delay).toBeGreaterThanOrEqual(0);
+        }
+      }
+    }
+  });
+
+  it("treats a non-finite nextHopAt or beltNow as absent, rather than propagating NaN", () => {
+    // Pinned exact values, as a companion to the sweep above: `Math.max(0, NaN
+    // - 1000)` is NaN, and `Math.min` or `Math.max` with a NaN operand
+    // returns NaN unconditionally, so an unguarded nextHopAt/beltNow would
+    // reach `setAlarm` as a NaN delay — which the sweep would catch, but not
+    // name.
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: NaN, edgeParked: false, beltNow: 1000 })).toBe(BACKOFF);
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: Infinity, edgeParked: false, beltNow: 1000 })).toBe(BACKOFF);
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: 9000, edgeParked: false, beltNow: NaN })).toBe(BACKOFF);
   });
 });

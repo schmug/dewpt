@@ -125,3 +125,49 @@ export const ARRIVAL_COSINE = 0.628;
  *  i.e. 3 samples per width, so this will move run to run. Read it as "this
  *  width sufficed on one draw", not as a stable estimate. */
 export const CANDIDATES_PER_HOP = 4;
+
+/** Minimum time a card sits at a station before its next hop is requested.
+ *
+ *  This is the one place the conveyor design's "there is no fixed belt speed"
+ *  (docs/superpowers/specs/2026-08-08-conveyor-board-design.md) is amended, and
+ *  the amendment is narrow: the belt now waits on a CLOCK, which always
+ *  expires, never on a specific generation, which may not. Nothing here can
+ *  make the board block on an AI call.
+ *
+ *  `brisk` is 0 — the behaviour the board shipped with, where a card advances
+ *  the instant its child lands. The slower presets exist because at that pace a
+ *  lineage is born, cooked and gone in about eleven seconds, which is not
+ *  readable. The two values are judgement calls about reading speed, not
+ *  measurements; nothing in scripts/board-calibrate.ts speaks to them. */
+export const BELT_SPEEDS = {
+  brisk: { hopDwellMs: 0 },
+  steady: { hopDwellMs: 3000 },
+  slow: { hopDwellMs: 8000 },
+} as const;
+
+export type BeltSpeed = keyof typeof BELT_SPEEDS;
+
+/** Not `brisk`. This CHANGES the pace of every board, and deliberately: brisk
+ *  is what shipped and its unreadability is the reason these controls exist. */
+export const DEFAULT_BELT_SPEED: BeltSpeed = "steady";
+
+/** `hasOwnProperty.call`, not `value in BELT_SPEEDS` and not an undefined
+ *  check. Both of those pass for "constructor" and "toString", which then index
+ *  to a function whose `.hopDwellMs` is undefined — a NaN dwell, against which
+ *  every comparison is false, so no lineage is ever hungry and the board stops
+ *  with no error anywhere. */
+export function isBeltSpeed(value: unknown): value is BeltSpeed {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(BELT_SPEEDS, value);
+}
+
+export function hopDwellMs(speed: BeltSpeed): number {
+  return BELT_SPEEDS[speed].hopDwellMs;
+}
+
+/** The board's control state, as it appears on the wire. `paused` is derived
+ *  from the belt clock rather than stored beside it, so the two can never
+ *  disagree. */
+export interface BoardControls {
+  speed: BeltSpeed;
+  paused: boolean;
+}
