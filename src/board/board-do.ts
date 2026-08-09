@@ -4,9 +4,9 @@
 //
 // Two invariants this file, and only this file, is responsible for:
 //
-//  - A state read never waits on generation. getView() ticks, saves and
-//    returns; the alarm pump refills behind it. A lineage with a hop in flight
-//    still serves its current head.
+//  - A state read never waits on generation. getView() ticks, persists only if
+//    that tick changed something, and returns; the alarm pump refills behind
+//    it. A lineage with a hop in flight still serves its current head.
 //  - No embeddings on the wire. BeltCore.view() is embedding-free by
 //    construction, but lineages(), stations(), hungry() and serialize() all
 //    carry them, so "only view() reaches the wire" is a discipline this file
@@ -146,6 +146,31 @@ export function selectFan(
   return chosen;
 }
 
+/** Exact bytes of a belt state, for deciding whether a write is worth making.
+ *
+ *  Exported and pure because the property the read path's write-skip rests on —
+ *  a tick that changes nothing leaves this string identical, a tick that evicts
+ *  changes it — is testable here and nowhere else: there is no Durable Object
+ *  test harness in this repo (issue #31), so `saveIfChanged` itself is only
+ *  reachable lexically.
+ *
+ *  The comparison can only err toward writing. Two states that differ in any
+ *  value differ in this string; the one thing that can make equal states differ
+ *  is object key ORDER, which produces a redundant write rather than a skipped
+ *  one. That asymmetry is the whole safety argument, so preserve it if this is
+ *  ever replaced with something cheaper — a narrower fingerprint (say, just the
+ *  fields `tick` is known to touch) is faster and fails in the other direction,
+ *  silently dropping a durable write when the belt grows a mutation the
+ *  fingerprint does not cover.
+ *
+ *  Cost: this stringifies embeddings, which dominate the state. It is only ever
+ *  computed on a path that was already serializing the same state to hand to
+ *  `storage.put`, so it replaces a write with a stringify rather than adding
+ *  work to a path that had none. */
+export function beltFingerprint(state: BeltCoreState): string {
+  return JSON.stringify(state);
+}
+
 /** What one pump tick accomplished, which is what the backoff keys off.
  *  "idle" and "stalled" are deliberately distinct: idle means there was no work
  *  (don't back off, just stop rescheduling), stalled means there WAS work and it
@@ -160,6 +185,11 @@ export class BoardDO extends DurableObject<Env> {
   /** Last value of `pumpFailures` written to storage, so a healthy board adds
    *  no write per tick. */
   private persistedFailures = 0;
+  /** `beltFingerprint` of the belt state storage currently holds, or null when
+   *  that is unknown — nothing loaded, nothing saved. Set only after a `put`
+   *  resolves, so a write that throws leaves the previous value standing and the
+   *  next save retries rather than assuming it landed. */
+  private persistedBelt: string | null = null;
   private devFakeAi: AiRunner | null = null;
 
   private aiRunner(): AiRunner {
@@ -186,11 +216,38 @@ export class BoardDO extends DurableObject<Env> {
     // isolate, so a module-scope counter replays its sequence against hydrated
     // state that already holds those ids, routing hops into the wrong lineage.
     this.belt = new BeltCore(state ?? {});
+    // Baseline for saveIfChanged, taken from the HYDRATED belt rather than the
+    // raw record: the constructor canonicalizes (stations sorted, absent arrays
+    // defaulted), and it is the canonical form every later save would write. A
+    // stored record that differs from it only in that canonicalization is
+    // therefore treated as already-persisted, which is correct — every load
+    // canonicalizes, so nothing downstream can observe the stored order.
+    this.persistedBelt = state === undefined ? null : beltFingerprint(this.belt.serialize());
     this.ready = true;
   }
 
+  /** Unconditional write, for the paths that just changed something. */
   private async save(): Promise<void> {
-    await this.ctx.storage.put("belt", this.belt.serialize());
+    const state = this.belt.serialize();
+    await this.ctx.storage.put("belt", state);
+    this.persistedBelt = beltFingerprint(state);
+  }
+
+  /** Write only if the belt differs from what storage holds — the same
+   *  write-through-on-change-only discipline `persistStalls` already uses,
+   *  applied to the read path.
+   *
+   *  The read path is where this matters and the other callers are not, because
+   *  it is the only one whose sole mutation is a `tick` that is usually a no-op,
+   *  and the only one a client repeats about once a second for as long as the
+   *  board is open. Unconditional, that is one storage write per poll per board
+   *  forever, on a board where nothing is happening at all. */
+  private async saveIfChanged(): Promise<void> {
+    const state = this.belt.serialize();
+    const fingerprint = beltFingerprint(state);
+    if (fingerprint === this.persistedBelt) return;
+    await this.ctx.storage.put("belt", state);
+    this.persistedBelt = fingerprint;
   }
 
   // ---- RPC ------------------------------------------------------------------
@@ -219,12 +276,18 @@ export class BoardDO extends DurableObject<Env> {
   }
 
   /** Never awaits generation — see the header. Ticking here is what evicts
-   *  edge-parked lineages for a client that is polling. */
+   *  edge-parked lineages for a client that is polling.
+   *
+   *  The tick runs on EVERY read and the write does not. Skipping the tick would
+   *  break eviction on a board nobody is otherwise touching — an idle board lets
+   *  its alarm lapse, so the poll is the only thing left driving time forward —
+   *  but the tick is a no-op on almost all of those reads, and persisting an
+   *  unchanged belt is a metered storage write bought for nothing. */
   async getView(): Promise<BoardView | null> {
     await this.load();
     if (this.belt.stations().length === 0) return null;
     this.belt.tick(Date.now());
-    await this.save();
+    await this.saveIfChanged();
     await this.schedulePump(PUMP_MS);
     return this.belt.view();
   }

@@ -1,9 +1,11 @@
 // The four cross-cutting guards the conveyor-board design names under
-// §Testing: never-blocks, wire format, ephemerality, capacity. They live in one
-// file because each of them spans several modules — the belt, the DO's read
-// path and the route table — and because a reader looking for "the rules that
-// must not silently rot" should find them together rather than scattered
-// through the per-module suites.
+// §Testing: never-blocks, wire format, ephemerality, capacity — plus a fifth
+// the design doc does NOT name, read-path cost, added after the read path was
+// found writing to storage on every poll. They live in one file because each of
+// them spans several modules — the belt, the DO's read path and the route table
+// — and because a reader looking for "the rules that must not silently rot"
+// should find them together rather than scattered through the per-module
+// suites.
 //
 // Each of these was checked by breaking the implementation and watching the
 // test go red. A guard that has never failed is decoration, and this build has
@@ -34,7 +36,7 @@ vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 // Imported after the mock purely for readability — vitest hoists vi.mock above
 // every import regardless of where it is written. Neither import instantiates a
 // DO; BoardDO is read as a value, never constructed.
-import { BoardDO } from "../src/board/board-do";
+import { BoardDO, beltFingerprint } from "../src/board/board-do";
 import worker from "../src/index";
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -528,5 +530,93 @@ describe("capacity guard", () => {
 
     expect(response.status).toBe(200);
     expect(belt.lineages().map((l) => l.seedText)).toEqual(["room for one more"]);
+  });
+});
+
+// ── guard 5: read-path cost ─────────────────────────────────────────────────
+//
+// Not one of the design doc's four; this one comes from a defect. A state read
+// is polled about once a second for as long as a board is open, so anything it
+// does unconditionally it does forever — and getView() ticked and then wrote,
+// which is one metered storage write per poll per board on a board where
+// nothing changed at all.
+//
+// The fix skips the WRITE and never the tick. The tick is what parks finished
+// heads and evicts elapsed ones, and an idle board lets its alarm lapse, so a
+// polling client is the only thing left driving time forward on it.
+//
+// Split the way the DO's own seam is: the belt half is a real property test of
+// the fingerprint the write-skip keys off, and the DO half is LEXICAL, for want
+// of a harness (issue #31). Neither executes getView, so that the two are wired
+// together is still unproven here.
+
+describe("read-path cost guard", () => {
+  it("leaves stored state byte-identical across ticks that change nothing", () => {
+    // Twenty polls' worth of ticks on a board with nothing due: no head has
+    // reached the last station, so there is nothing to park and nothing to
+    // evict, and every one of those writes would have written the same bytes.
+    const belt = new BeltCore({ stations: stations() });
+    belt.addSeed("urban gardening", 1000);
+    const idle = beltFingerprint(belt.serialize());
+
+    for (let t = 1; t <= 20; t++) belt.tick(1000 + t * 1000);
+
+    expect(beltFingerprint(belt.serialize())).toBe(idle);
+  });
+
+  it("stays identical across the polls between parking and eviction", () => {
+    // The case a board actually spends time in: a head sitting out its dwell at
+    // the edge, polled once a second the whole way. Every tick before the last
+    // is a no-op, and the last one is not.
+    const belt = deepLineage();
+    belt.tick(2000); // head past the last station: park at the edge
+    const parked = beltFingerprint(belt.serialize());
+
+    for (let t = 1000; t < EDGE_DWELL_MS; t += 1000) belt.tick(2000 + t);
+    expect(beltFingerprint(belt.serialize())).toBe(parked);
+
+    belt.tick(2000 + EDGE_DWELL_MS); // dwell elapsed: evict
+    expect(beltFingerprint(belt.serialize())).not.toBe(parked);
+  });
+
+  it("uses a fingerprint that can see the changes it is meant to skip on", () => {
+    // Companion to both of the above: a fingerprint blind to everything would
+    // satisfy them. Parking and evicting must each move it, or "unchanged"
+    // means "unlooked at" and the read path would drop a durable write.
+    const belt = deepLineage();
+    const running = beltFingerprint(belt.serialize());
+
+    belt.tick(2000);
+    const parked = beltFingerprint(belt.serialize());
+    expect(parked).not.toBe(running);
+
+    belt.tick(2000 + EDGE_DWELL_MS);
+    const evicted = beltFingerprint(belt.serialize());
+    expect(evicted).not.toBe(parked);
+    // ...and it saw the eviction specifically, not just any difference.
+    expect(evicted).toContain(LINE.at(-1)); // the head, now in the ring
+    expect(evicted).not.toContain(LINE[0]); // the seed card, gone with the lineage
+  });
+
+  it("keeps the unconditional write off BoardDO's read path, and the tick on it", () => {
+    // Lexical, like the never-blocks pair above, and no more than that: it
+    // catches a read path reverting to `this.save()`, which is the regression.
+    const readPath = BoardDO.prototype.getView.toString();
+
+    // Non-vacuity, and the constraint that comes with the fix: the tick still
+    // runs on every read. Skipping it would break eviction on an idle board.
+    expect(readPath).toMatch(/\.tick\(/);
+    expect(readPath).toMatch(/saveIfChanged/);
+    expect(readPath).not.toMatch(/this\.save\(\)/);
+  });
+
+  it("uses a scan that finds the unconditional write where it legitimately lives", () => {
+    // Companion: if this scan cannot see `this.save()` on the paths that do
+    // write unconditionally, it could not see one restored to getView either.
+    const proto = BoardDO.prototype as unknown as Record<string, () => string>;
+    expect(proto.seed!.toString()).toMatch(/this\.save\(\)/);
+    expect(proto.alarm!.toString()).toMatch(/this\.save\(\)/);
+    // ...and it distinguishes the two writers, rather than matching on "save".
+    expect(proto.seed!.toString()).not.toMatch(/saveIfChanged/);
   });
 });

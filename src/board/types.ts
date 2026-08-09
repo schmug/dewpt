@@ -43,8 +43,26 @@ export interface EvaporatedCard {
 
 export const DEFAULT_STATION_TERMS = ["concretize", "make strange", "ground it"];
 
-/** Legibility cap — the board's CAP = 14. The mockups read comfortably at
- *  four rows; this is bounded by readability, not by frame rate. */
+/** Most lineages — rows — a board holds at once. `addSeed` refuses past it
+ *  (surfaced as a 409, never a silent no-op) and `applySeedFan` trims a fan to
+ *  the room left.
+ *
+ *  UNMEASURED, and the design doc says so: open question 5 records it as
+ *  "bounded by legibility, exact value unmeasured", with "the mockups read
+ *  comfortably at four rows" as the only observation anyone recorded
+ *  (docs/superpowers/specs/2026-08-08-conveyor-board-design.md:316). 6 is a
+ *  judgement call above that, and nobody has since read a full 6-row board and
+ *  reported back. Anyone tuning it is tuning an unvalidated number, not
+ *  overriding a measurement.
+ *
+ *  One piece of arithmetic to know before changing it — a consequence, not the
+ *  reason 6 was picked: at SEED_FANOUT = 3 the cap is exactly two full fans, so
+ *  two seeds fill the board and a third is refused before it can fan.
+ *
+ *  Not `CAP = 14` in public/field.js. That caps words on the field, a different
+ *  surface with different meaning; the design doc cites it as the contrast this
+ *  cap improves on ("the row count is the concurrency cap, which is legible in
+ *  a way dewpt's CAP = 14 never was"), not as its source. */
 export const MAX_LINEAGES = 6;
 
 /** Children requested from a seed's first hop. One call, so a fresh board with
