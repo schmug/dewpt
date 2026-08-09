@@ -21,7 +21,7 @@ vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 
 // Imported after the vi.mock above purely for readability — vitest hoists the
 // mock above every import regardless of where it is written.
-import { candidateWidth, selectFan } from "../src/board/board-do";
+import { candidateWidth, pumpDelayMs, selectFan } from "../src/board/board-do";
 import worker, { assertNoEmbeddings } from "../src/index";
 
 /** Collect every key at any depth. The substring form of this guard
@@ -388,5 +388,43 @@ describe("POST /api/board/:id/seed", () => {
   it("400s a non-object body", async () => {
     const res = await callRoute({}, post(`/api/board/${BOARD_ID}/seed`)).response;
     expect(res.status).toBe(400);
+  });
+});
+
+describe("pumpDelayMs", () => {
+  const BACKOFF = 500;
+
+  it("waits out the dwell when the only work is a lineage still dwelling", () => {
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: 9000, edgeParked: false, beltNow: 1000 })).toBe(8000);
+  });
+
+  it("never returns less than the backoff, so a saturated board still backs off", () => {
+    expect(pumpDelayMs({ backoffMs: 30_000, nextHopAt: 1100, edgeParked: false, beltNow: 1000 })).toBe(30_000);
+  });
+
+  it("keeps polling at the backoff while anything is parked at the edge", () => {
+    // An edge-parked lineage needs the tick that evicts it, and that tick is
+    // due continuously rather than at a computed instant. Letting a long dwell
+    // win here would hold a finished card on the belt for the whole dwell past
+    // its EDGE_DWELL_MS — visibly wrong, and it breaks ephemerality's timing.
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: 20_000, edgeParked: true, beltNow: 1000 })).toBe(BACKOFF);
+  });
+
+  it("treats an overdue hop as due now rather than as a negative delay", () => {
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: 500, edgeParked: false, beltNow: 1000 })).toBe(BACKOFF);
+  });
+
+  it("falls back to the backoff when there is no work at all", () => {
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: null, edgeParked: false, beltNow: 1000 })).toBe(BACKOFF);
+  });
+
+  it("never returns a negative or non-finite delay", () => {
+    for (const nextHopAt of [null, -1e9, 0, 1e9]) {
+      for (const beltNow of [0, 1e9]) {
+        const delay = pumpDelayMs({ backoffMs: BACKOFF, nextHopAt, edgeParked: false, beltNow });
+        expect(Number.isFinite(delay)).toBe(true);
+        expect(delay).toBeGreaterThanOrEqual(0);
+      }
+    }
   });
 });

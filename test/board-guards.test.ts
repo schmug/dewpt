@@ -23,6 +23,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { BeltCore } from "../src/board/belt-core";
+import { beltNow, pauseClock, startedClock } from "../src/board/clock";
 import {
   EDGE_DWELL_MS,
   GHOST_DEPTH,
@@ -618,5 +619,68 @@ describe("read-path cost guard", () => {
     expect(proto.alarm!.toString()).toMatch(/this\.save\(\)/);
     // ...and it distinguishes the two writers, rather than matching on "save".
     expect(proto.seed!.toString()).not.toMatch(/saveIfChanged/);
+  });
+});
+
+// ── guard 6: pause stops the work, and loses nothing ────────────────────────
+//
+// Pause has to stop metered generation, not merely stop the picture, and it
+// must not cost the user the cards they paused to read. The first half is only
+// reachable lexically (issue #31 again — no DO harness), the second half is a
+// real property of BeltCore and is executed.
+
+describe("pause guard", () => {
+  it("evaporates nothing while belt time is frozen, however long the pause", () => {
+    // THE reason pause is a frozen clock rather than a flag. Under a flag,
+    // wall-clock time keeps running against edgeAt, and the first tick after a
+    // long pause evicts every parked lineage at once.
+    const belt = new BeltCore({ stations: stations(1) });
+    belt.addSeed("urban gardening", 1000);
+    const [seeded] = belt.lineages();
+    belt.applySeedFan(seeded!.id, [child("rooftop hives")], 1000);
+    const [lineage] = belt.lineages();
+    belt.markArrived(lineage!.id, 1000);
+
+    const frozen = beltNow(pauseClock(startedClock(1000), 2000), 2000);
+    for (let i = 0; i < 200; i++) belt.tick(frozen); // ~ minutes of real time
+    expect(belt.lineages()).toHaveLength(1);
+    expect(belt.evaporated()).toHaveLength(0);
+
+    // Non-vacuity: the same lineage does evaporate once belt time moves past
+    // the dwell, so the assertion above is about the freeze, not about a
+    // lineage that was never going to evaporate.
+    belt.tick(frozen + EDGE_DWELL_MS);
+    expect(belt.lineages()).toHaveLength(0);
+    expect(belt.evaporated()).toHaveLength(1);
+  });
+
+  it("arms no alarm while the board is paused, whoever asks", () => {
+    // One choke point. init, getView, seed, prepareStations and rearm all route
+    // through schedulePump, so the check living here is what makes "paused
+    // spends nothing" true for all of them at once rather than five times over.
+    const proto = BoardDO.prototype as unknown as Record<string, () => string>;
+    const schedulePump = proto.schedulePump!.toString();
+    expect(schedulePump).toMatch(/setAlarm/); // non-vacuity: this is the real body
+    expect(schedulePump).toMatch(/paused\(\)/);
+  });
+
+  it("returns from the alarm before pumping when paused", () => {
+    const alarm = BoardDO.prototype.alarm.toString();
+    expect(alarm).toMatch(/pumpOnce/); // non-vacuity
+    const guard = alarm.indexOf("paused()");
+    const pump = alarm.indexOf("pumpOnce");
+    expect(guard, "alarm never checks paused()").toBeGreaterThan(-1);
+    expect(guard, "alarm checks paused() only after pumping").toBeLessThan(pump);
+  });
+
+  it("does not count a pause as a stall, so a resumed board is not in backoff", () => {
+    // A paused board that scored "stalled" would saturate MAX_CONSECUTIVE_STALLS
+    // and wake into a 30s ladder — or a given-up state — the moment it resumed.
+    // Pause is not a fault.
+    const alarm = BoardDO.prototype.alarm.toString();
+    const guard = alarm.indexOf("paused()");
+    const pump = alarm.indexOf("pumpOnce");
+    expect(guard).toBeGreaterThan(-1);
+    expect(alarm.slice(guard, pump), "the paused branch never sets idle").toMatch(/idle/);
   });
 });
