@@ -24,6 +24,7 @@ import {
   DEFAULT_BELT_SPEED,
   DEFAULT_STATION_TERMS,
   hopDwellMs,
+  isBeltSpeed,
   type BeltSpeed,
   type BoardControls,
   type Station,
@@ -93,10 +94,24 @@ export interface BoardResponse extends BoardView {
  *  (issue #31), so arithmetic that decides whether a board spins, sleeps, or
  *  stops has to be reachable without one.
  *
+ *  `nextHopAt - beltNow` is a BELT-ms delta, and this function hands it back
+ *  as if it were real-ms — correct only because its sole caller,
+ *  `schedulePump`, refuses to arm anything while the board is paused, so belt
+ *  time is always advancing 1:1 with real time at the moment this delay is
+ *  actually used. A clock whose running rate could differ from 1:1 (a
+ *  fast-forward preset, say) would break this silently; it would need its own
+ *  conversion here, not just in `beltNow`.
+ *
  *  `edgeParked` short-circuits to zero rather than computing an instant,
  *  because eviction is due continuously — the tick either finds the dwell
  *  elapsed or it does not. Letting a long station dwell win instead would hold
- *  a finished card on the belt for up to eight seconds past EDGE_DWELL_MS. */
+ *  a finished card on the belt for up to eight seconds past EDGE_DWELL_MS.
+ *
+ *  Every input is treated as untrusted arithmetic, not just untrusted origin:
+ *  a NaN or infinite `nextHopAt`/`beltNow` is dropped rather than propagated
+ *  into the result, and a still-non-finite result (a broken `backoffMs`)
+ *  falls back to 0 rather than reaching `setAlarm` — a non-finite alarm
+ *  target is a caller bug that must not read as "no alarm was scheduled". */
 export function pumpDelayMs(input: {
   backoffMs: number;
   nextHopAt: number | null;
@@ -105,9 +120,12 @@ export function pumpDelayMs(input: {
 }): number {
   const waits: number[] = [];
   if (input.edgeParked) waits.push(0);
-  if (input.nextHopAt !== null) waits.push(Math.max(0, input.nextHopAt - input.beltNow));
+  if (input.nextHopAt !== null && Number.isFinite(input.nextHopAt) && Number.isFinite(input.beltNow)) {
+    waits.push(Math.max(0, input.nextHopAt - input.beltNow));
+  }
   const soonest = waits.length === 0 ? 0 : Math.min(...waits);
-  return Math.max(input.backoffMs, soonest);
+  const delay = Math.max(input.backoffMs, soonest);
+  return Number.isFinite(delay) ? delay : 0;
 }
 
 /** Candidates to request from one generation call for a hop that needs
@@ -244,7 +262,17 @@ export class BoardDO extends DurableObject<Env> {
   private devFakeAi: AiRunner | null = null;
 
   private speed: BeltSpeed = DEFAULT_BELT_SPEED;
-  private clock: ClockState = { base: 0, since: null };
+  /** Running, not paused, as the pre-`load()` default.
+   *
+   *  `load()` overwrites this the moment it succeeds, so the only observer of
+   *  the field initializer is a DO whose `load()` itself throws (a
+   *  `storage.get` failure). For that DO, `{ since: null }` (paused) would
+   *  make `schedulePump` refuse to arm anything — a board that cannot read
+   *  its own state would also never retry reading it, silently, forever.
+   *  Before this feature existed there was no such thing as paused and the
+   *  board just kept scheduling on real time; a running default reproduces
+   *  that fallback exactly, rather than inventing a new failure mode. */
+  private clock: ClockState = startedClock(Date.now());
   /** Last controls record written, so a board that is merely running never
    *  writes its clock at all. */
   private persistedControls: string | null = null;
@@ -296,7 +324,19 @@ export class BoardDO extends DurableObject<Env> {
     this.pumpFailures = (await this.ctx.storage.get<number>(STALLS_KEY)) ?? 0;
     this.persistedFailures = this.pumpFailures;
     const controls = await this.ctx.storage.get<ControlsRecord>(CONTROLS_KEY);
-    this.speed = controls?.speed ?? DEFAULT_BELT_SPEED;
+    // isBeltSpeed, not a bare presence check: a non-key speed makes
+    // hopDwellMs's BELT_SPEEDS[speed] undefined, so every dwell comparison in
+    // BeltCore.hungry is `now < bornAt + NaN`, which is false — every lineage
+    // looks hungry forever, i.e. unbounded metered generation against a live
+    // account. The fallback is silent by design (DEFAULT_BELT_SPEED always
+    // works); the warning is what makes the corrupted record visible instead
+    // of merely survived.
+    if (controls !== undefined && !isBeltSpeed(controls.speed)) {
+      console.warn(
+        JSON.stringify({ level: "warn", message: "invalid stored belt speed, using default", speed: controls.speed }),
+      );
+    }
+    this.speed = controls !== undefined && isBeltSpeed(controls.speed) ? controls.speed : DEFAULT_BELT_SPEED;
     // A board with no controls record — every board that predates this feature
     // — gets a clock started now. `startedClock` is epoch-seeded, so belt time
     // is continuous with the bornAt/edgeAt values already in its belt record and
@@ -410,12 +450,29 @@ export class BoardDO extends DurableObject<Env> {
    *  unfreezes first and then asks for an immediate pump, so anything seeded
    *  during the pause releases at once — and, incidentally, so a board whose
    *  stall backoff had saturated recovers, by the same route getView and seed
-   *  already use. */
+   *  already use.
+   *
+   *  Does not cancel an alarm already armed before the pause: that one wake
+   *  still fires, finds `paused()` true in `alarm()`, does no work and rearms
+   *  nothing. Harmless (0 AI calls, 0 further alarms), but it means "a paused
+   *  board arms no alarm and pumps nothing" holds from the SECOND wake after
+   *  pausing, not instantly. */
   async setControls(patch: { speed?: BeltSpeed; paused?: boolean }): Promise<BoardResponse | null> {
     await this.load();
     if (this.belt.stations().length === 0) return null;
     const realNow = Date.now();
-    if (patch.speed !== undefined) this.speed = patch.speed;
+    if (patch.speed !== undefined) {
+      // Runtime-checked despite the parameter type: this RPC's caller is a
+      // route (task 4) parsing an untrusted request body into this shape, and
+      // a bad value here is the same NaN-dwell, unbounded-generation failure
+      // load() guards against above. Two checks on one spend-rate path is
+      // deliberate defence in depth, not redundancy.
+      if (isBeltSpeed(patch.speed)) {
+        this.speed = patch.speed;
+      } else {
+        console.warn(JSON.stringify({ level: "warn", message: "invalid speed patch, ignoring", speed: patch.speed }));
+      }
+    }
     if (patch.paused !== undefined) {
       this.clock = patch.paused ? pauseClock(this.clock, realNow) : resumeClock(this.clock, realNow);
     }
@@ -541,12 +598,23 @@ export class BoardDO extends DurableObject<Env> {
       if (this.ready && !this.hasPendingWork()) return;
       if (this.pumpFailures >= MAX_CONSECUTIVE_STALLS) return;
       const shift = Math.min(this.pumpFailures, PUMP_BACKOFF_MAX_SHIFT);
-      const delay = pumpDelayMs({
-        backoffMs: Math.min(PUMP_RETRY_MAX_MS, PUMP_MS * 2 ** shift),
-        nextHopAt: this.belt.nextHopAt(this.dwell()),
-        edgeParked: this.belt.lineages().some((l) => l.edgeAt !== null),
-        beltNow: this.beltNow(),
-      });
+      const backoffMs = Math.min(PUMP_RETRY_MAX_MS, PUMP_MS * 2 ** shift);
+      // `this.belt` is unset when `load()` itself threw before assigning it —
+      // the same case `hasPendingWork()` is skipped for, two lines up, via
+      // `this.ready &&`. This dereference needs the identical guard: a raw
+      // `pumpDelayMs` call here regressed to a TypeError on exactly that DO,
+      // which stopped it from ever re-arming (confirmed by review). The plain
+      // backoff is what this method scheduled before `pumpDelayMs` existed,
+      // so falling back to it is not a special case, just the one place
+      // `this.ready` still has to be checked explicitly.
+      const delay = this.ready
+        ? pumpDelayMs({
+            backoffMs,
+            nextHopAt: this.belt.nextHopAt(this.dwell()),
+            edgeParked: this.belt.lineages().some((l) => l.edgeAt !== null),
+            beltNow: this.beltNow(),
+          })
+        : backoffMs;
       // Through schedulePump, NOT a raw setAlarm: this must pull the alarm
       // forward and never push it out. A seed landing mid-pump has already
       // asked for 0ms, and a raw set here moved it to the full 30s backoff.
@@ -563,6 +631,7 @@ export class BoardDO extends DurableObject<Env> {
     // the alarm would lapse, and the belt would advance only when someone
     // happened to poll.
     if (this.belt.nextHopAt(this.dwell()) !== null) return true;
+    // An edge-parked lineage still needs the tick that evicts it.
     return this.belt.lineages().some((l) => l.edgeAt !== null);
   }
 

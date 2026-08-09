@@ -419,12 +419,29 @@ describe("pumpDelayMs", () => {
   });
 
   it("never returns a negative or non-finite delay", () => {
-    for (const nextHopAt of [null, -1e9, 0, 1e9]) {
-      for (const beltNow of [0, 1e9]) {
-        const delay = pumpDelayMs({ backoffMs: BACKOFF, nextHopAt, edgeParked: false, beltNow });
-        expect(Number.isFinite(delay)).toBe(true);
-        expect(delay).toBeGreaterThanOrEqual(0);
+    // NaN and (positive/negative) Infinity are in the sweep, not just large
+    // finite numbers: the guard this test is named for is specifically about
+    // non-finite inputs, and a sweep that never tries one would pass
+    // vacuously against a `pumpDelayMs` that propagates NaN straight through.
+    for (const nextHopAt of [null, -1e9, 0, 1e9, NaN, Infinity, -Infinity]) {
+      for (const beltNow of [0, 1e9, NaN, Infinity]) {
+        for (const edgeParked of [false, true]) {
+          const delay = pumpDelayMs({ backoffMs: BACKOFF, nextHopAt, edgeParked, beltNow });
+          expect(Number.isFinite(delay)).toBe(true);
+          expect(delay).toBeGreaterThanOrEqual(0);
+        }
       }
     }
+  });
+
+  it("treats a non-finite nextHopAt or beltNow as absent, rather than propagating NaN", () => {
+    // Pinned exact values, as a companion to the sweep above: `Math.max(0, NaN
+    // - 1000)` is NaN, and `Math.min` or `Math.max` with a NaN operand
+    // returns NaN unconditionally, so an unguarded nextHopAt/beltNow would
+    // reach `setAlarm` as a NaN delay — which the sweep would catch, but not
+    // name.
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: NaN, edgeParked: false, beltNow: 1000 })).toBe(BACKOFF);
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: Infinity, edgeParked: false, beltNow: 1000 })).toBe(BACKOFF);
+    expect(pumpDelayMs({ backoffMs: BACKOFF, nextHopAt: 9000, edgeParked: false, beltNow: NaN })).toBe(BACKOFF);
   });
 });

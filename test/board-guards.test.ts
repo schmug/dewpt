@@ -14,17 +14,26 @@
 // can still see what it is looking for.
 //
 // LIMITS, stated up front so this file is not mistaken for proof that the board
-// works: there is no Durable Object test harness in this repo (issue #31), so
-// BoardDO's alarm loop, pump and rehydration are never executed here. The
-// never-blocks guard therefore reaches the DO only lexically — it reads the
-// method bodies and asserts which symbols they do and do not name. That catches
-// "someone awaited generation inside a state read"; it cannot catch a read path
-// that blocks for some other reason.
+// works: there is still no Durable Object test harness in this repo (issue
+// #31), so most of BoardDO's alarm loop, pump and rehydration are only
+// reachable lexically here — the never-blocks guard reads method bodies and
+// asserts which symbols they do and do not name, which catches "someone
+// awaited generation inside a state read" and nothing that blocks any other
+// way.
+//
+// One exception, added for the rearm-after-a-throwing-load regression near
+// the bottom of this file: a hand-rolled, `Map`-backed storage stub (no DO
+// semantics — no serialization boundary, no real alarm-firing scheduler, no
+// hibernation) lets a few tests construct a real `BoardDO` and drive
+// `load()`/`alarm()`/`getView()`/`setControls()` directly. That is real
+// coverage of this file's own control flow, but it is still not #31: nothing
+// here proves how the actual Durable Object runtime behaves.
 
 import { describe, expect, it, vi } from "vitest";
 import { BeltCore } from "../src/board/belt-core";
 import { beltNow, pauseClock, startedClock } from "../src/board/clock";
 import {
+  DEFAULT_BELT_SPEED,
   EDGE_DWELL_MS,
   GHOST_DEPTH,
   MAX_LINEAGES,
@@ -682,5 +691,135 @@ describe("pause guard", () => {
     const pump = alarm.indexOf("pumpOnce");
     expect(guard).toBeGreaterThan(-1);
     expect(alarm.slice(guard, pump), "the paused branch never sets idle").toMatch(/idle/);
+  });
+});
+
+// ── regression: rearm survives a throwing load() ────────────────────────────
+//
+// Found in review: `rearm()`'s delay computation dereferenced `this.belt`
+// unconditionally, so a DO whose `load()` itself throws (a `storage.get`
+// failure) crashed `rearm()` with a TypeError instead of rescheduling with the
+// plain backoff — the alarm loop `rearm()` exists to keep alive. Confirmed
+// regression, reproduced by driving the real methods below: before the fix,
+// zero alarms armed and `rearm failed` logged; after, one alarm armed.
+//
+// A lexical guard cannot catch this — the bug is in what a real call does,
+// not in which symbols a method body names — so this is the one place in this
+// file that constructs and drives a real `BoardDO` (see the file header).
+
+interface StorageStub {
+  get: (key: string) => Promise<unknown>;
+  put: (key: string, value: unknown) => Promise<void>;
+  getAlarm: () => Promise<number | null>;
+  setAlarm: (time: number) => Promise<void>;
+}
+
+/** A storage stub whose `get` always throws — modelling a DO whose read path
+ *  is down but whose write path (`put`, `setAlarm`) still works, which is
+ *  exactly the shape a `rearm()` crash would strand: stall counter written,
+ *  no alarm left to retry it. */
+function throwingReadStorage(): StorageStub & { armedAt: () => number | null } {
+  let armedAt: number | null = null;
+  return {
+    get: async () => {
+      throw new Error("storage read failed");
+    },
+    put: async () => {},
+    getAlarm: async () => armedAt,
+    setAlarm: async (time) => {
+      armedAt = time;
+    },
+    armedAt: () => armedAt,
+  };
+}
+
+/** A storage stub over a plain map of records, for tests that need `load()`
+ *  to succeed against specific stored state. */
+function seededStorage(records: Record<string, unknown>): StorageStub {
+  const map = new Map<string, unknown>(Object.entries(records));
+  let armedAt: number | null = null;
+  return {
+    get: async (key) => map.get(key),
+    put: async (key, value) => {
+      map.set(key, value);
+    },
+    getAlarm: async () => armedAt,
+    setAlarm: async (time) => {
+      armedAt = time;
+    },
+  };
+}
+
+interface TestableBoard {
+  ctx: { storage: StorageStub; waitUntil: (p: Promise<unknown>) => void };
+  env: Record<string, unknown>;
+  alarm(): Promise<void>;
+  getView(): Promise<{ controls: { speed: string; paused: boolean } } | null>;
+  setControls(patch: {
+    speed?: string;
+    paused?: boolean;
+  }): Promise<{ controls: { speed: string; paused: boolean } } | null>;
+}
+
+/** `new BoardDO()` with no constructor args — the mocked `DurableObject` base
+ *  class at the top of this file is `class {}`, which does not set `ctx`/`env`
+ *  the way the real `cloudflare:workers` base class's constructor does, so
+ *  they are assigned directly afterward. Same cast idiom the lexical guards
+ *  elsewhere in this file already use (`BoardDO.prototype as unknown as
+ *  ...`), applied to an instance instead of the prototype. */
+function testableBoard(storage: StorageStub): TestableBoard {
+  const board = new (BoardDO as unknown as new () => TestableBoard)();
+  board.ctx = { storage, waitUntil: (p) => void p };
+  board.env = {};
+  return board;
+}
+
+describe("rearm after a throwing load()", () => {
+  it("still arms an alarm, rather than crashing on the belt it never loaded", async () => {
+    const storage = throwingReadStorage();
+    const board = testableBoard(storage);
+
+    // load() throws inside; must not leave rearm() unable to reschedule.
+    await board.alarm();
+
+    expect(storage.armedAt()).not.toBeNull();
+    expect(storage.armedAt()!).toBeGreaterThan(Date.now());
+  });
+});
+
+// ── regression: an invalid belt speed never reaches hopDwellMs ─────────────
+//
+// hopDwellMs(speed) is BELT_SPEEDS[speed].hopDwellMs. A speed that is not one
+// of BELT_SPEEDS' keys makes that undefined, so every dwell comparison in
+// BeltCore.hungry is `now < bornAt + undefined`, i.e. always false — every
+// lineage looks hungry forever, which is unbounded metered generation against
+// a live account. Both entry points a speed can reach `this.speed` through —
+// a stored controls record and a `setControls` patch — validate with
+// `isBeltSpeed` before trusting the value.
+
+describe("belt speed validation", () => {
+  it("falls back to the default speed when the stored controls record is corrupted", async () => {
+    const belt = new BeltCore({ stations: stations() });
+    const storage = seededStorage({
+      belt: belt.serialize(),
+      controls: { speed: "warpspeed", clock: startedClock(1000) },
+    });
+    const board = testableBoard(storage);
+
+    const response = await board.getView();
+
+    expect(response).not.toBeNull();
+    expect(response!.controls.speed).toBe(DEFAULT_BELT_SPEED);
+  });
+
+  it("ignores an invalid speed patch to setControls, rather than corrupting the dwell", async () => {
+    const belt = new BeltCore({ stations: stations() });
+    const storage = seededStorage({ belt: belt.serialize() });
+    const board = testableBoard(storage);
+
+    const response = await board.setControls({ speed: "warpspeed" });
+
+    expect(response).not.toBeNull();
+    expect(response!.controls.speed).toBe(DEFAULT_BELT_SPEED);
   });
 });
