@@ -4,6 +4,7 @@
 
 import { parsePoleTerms } from "./axis-core";
 import { BUCKET_KEYS, MAX_AXES, MAX_POLE_TERM_CHARS, type BucketKey, type DewptParams, type Tier } from "./types";
+import { isBeltSpeed, type BeltSpeed } from "./board/types";
 
 export { BoardDO } from "./board/board-do";
 export { SessionDO } from "./session-do";
@@ -47,6 +48,26 @@ function parseText(body: Record<string, unknown>): string | null {
   const trimmed = text.trim();
   if (!trimmed || trimmed.length > MAX_TEXT_CHARS) return null;
   return trimmed;
+}
+
+/** Strict on purpose. An unknown speed is a 400, never a silent fall back to
+ *  the default — a client typo would otherwise ship a board running at a speed
+ *  nobody chose, with a 200 and a control row that looks correct. A patch that
+ *  asks for nothing is refused for the same reason: a no-op answering 200 is
+ *  indistinguishable from a control that works. */
+export function parseControlsPatch(
+  body: Record<string, unknown>,
+): { speed?: BeltSpeed; paused?: boolean } | null {
+  const patch: { speed?: BeltSpeed; paused?: boolean } = {};
+  if (body.speed !== undefined) {
+    if (!isBeltSpeed(body.speed)) return null;
+    patch.speed = body.speed;
+  }
+  if (body.paused !== undefined) {
+    if (typeof body.paused !== "boolean") return null;
+    patch.paused = body.paused;
+  }
+  return patch.speed === undefined && patch.paused === undefined ? null : patch;
 }
 
 function parseTier(body: Record<string, unknown>): Tier | null {
@@ -162,6 +183,18 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
       // same pattern as the axes route's 409/422 responses below.
       if (!result.accepted) return boardJson({ ...result.view, error: "the board is full" }, 409);
       return boardJson(result.view);
+    }
+
+    if (boardRest === "/controls" && method === "POST") {
+      const body = await readBody(request);
+      if (!body) return badRequest("expected a JSON object body");
+      const patch = parseControlsPatch(body);
+      if (!patch) {
+        return badRequest("speed must be brisk, steady or slow; paused must be a boolean");
+      }
+      const view = await board.setControls(patch);
+      if (!view) return json({ error: "no such board" }, 404);
+      return boardJson(view);
     }
 
     return json({ error: "not found" }, 404);

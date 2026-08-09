@@ -22,7 +22,7 @@ vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 // Imported after the vi.mock above purely for readability — vitest hoists the
 // mock above every import regardless of where it is written.
 import { candidateWidth, pumpDelayMs, selectFan } from "../src/board/board-do";
-import worker, { assertNoEmbeddings } from "../src/index";
+import worker, { assertNoEmbeddings, parseControlsPatch } from "../src/index";
 
 /** Collect every key at any depth. The substring form of this guard
  *  (`JSON.stringify(view)).not.toContain("embedding")`) is WRONG: a card whose
@@ -246,6 +246,7 @@ interface BoardStub {
   init?: () => Promise<unknown>;
   getView?: () => Promise<unknown>;
   seed?: (text: string) => Promise<unknown>;
+  setControls?: (patch: unknown) => Promise<unknown>;
 }
 
 /** Drive the real exported fetch handler against a stub BOARD_DO. */
@@ -388,6 +389,94 @@ describe("POST /api/board/:id/seed", () => {
   it("400s a non-object body", async () => {
     const res = await callRoute({}, post(`/api/board/${BOARD_ID}/seed`)).response;
     expect(res.status).toBe(400);
+  });
+});
+
+describe("parseControlsPatch", () => {
+  it("accepts each shipped preset", () => {
+    for (const speed of ["brisk", "steady", "slow"]) {
+      expect(parseControlsPatch({ speed })).toEqual({ speed });
+    }
+  });
+
+  it("accepts either half on its own, and both together", () => {
+    expect(parseControlsPatch({ paused: true })).toEqual({ paused: true });
+    expect(parseControlsPatch({ paused: false })).toEqual({ paused: false });
+    expect(parseControlsPatch({ speed: "slow", paused: true })).toEqual({ speed: "slow", paused: true });
+  });
+
+  it("refuses an unknown speed rather than falling back to the default", () => {
+    // A silent fallback means a typo in the client ships a board running at a
+    // speed nobody selected, with a 200 and a control row that looks right.
+    for (const speed of ["fast", "BRISK", "", 3000, null, {}]) {
+      expect(parseControlsPatch({ speed })).toBeNull();
+    }
+  });
+
+  it("refuses a non-boolean paused", () => {
+    for (const paused of ["true", 1, 0, null, {}]) {
+      expect(parseControlsPatch({ paused })).toBeNull();
+    }
+  });
+
+  it("refuses a patch that asks for nothing", () => {
+    // A no-op answering 200 is indistinguishable from a control that works.
+    expect(parseControlsPatch({})).toBeNull();
+    expect(parseControlsPatch({ speeed: "slow" })).toBeNull();
+  });
+});
+
+describe("POST /api/board/:id/controls", () => {
+  it("passes the patch through and returns the view", async () => {
+    const seen: unknown[] = [];
+    const { response } = callRoute(
+      {
+        setControls: async (patch) => {
+          seen.push(patch);
+          return { ...CLEAN_VIEW, controls: { speed: "slow", paused: true } };
+        },
+      },
+      post(`/api/board/${BOARD_ID}/controls`, { speed: "slow", paused: true }),
+    );
+    const res = await response;
+    expect(res.status).toBe(200);
+    expect(seen).toEqual([{ speed: "slow", paused: true }]);
+    const body = (await res.json()) as { controls: { speed: string; paused: boolean } };
+    expect(body.controls).toEqual({ speed: "slow", paused: true });
+  });
+
+  it("404s against an unknown board", async () => {
+    const res = await callRoute(
+      { setControls: async () => null },
+      post(`/api/board/${BOARD_ID}/controls`, { paused: true }),
+    ).response;
+    expect(res.status).toBe(404);
+  });
+
+  it("400s an unknown speed without touching the board", async () => {
+    let called = false;
+    const res = await callRoute(
+      {
+        setControls: async () => {
+          called = true;
+          return CLEAN_VIEW;
+        },
+      },
+      post(`/api/board/${BOARD_ID}/controls`, { speed: "ludicrous" }),
+    ).response;
+    expect(res.status).toBe(400);
+    expect(called).toBe(false);
+  });
+
+  it("400s a non-object body", async () => {
+    const res = await callRoute({}, post(`/api/board/${BOARD_ID}/controls`)).response;
+    expect(res.status).toBe(400);
+  });
+
+  it("400s an invalid board id before reaching the DO", async () => {
+    const { response, names } = callRoute({}, post("/api/board/not-a-uuid/controls", { paused: true }));
+    expect((await response).status).toBe(400);
+    expect(names).toEqual([]);
   });
 });
 

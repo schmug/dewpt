@@ -231,6 +231,7 @@ interface BoardStub {
   init?: () => Promise<unknown>;
   getView?: () => Promise<unknown>;
   seed?: (text: string) => Promise<unknown>;
+  setControls?: (patch: unknown) => Promise<unknown>;
 }
 
 /** Drive the real exported fetch handler against a stub BOARD_DO. */
@@ -300,13 +301,17 @@ async function allBoardResponses(project: (belt: BeltCore) => unknown): Promise<
       { seed: async (text: string) => ({ view: project(full), accepted: full.addSeed(text, 2000) }) },
       post(`/api/board/${BOARD_ID}/seed`, { text: "one too many" }),
     ),
+    controls: await callRoute(
+      { setControls: async () => project(clean) },
+      post(`/api/board/${BOARD_ID}/controls`, { paused: true }),
+    ),
   };
 }
 
 describe("wire-format guard", () => {
   it("puts no embedding key at any depth in any board response", async () => {
     const responses = await allBoardResponses((belt) => belt.view());
-    const expected: Record<string, number> = { create: 201, read: 200, seed: 200, refused: 409 };
+    const expected: Record<string, number> = { create: 201, read: 200, seed: 200, refused: 409, controls: 200 };
 
     for (const [name, response] of Object.entries(responses)) {
       // The status matters as much as the walk: a leak that assertNoEmbeddings
