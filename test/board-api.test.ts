@@ -253,6 +253,10 @@ interface BoardStub {
 function callRoute(
   stub: BoardStub,
   request: Request,
+  admission: {
+    client?: (kind: "request" | "creation") => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
+    accountCreation?: () => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
+  } = {},
 ): { response: Promise<Response>; names: string[] } {
   const names: string[] = [];
   const env = {
@@ -260,6 +264,20 @@ function callRoute(
       getByName(name: string) {
         names.push(name);
         return stub;
+      },
+    },
+    CLIENT_RATE_LIMIT: {
+      getByName() {
+        return {
+          admit: admission.client ?? (async () => ({ allowed: true, retryAfterSeconds: 0 })),
+        };
+      },
+    },
+    ACCOUNT_BUDGET: {
+      getByName() {
+        return {
+          admitCreation: admission.accountCreation ?? (async () => ({ allowed: true, retryAfterSeconds: 0 })),
+        };
       },
     },
   };
@@ -301,6 +319,35 @@ describe("POST /api/board", () => {
     const body = (await res.json()) as { id: string };
     expect(body.id).toBe(names[0]);
     expect(body.id).not.toBe("a-view-owned-id");
+  });
+
+  it("returns 429 before allocating a board when the client creation budget is exhausted", async () => {
+    const { response, names } = callRoute(
+      { init: async () => CLEAN_VIEW },
+      post("/api/board"),
+      {
+        client: async (kind) =>
+          kind === "creation"
+            ? { allowed: false, retryAfterSeconds: 17 }
+            : { allowed: true, retryAfterSeconds: 0 },
+      },
+    );
+    const res = await response;
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("17");
+    expect(names).toEqual([]);
+  });
+
+  it("returns 429 before allocating a board when the account creation budget is exhausted", async () => {
+    const { response, names } = callRoute(
+      { init: async () => CLEAN_VIEW },
+      post("/api/board"),
+      { accountCreation: async () => ({ allowed: false, retryAfterSeconds: 60 }) },
+    );
+    const res = await response;
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("60");
+    expect(names).toEqual([]);
   });
 });
 

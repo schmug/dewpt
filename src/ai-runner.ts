@@ -5,6 +5,7 @@
 // reach it — see the WARP and Access traps in CLAUDE.md.
 
 import { fakeAiRunner } from "./dev-fake-ai";
+import { budgetedAiRunner, type AccountBudgetEnv } from "./ai-budget";
 import type { AiRunner } from "./generation";
 
 export interface LocalAiConfig {
@@ -170,4 +171,11 @@ export function selectAiRunner(env: AiEnv): AiRunner {
 
   const binding = env.AI as AiRunner;
   return { run: (model, inputs) => binding.run(model, inputs) };
+}
+
+/** Production Worker/DO entry point. Backend selection stays independently
+ * testable above, while every live inference path is required to name the
+ * capability whose work is charged against the shared account budget. */
+export function selectBudgetedAiRunner(env: AiEnv & AccountBudgetEnv, capability: string): AiRunner {
+  return budgetedAiRunner(env, capability, selectAiRunner(env));
 }

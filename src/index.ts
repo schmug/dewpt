@@ -2,13 +2,16 @@
 // Static client is served from ./public via the assets binding; only /api/*
 // reaches this code (run_worker_first).
 
-import { aiMode, selectAiRunner } from "./ai-runner";
+import { aiMode, selectBudgetedAiRunner } from "./ai-runner";
+import { type AdmissionKind, type AdmissionResult } from "./abuse-control";
+import { AiBudgetExceededError } from "./ai-budget";
 import { parsePoleTerms } from "./axis-core";
 import { BUCKET_KEYS, MAX_AXES, MAX_POLE_TERM_CHARS, type BucketKey, type DewptParams, type Tier } from "./types";
 import { isBeltSpeed, type BeltSpeed } from "./board/types";
 
 export { BoardDO } from "./board/board-do";
 export { SessionDO } from "./session-do";
+export { AccountBudgetDO, ClientRateLimitDO } from "./abuse-control";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_SEED_CHARS = 200;
@@ -21,6 +24,31 @@ function json(data: unknown, status = 200): Response {
 
 function badRequest(message: string): Response {
   return json({ error: message }, 400);
+}
+
+function rateLimited(result: AdmissionResult): Response {
+  return new Response(JSON.stringify({ error: "request limit exceeded" }), {
+    status: 429,
+    headers: { "content-type": "application/json", "retry-after": String(result.retryAfterSeconds) },
+  });
+}
+
+function clientGate(request: Request, env: Env) {
+  // Cloudflare overwrites this header on public ingress. Missing values share
+  // one fail-closed bucket, which keeps local/nonstandard ingress bounded too.
+  const client = request.headers.get("cf-connecting-ip")?.trim() || "missing-client-ip";
+  return env.CLIENT_RATE_LIMIT.getByName(client);
+}
+
+async function admitClient(request: Request, env: Env, kind: AdmissionKind): Promise<AdmissionResult> {
+  return clientGate(request, env).admit(kind);
+}
+
+async function admitObjectCreation(request: Request, env: Env): Promise<Response | null> {
+  const client = await admitClient(request, env, "creation");
+  if (!client.allowed) return rateLimited(client);
+  const account = await env.ACCOUNT_BUDGET.getByName("account").admitCreation();
+  return account.allowed ? null : rateLimited(account);
 }
 
 async function readBody(request: Request): Promise<Record<string, unknown> | null> {
@@ -128,9 +156,12 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     const t0 = Date.now();
     const mode = aiMode(env);
     try {
-      const result = (await selectAiRunner(env).run(env.EMBED_MODEL, { text: ["probe"] })) as { data?: number[][] };
+      const result = (await selectBudgetedAiRunner(env, "diagnostic").run(env.EMBED_MODEL, { text: ["probe"] })) as { data?: number[][] };
       return json({ ok: true, mode, model: env.EMBED_MODEL, ms: Date.now() - t0, dims: result?.data?.[0]?.length ?? null });
     } catch (error) {
+      if (error instanceof AiBudgetExceededError) {
+        return rateLimited({ allowed: false, retryAfterSeconds: error.retryAfterSeconds, reason: error.reason });
+      }
       return json({ ok: false, mode, model: env.EMBED_MODEL, ms: Date.now() - t0, error: String(error) }, 500);
     }
   }
@@ -144,6 +175,8 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     }
     const patch = parseParamsPatch(body);
     if (patch === null) return badRequest("dewpoint, altitude and drizzle must be finite numbers");
+    const denied = await admitObjectCreation(request, env);
+    if (denied) return denied;
     const id = crypto.randomUUID();
     const info = await env.SESSION_DO.getByName(id).init(id, seed, patch);
     return json(info, 201);
@@ -154,6 +187,8 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
   // not catch these anyway; the ordering is for readability, not correctness.
 
   if (path === "/api/board" && method === "POST") {
+    const denied = await admitObjectCreation(request, env);
+    if (denied) return denied;
     const id = crypto.randomUUID();
     const view = await env.BOARD_DO.getByName(id).init();
     // The spread comes FIRST so the id minted here wins. Ordered the other way
@@ -348,6 +383,8 @@ export default {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) {
       try {
+        const admission = await admitClient(request, env, "request");
+        if (!admission.allowed) return rateLimited(admission);
         return await handleApi(request, env, url.pathname);
       } catch (error) {
         console.error(

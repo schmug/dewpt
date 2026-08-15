@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
+
 import { aiMode, localAiRunner, restAiRunner, selectAiRunner } from "../src/ai-runner";
 import { embedTexts, generateCandidates, type AiRunner } from "../src/generation";
 
