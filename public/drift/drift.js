@@ -6,7 +6,7 @@
 // machinery that has been sitting unrendered since workstream C.
 
 import { createAxisClient } from '/axes.js';
-import { lintPoles } from './axis-lint.js';
+import { lintAgainstPool, lintPoles } from './axis-lint.js';
 import { createWorkingSet } from './working-set.js';
 import {
   SUPPLY_FLOOR, SUPPLY_RADIUS,
@@ -175,6 +175,14 @@ async function enterStage() {
   }
   state.range = freezeRange(state.set.all(), state.axes.length);
   state.position = initialPosition(state.range);
+  // Stage 2 needs a pool to rank, so it can only run now. Warn and allow, same
+  // as stage 1 — the surface stays usable either way.
+  state.axes.forEach((axis, i) => {
+    const { warning } = lintAgainstPool(axis.neg.phrase, axis.pos.phrase, state.set.all(), i);
+    if (warning) {
+      console.warn(`drift axis "${negTermOf(axis)}" ↔ "${posTermOf(axis)}": ${warning.message}`);
+    }
+  });
   els.setup.hidden = true;
   els.stage.hidden = false;
   renderGauges();

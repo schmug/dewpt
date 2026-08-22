@@ -2087,17 +2087,21 @@ export const BOW_OVERLAP_MAX = 0.375;
 
 const TOP_K = 8;
 
-function topKBy(items, score) {
+function topKBy(items, score, k) {
   return items
     .map((item, i) => ({ i, s: score(item) }))
     .sort((a, b) => b.s - a.s)
-    .slice(0, TOP_K)
+    .slice(0, k)
     .map((x) => x.i);
 }
 
 /** Overlap of the lexical top-k with the embedding top-k, as a fraction of k. */
 export function lintAgainstPool(negPhrase, posPhrase, candidates, coordsAxis) {
-  if (candidates.length < TOP_K * 2) return { overlap: 0, warning: null };
+  // k adapts to the pool. A fixed k of 8 with a hard `length < 16` guard makes
+  // the check silently inert on anything smaller, which is the worst failure
+  // mode a lint can have: it reports nothing and looks like a pass.
+  const k = Math.min(TOP_K, Math.floor(candidates.length / 2));
+  if (k < 2) return { overlap: 0, warning: null };
 
   const posTokens = new Set(tokenize(posPhrase));
   const negTokens = new Set(tokenize(negPhrase));
@@ -2113,10 +2117,19 @@ export function lintAgainstPool(negPhrase, posPhrase, candidates, coordsAxis) {
     return t.length === 0 ? 0 : s / t.length;
   };
 
-  const lexical = new Set(topKBy(candidates, (c) => bow(c.text)));
-  const embedded = topKBy(candidates, (c) => c.coords?.[coordsAxis] ?? -Infinity);
+  // NO LEXICAL SIGNAL, NO FINDING. When every candidate scores the same — the
+  // normal case, since most pool words contain neither pole's vocabulary — the
+  // sort is a no-op and "lexical top-k" is just the first k in input order.
+  // Comparing that against the embedding top-k manufactures agreement out of
+  // array order and fires on a perfectly good axis. A bag of words that
+  // distinguishes nothing has not retrieved anything, so the question is void.
+  const scores = candidates.map((c) => bow(c.text));
+  if (new Set(scores).size <= 1) return { overlap: 0, warning: null };
+
+  const lexical = new Set(topKBy(candidates, (c) => bow(c.text), k));
+  const embedded = topKBy(candidates, (c) => c.coords?.[coordsAxis] ?? -Infinity, k);
   const shared = embedded.filter((i) => lexical.has(i)).length;
-  const overlap = shared / TOP_K;
+  const overlap = shared / k;
 
   if (overlap < BOW_OVERLAP_MAX) return { overlap, warning: null };
   return {

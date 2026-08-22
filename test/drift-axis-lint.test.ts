@@ -80,3 +80,47 @@ describe("warnings speak in the user's own words", () => {
     }
   });
 });
+
+describe("stage 2 — BoW versus embedding", () => {
+  interface Cand { text: string; coords: number[] }
+  const stage2 = lintUntyped as unknown as {
+    BOW_OVERLAP_MAX: number;
+    lintAgainstPool(neg: string, pos: string, cands: Cand[], axis: number): { overlap: number; warning: unknown };
+  };
+
+  it("fires when the lexical ranking and the embedding ranking agree", () => {
+    // If a bag of words retrieves what the embedder retrieves, the axis is
+    // lexically drivable and the embedder is doing no work.
+    const cands = [
+      { text: "playful games", coords: [0.9] },
+      { text: "playful toys", coords: [0.8] },
+      { text: "playful fun", coords: [0.7] },
+      { text: "solemn rites", coords: [-0.9] },
+      { text: "quiet ledger", coords: [-0.5] },
+      { text: "grey office", coords: [-0.3] },
+    ];
+    const r = stage2.lintAgainstPool("solemn ceremony", "playful activity", cands, 0);
+    expect(r.overlap).toBeGreaterThanOrEqual(stage2.BOW_OVERLAP_MAX);
+    expect(r.warning).not.toBeNull();
+  });
+
+  it("stays quiet when the embedding ranking is not lexical", () => {
+    const cands = [
+      { text: "bus stop insects", coords: [0.9] },
+      { text: "mobility as empathy", coords: [0.8] },
+      { text: "commuter psyche", coords: [0.7] },
+      { text: "subsidy as social contract", coords: [-0.9] },
+      { text: "infrastructure as institution", coords: [-0.8] },
+      { text: "transportation as trust", coords: [-0.7] },
+    ];
+    const r = stage2.lintAgainstPool("solemn ceremony", "playful activity", cands, 0);
+    expect(r.overlap).toBeLessThan(stage2.BOW_OVERLAP_MAX);
+    expect(r.warning).toBeNull();
+  });
+
+  it("returns overlap 0 and no warning on a set too small to rank", () => {
+    const r = stage2.lintAgainstPool("a", "b", [{ text: "x", coords: [0.1] }], 0);
+    expect(r.overlap).toBe(0);
+    expect(r.warning).toBeNull();
+  });
+});
