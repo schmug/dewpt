@@ -1,0 +1,49 @@
+# The merge gate for dewpt. Every PR and every push to main runs the same two
+# commands the repo's CLAUDE.md names as the gates, so "tests pass" is an
+# observation by a system rather than a claim by whoever opened the PR.
+#
+# Node 22 is not arbitrary: crypto.randomUUID needs >= 19 (issue #55) and
+# nothing else in the repo pinned a floor until now.
+#
+# `npm run typecheck` shells out to `wrangler types` first, which regenerates
+# the gitignored worker-configuration.d.ts. That regeneration is derived from
+# wrangler.jsonc alone — no network, no Cloudflare credentials — which is why
+# this job needs no secrets at all.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  # wrangler phones home for telemetry and update checks by default. Neither is
+  # wanted in CI, and a network hiccup on either should not fail a typecheck.
+  WRANGLER_SEND_METRICS: 'false'
+  CI: 'true'
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: test
+        run: npm test
