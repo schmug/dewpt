@@ -1033,6 +1033,16 @@ describe("drift meets the mobile floor", () => {
   });
 });
 
+describe("drift styles keep [hidden] working", () => {
+  it("declares a [hidden] override that beats its own display rules", () => {
+    // .drift-setup / .drift-axes / .drift-stage / the condensate panel all set
+    // an explicit display, which overrides the UA's [hidden] { display: none }.
+    // Without an override, el.hidden = true changes nothing on screen.
+    expect(css, "no [hidden] override — hidden elements will still render")
+      .toMatch(/\[hidden\][^{]*\{[^}]*display:\s*none\s*!important/);
+  });
+});
+
 describe("drift styles cannot collide with the other surfaces", () => {
   it("scopes every rule to .drift-surface", () => {
     // The field's styles.css, press.css and the board's sheet are different
@@ -1190,6 +1200,15 @@ Create `public/drift/styles.css`:
     env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
+/* [hidden] MUST beat our own display declarations. The UA rule is
+ * [hidden] { display: none }, which any explicit `display` on the same element
+ * overrides — and .drift-setup, .drift-axes, .drift-stage and the condensate
+ * panel all set display: grid. Without this the setup form stays on screen
+ * after the stage opens while el.hidden dutifully reports true, so the DOM and
+ * the pixels disagree and only a screenshot catches it. Pinned by
+ * test/drift-client-guards.test.ts. */
+.drift-surface [hidden] { display: none !important; }
+
 .drift-surface .drift-vh {
   position: absolute;
   width: 1px; height: 1px;
@@ -1277,7 +1296,11 @@ Create `public/drift/styles.css`:
   padding: 12px 20px 24px;
 }
 
-.drift-surface .drift-gauges { display: grid; gap: 8px; }
+/* Right padding reserves the condensate chip's corner. The chip is
+ * position: absolute at top/right of the stage and the gauges are the stage's
+ * first grid row, so without this the chip lands on top of the positive pole's
+ * label — 44px chip + 12px breathing room. */
+.drift-surface .drift-gauges { display: grid; gap: 8px; padding-right: 56px; }
 .drift-surface .drift-gauge {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -1422,7 +1445,8 @@ git commit -m "feat: drift's surface shell — night-walk tokens, scoped CSS, cl
 **Existing API shapes this task relies on** (do not re-derive them):
 - `POST /api/session` with `{seed, dewpoint, altitude, drizzle}` → `{id, ...}`.
 - `POST /api/session/:id/axes` via `createAxisClient.create(negTerm, posTerm)` → `{axes: [...]}` on 201; throws with `.status` 409 (cap) or 422 (degenerate poles), and the thrown error's `.payload` carries `{error, axes}` so the client can explain and repaint without a follow-up GET.
-- Each axis object carries `negTerm`, `posTerm`, `negPhrase`, `posPhrase`, `degraded`.
+- `createAxisClient.create()` resolves to the axes **array itself**, not to a `{ axes }` envelope.
+- An axis is `{ id, neg: {term, phrase}, pos: {term, phrase}, ready, degraded }`. **The poles are nested** — there are no flat `negTerm`/`posPhrase` fields. Verified against the running server.
 
 - [ ] **Step 1: Replace `public/drift/drift.js`**
 
@@ -1519,19 +1543,31 @@ els.seedForm.addEventListener('submit', async (e) => {
  *  call before embedding them — so this shows progress and never runs on the
  *  swipe path. */
 async function createAxis(negTerm, posTerm) {
-  const result = await state.axisClient.create(negTerm, posTerm);
-  return result.axes[result.axes.length - 1];
+  // createAxisClient.create() resolves to the axes ARRAY itself, not to a
+  // { axes } envelope — verified against the running server, not assumed. The
+  // newly created axis is the last element.
+  const axes = await state.axisClient.create(negTerm, posTerm);
+  return axes[axes.length - 1];
 }
+
+/** An axis is { id, neg: {term, phrase}, pos: {term, phrase}, ready, degraded }.
+ *  The poles are NESTED; there are no flat negTerm/posPhrase fields. Read off
+ *  the live API rather than assumed — the flat shape cost a full browser debug
+ *  cycle, and the failure was silent in a nasty way: the server had already
+ *  created the axis before the client threw on the shape, so the UI reported
+ *  "could not create that axis" about an axis that existed. */
+const negTermOf = (a) => a.neg.term;
+const posTermOf = (a) => a.pos.term;
 
 function reportAxis(axis) {
   // A degraded pole means expandPole fell back to the bare term. The spike puts
   // a bare term at AUC 0.640 against 0.980 for a descriptive phrase, so this is
   // a quality cliff the user has to be able to see.
   if (axis.degraded) {
-    say(`"${axis.negTerm}" or "${axis.posTerm}" could not be expanded, so this axis will sort weakly. Try different words.`, 'degraded');
+    say(`"${negTermOf(axis)}" or "${posTermOf(axis)}" could not be expanded, so this axis will sort weakly. Try different words.`, 'degraded');
     return;
   }
-  const report = lintPoles(axis.negTerm, axis.posTerm, axis.negPhrase, axis.posPhrase);
+  const report = lintPoles(negTermOf(axis), posTermOf(axis), axis.neg.phrase, axis.pos.phrase);
   if (report.warnings.length > 0) {
     // Warn and allow, never block. The lint can tell you an axis is fake; it
     // can never tell you an axis is meaningful, so it must not read as a
@@ -1652,7 +1688,7 @@ function renderGauges() {
     const lo = document.createElement('span');
     // textContent, never innerHTML: these are user-typed terms, and the card
     // below is model output. Both are untrusted.
-    lo.textContent = axis.negTerm;
+    lo.textContent = negTermOf(axis);
     const track = document.createElement('div');
     track.className = 'drift-gauge-track';
     const mark = document.createElement('i');
@@ -1660,7 +1696,7 @@ function renderGauges() {
     mark.dataset.axis = String(i);
     track.appendChild(mark);
     const hi = document.createElement('span');
-    hi.textContent = axis.posTerm;
+    hi.textContent = posTermOf(axis);
     row.append(lo, track, hi);
     els.gauges.appendChild(row);
   });

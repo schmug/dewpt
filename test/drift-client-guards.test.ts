@@ -30,6 +30,10 @@ describe("drift scripts build DOM safely", () => {
     }
   });
 
+  it("uses textContent somewhere, so cards are actually rendered the safe way", () => {
+    expect(scripts.some((s) => /\btextContent\b/.test(s.source))).toBe(true);
+  });
+
   it("never reads an embedding off the wire", () => {
     for (const { name, source } of scripts) {
       expect(liveLines(source).filter((l) => /\bembedding\b/.test(l)), `${name} touches embeddings`).toEqual([]);
@@ -81,6 +85,16 @@ describe("drift meets the mobile floor", () => {
 
   it("never allows horizontal scroll", () => {
     expect(css).toMatch(/overflow-x:\s*hidden/);
+  });
+});
+
+describe("drift styles keep [hidden] working", () => {
+  it("declares a [hidden] override that beats its own display rules", () => {
+    // .drift-setup / .drift-axes / .drift-stage / the condensate panel all set
+    // an explicit display, which overrides the UA's [hidden] { display: none }.
+    // Without an override, el.hidden = true changes nothing on screen.
+    expect(css, "no [hidden] override — hidden elements will still render")
+      .toMatch(/\[hidden\][^{]*\{[^}]*display:\s*none\s*!important/);
   });
 });
 
