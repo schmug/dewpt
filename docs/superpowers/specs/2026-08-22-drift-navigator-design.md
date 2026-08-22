@@ -328,6 +328,11 @@ top-k; fail at ≥ 0.375. High agreement means the axis sorts by a word and the
 embedder is doing no work. This necessarily warns mid-session — the evidence did
 not exist earlier.
 
+**Stage 2 ships with the BoW check and nothing else.** Workstream B looked for a
+cheap statistic that could also flag a *weak* axis here and found none — see
+*Workstream B* for the sign-reversal evidence. Adding one anyway would be
+shipping a check that reports noise.
+
 **When it fires: warn and allow, never block** (the doc's open question 3). One
 tap re-expands; the expansion stays editable, which the latent-space design doc
 already calls both the quality mechanism and the escape hatch. The lint can tell
@@ -406,6 +411,43 @@ false positives. Gate on the null distribution instead.
 Output is a number with a chance line under it, and a dated entry in
 [docs/measurements/](../../measurements/) per the usual rule.
 
+### Result: null. Run 2026-08-22, 70 requests
+
+Full numbers in
+[docs/measurements/2026-08-22-workstream-b-null-result.md](../../measurements/2026-08-22-workstream-b-null-result.md).
+`npm run axis-power` reproduces it.
+
+**No cheap client-side statistic separates a good axis from a bad one.** Both
+candidates reversed sign across two runs of the same matrix:
+
+| statistic | run 1 r with judgeAUC | run 2 r with judgeAUC | verdict |
+| --- | --- | --- | --- |
+| `poleCoherence` | +0.314 | **−0.843** | rejected |
+| `interPoleMargin` | **−0.828** | +0.232 | rejected |
+| `poleLean` | +0.898 | +0.315 | rejected — percentile 1.000 in all 16 cells, surface control included |
+
+A sign reversal across two runs of the same matrix is noise, not signal. One
+cell of eight cleared its null p95.
+
+**The LLM judge does discriminate.** Mean judgeAUC across two seeds ranks the
+axes correctly and reproduces prior knowledge — `concrete↔abstract` **0.810**
+(validated 0.980 on hand-labelled words), `practical↔mystical` 0.700,
+`solemn↔playful` **0.530**, and the `X` / `more X` surface control **0.530**.
+The known-mush axis lands exactly on the lexical ceiling. So an axis *can* be
+gated, at the cost of an inference call and its latency — a product decision,
+not a measurement one, and out of scope for this build.
+
+Two findings to carry forward:
+
+- **An axis validated on curated word lists is not validated on the pool it
+  will sort.** `concrete↔abstract` drops 0.980 → 0.810 moving from hand-labelled
+  words to real pool candidates.
+- **Axis quality looks seed-dependent.** `practical↔mystical` scored 0.500 on
+  `public transit` and 0.900 on `home cooking`; `solemn↔playful` 0.640 and
+  0.420. If that holds, "is this a good axis?" is the wrong question — it is
+  "is this a good axis *over this pool*", which is harder, and which any in-app
+  check would have to answer.
+
 ## Failure modes
 
 **Never block a card on the network.** A swipe always resolves from the resident
@@ -469,17 +511,15 @@ random-pair nulls must be **seeded**, and reproducibility from a fixed seed
 should be asserted before anything is asserted about their value.
 
 **Not testable here, and not claimed:** whether swiping is *fun* — that needs
-thumbs, and it is what shipping this is meant to find out. Axis *legibility*
-becomes measurable only if step 0 finds a statistic with power; if it does not,
-that stays unmeasurable and the spec must say so rather than shipping a check
-that reports noise.
+thumbs, and it is what shipping this is meant to find out. Axis *legibility* is
+**not cheaply measurable**: step 0 looked and found nothing with power, so no
+unit test can assert an axis is good, and none should pretend to.
 
 ## Sequencing
 
-0. **Workstream B — `npm run axis-power` + a measurements entry.** Lands before
-   any surface code. It gates what `axis-lint.js` stage 2 can honestly claim, and
-   it is allowed to return a null result — in which case stage 2 ships empty and
-   the spec says so rather than shipping a check with no power.
+0. ~~**Workstream B — `npm run axis-power` + a measurements entry.**~~ **Done
+   2026-08-22, 70 requests. Null result** — no cheap statistic has power, so
+   step 6 ships the BoW check alone. See *Workstream B*.
 1. **`position.js` + tests.** Pure, no network, no UI. The mechanic in isolation.
 2. **`working-set.js` + tests.** Resident set, low-water local top-up, `axisIds`
    flush. Mocked fetch.
@@ -493,11 +533,10 @@ that reports noise.
    [#56](https://github.com/schmug/dewpt/issues/56). Add `/drift/` to the two
    real navs and give `/drift/` its own. Fixing `/app/`'s nav belongs to #56,
    not here; do not silently absorb it.
-6. **`axis-lint.js` stage 2.** BoW-versus-embedding overlap, plus whichever
-   cheap statistic workstream B found to have power — or nothing, if it found
-   none.
+6. **`axis-lint.js` stage 2.** BoW-versus-embedding overlap **only** — step 0
+   found no cheap statistic with power.
 
-Step 0 gates step 6 and nothing else, so 1–5 can proceed in parallel with it.
+Step 0 is complete, so 1–6 are now unblocked.
 1–3 are independent of each other and of the UI; 4 depends on all three.
 
 ## Open questions
@@ -526,11 +565,14 @@ Still open:
    definition**, per the rule at `src/board/types.ts` that an unmeasured
    threshold is a number someone made up. File an issue to measure them against
    a real session rather than leaving the guess to harden silently.
-2. **If workstream B returns a null result, what ships?** Leaning: stage 2 ships
-   empty, the spec records that no numeric legibility check has power, and the
-   surface leans on the editable expansion plus the user's own eyes. That is the
-   honest fallback, but it should be a decision taken with B's numbers in hand
-   rather than pre-committed here.
+2. **Should an axis be gated by an LLM judge?** Newly open, and only askable
+   because workstream B answered the cheaper question. B showed nothing free has
+   power but the judge ranks axes correctly (`concrete↔abstract` 0.810 against a
+   surface-control 0.530). So a gate is *possible* — one inference call at axis
+   confirmation, with its latency, on a surface whose whole premise is that
+   nothing waits on an AI call. Out of scope for this build; worth its own
+   decision once the surface exists and the cost of a bad axis is observed
+   rather than assumed.
 
 ## Non-goals
 
