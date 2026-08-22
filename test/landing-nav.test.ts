@@ -58,3 +58,27 @@ describe("PWA manifest", () => {
     expect(manifest.scope).toBe("/");
   });
 });
+
+describe("drift lives at /drift/ and is reachable", () => {
+  const html = read("drift/index.html");
+
+  it("is the drift surface", () => {
+    expect(html).toContain('src="./drift.js"');
+    expect(html).toContain('id="drift-card"');
+  });
+
+  it("links back to the other three surfaces", () => {
+    expect(html).toContain('href="/"');
+    expect(html).toContain('href="/app/"');
+    expect(html).toContain('href="/board/"');
+  });
+
+  // Only / and /board/ carry a real surface nav. /app/ has a lone back-link to
+  // / and no board link at all — that gap is issue #56 and is deliberately NOT
+  // closed here, because building /app/'s nav in a PR about a different surface
+  // is exactly the scope creep #56 exists to track.
+  it("is linked from the two surfaces that have a real nav", () => {
+    expect(read("index.html"), "landing does not link to /drift/").toContain('href="/drift/"');
+    expect(read("board/index.html"), "board does not link to /drift/").toContain('href="/drift/"');
+  });
+});
