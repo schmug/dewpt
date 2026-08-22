@@ -113,3 +113,78 @@ export function lintPoles(negTerm, posTerm, negPhrase, posPhrase) {
   }
   return { warnings, lenDelta, registerDelta, contained };
 }
+
+// ── stage 2: BoW versus embedding, once a pool exists ───────────────────────
+//
+// The doc's check, finally possible: with one pair there was no averaging to
+// expose a dominant token at stage 1, but with a POOL to rank there is. Score
+// every candidate by lexical overlap with the pos-minus-neg terms, take the
+// top-k, and compare against the embedding's top-k. High agreement means the
+// axis sorts by a word and the embedder is doing no work.
+//
+// This necessarily warns mid-session — the evidence did not exist earlier.
+//
+// This is ALL of stage 2. Workstream B went looking for a cheap statistic that
+// would also flag a merely WEAK axis and found none: poleCoherence and
+// interPoleMargin both reversed sign across two runs of the same matrix
+// (docs/measurements/2026-08-22-workstream-b-null-result.md). Shipping either
+// would be shipping a check that reports noise.
+
+/** Ports from the axis-measurement doc unchanged. */
+export const BOW_OVERLAP_MAX = 0.375;
+
+const TOP_K = 8;
+
+function topKBy(items, score, k) {
+  return items
+    .map((item, i) => ({ i, s: score(item) }))
+    .sort((a, b) => b.s - a.s)
+    .slice(0, k)
+    .map((x) => x.i);
+}
+
+/** Overlap of the lexical top-k with the embedding top-k, as a fraction of k. */
+export function lintAgainstPool(negPhrase, posPhrase, candidates, coordsAxis) {
+  // k adapts to the pool. A fixed k of 8 with a hard `length < 16` guard makes
+  // the check silently inert on anything smaller, which is the worst failure
+  // mode a lint can have: it reports nothing and looks like a pass.
+  const k = Math.min(TOP_K, Math.floor(candidates.length / 2));
+  if (k < 2) return { overlap: 0, warning: null };
+
+  const posTokens = new Set(tokenize(posPhrase));
+  const negTokens = new Set(tokenize(negPhrase));
+  // The bag-of-words direction: tokens the positive pole has and the negative
+  // one does not, minus the reverse. No semantics at all — that is the point.
+  const bow = (text) => {
+    const t = tokenize(text);
+    let s = 0;
+    for (const w of t) {
+      if (posTokens.has(w) && !negTokens.has(w)) s += 1;
+      else if (negTokens.has(w) && !posTokens.has(w)) s -= 1;
+    }
+    return t.length === 0 ? 0 : s / t.length;
+  };
+
+  // NO LEXICAL SIGNAL, NO FINDING. When every candidate scores the same — the
+  // normal case, since most pool words contain neither pole's vocabulary — the
+  // sort is a no-op and "lexical top-k" is just the first k in input order.
+  // Comparing that against the embedding top-k manufactures agreement out of
+  // array order and fires on a perfectly good axis. A bag of words that
+  // distinguishes nothing has not retrieved anything, so the question is void.
+  const scores = candidates.map((c) => bow(c.text));
+  if (new Set(scores).size <= 1) return { overlap: 0, warning: null };
+
+  const lexical = new Set(topKBy(candidates, (c) => bow(c.text), k));
+  const embedded = topKBy(candidates, (c) => c.coords?.[coordsAxis] ?? -Infinity, k);
+  const shared = embedded.filter((i) => lexical.has(i)).length;
+  const overlap = shared / k;
+
+  if (overlap < BOW_OVERLAP_MAX) return { overlap, warning: null };
+  return {
+    overlap,
+    warning: {
+      check: 'bowOverlap',
+      message: 'this direction is sorting by a word rather than a meaning. Try re-expanding the poles, or pick different words.',
+    },
+  };
+}
