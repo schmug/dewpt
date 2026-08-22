@@ -86,15 +86,27 @@ be abandoned:
  ┌─────────────────────────────┐
  │  solemn ──●───────  playful │   your position, in the user's
  │  concrete ─────●──  abstract │   own pole terms
- │                             │
- │      domestic alchemy       │   the card. tap to keep.
- │                             │
+ │                      ⬤ 7    │   condensate count — tap to expand
+ │      domestic alchemy       │   the card, coloured by tier
+ │      ·  ·  ●                │   strangeness cue
  │        ← swipe to move →    │
  └─────────────────────────────┘
 ```
 
 Left/right is ∓/± on axis A, up/down on axis B. Position is a reversible 2D
-point. Tap pins to the condensate tray — no gesture conflict, both thumb-reachable.
+point. Tap pins to the condensate — no gesture conflict, both thumb-reachable.
+
+**The card carries a strangeness cue, from data already on the wire.** `Served`
+ships `tier`, so the card takes the demo's colour language —
+`--t0` pale slate → `--t1` lilac → `--t2` warm ember, pinned `--pin` gold —
+which [SPEC.md](../../../SPEC.md) holds as a guardrail. No extra chrome, no
+extra request.
+
+**Condensate is a count, not a tray.** A 44 pt chip in one corner shows how many
+you have pinned; tapping expands the full list over the card, tapping out
+dismisses. `drift` is standalone-usable without permanently spending screen the
+card wants. The dismiss gesture must not read as a swipe — that is the one real
+hazard in this choice and it belongs in the client guards.
 
 **One card, not a stack, because clumping inverts.** `midShare` 0.29–0.45 means
 the axis middle is a dense pile of near-ties. Showing five means picking five
@@ -130,8 +142,10 @@ than invented.
 4. **Client-only for the first cut.** No new Durable Object, no `src/` change,
    no `wrangler.jsonc` change. Ship the gesture, learn whether it is good, and
    only then pay for a DO.
-5. **Workstream A (probe lint) ships; B and C do not.** The lint is pure string
-   maths and addresses a failure run 2 actually found. Workstream C's
+5. **Workstreams A and B both ship; C does not.** The lint (A) is pure string
+   maths and addresses a failure run 2 actually found. Workstream **B lands
+   first, ahead of the surface** — see *Workstream B* below for why that is a
+   research task rather than an implementation one. Workstream C's
    neighbourhood-retention finding (0.8% at 2D, 1.7% at 3D) is *devastating for
    map mode and nearly irrelevant here* — a card stack presents no adjacency, so
    it never implies two things are related by being near each other.
@@ -172,6 +186,48 @@ a file the field depends on.
 - **`draw` samples randomly** within fresh-then-stale, so a resident set is a
   random spread of each bucket, not a ranked slice. That is what this surface
   wants.
+
+## Design language
+
+`drift` binds the existing `--t0` / `--t1` / `--t2` / `--pin` token contract to
+the **night-walk palette**, and takes its type and motion from
+[public/index.html](../../../public/index.html) rather than from Press.
+
+That contract is already shared with two bindings in the tree. `/` binds it to
+the night palette; `/app/` rebinds the same four names to Press values at
+[public/styles.css:22](../../../public/styles.css) — `--pin` becomes the Press
+accent blue rather than gold. So this is choosing a binding, not inventing a
+language, and it avoids the half-inherited look #43 warns about because nothing
+is half-taken.
+
+| | value |
+| --- | --- |
+| ground | `--ink #0d0c14`, `--field #151327`, `--deep #100f1e` |
+| ramp | `--t0 #cfd4e8` → `--t1 #b8a6e8` → `--t2 #e8a68f`, `--pin #f0d98c` |
+| quiet | `--label #9a97b0`, `--faint #565378`, `--hair rgb(232 233 240 / .14)` |
+| display | Fraunces 300, tight negative tracking |
+| text | Space Grotesk 300 |
+| label | mono, 9–10 px, uppercase, `.18em`–`.26em` tracking |
+| motion | `cubic-bezier(0.22, 1, 0.36, 1)` — the one curve both languages share |
+
+Two reasons this binding rather than Press's:
+
+- **SPEC.md's tier guardrail is this palette** — *"pale slate → lilac → warm
+  ember; pinned = gold."* `/app/`'s blue `--pin` is the deviation, and
+  reconciling it is [#38](https://github.com/schmug/dewpt/issues/38), not this
+  build.
+- **Press cannot express the card's strangeness cue.**
+  [public/press.css](../../../public/press.css) is explicit that its palette is
+  *"Two tones, not a ramp."* A two-tone language structurally cannot carry a
+  three-step tier signal, so inheriting Press would mean dropping the cue.
+
+Fraunces and Space Grotesk load from Google Fonts on `/` with full fallback
+stacks; `drift` reuses the same link and stacks.
+
+**One deliberate deviation from `/`:** the landing uses `100svh` for its sticky
+scroll sections. `drift`'s card surface uses `dvh` per #43's mobile floor, since
+it is a fixed full-height surface rather than a scroll stage and should track
+the toolbar rather than reserve for it.
 
 ## Architecture
 
@@ -284,7 +340,71 @@ both everyday register, no shared token — it passes everything and still gave
 `community engagement · park and ride` at its playful pole. Neither `sd`
 (0.044–0.061) nor `midShare` separates it from the null either. The lint's scope
 is exactly **lexical and register fakes, not weak axes**. Catching weak ones
-needs a non-circular legibility metric with a chance line, which is workstream B.
+needs a non-circular legibility metric with a chance line, which is
+*Workstream B* below — and which now lands before this surface does.
+
+## Workstream B: a chance line for axis legibility
+
+**This lands before the surface.** An axis the user cannot trust makes every
+other decision here moot, and `solemn→playful` proved we currently cannot tell a
+weak axis from a good one by any number we have.
+
+**The one-pair adaptation.** The axis-measurement doc's B assumes a 16-pair
+harness and scores coherence against a `1/√(n−1)` chance line — 0.258 at n=16.
+A dewpt axis is **one pair**, so that construction does not port. What ports is
+the idea, in a better shape for one pair: build the chance line from a
+**distribution of K seeded random-pair null axes computed over the same pool**,
+and read the real axis's statistic as a percentile against it. That is a
+permutation test, it needs no curated pairs, and it has a useful property — a
+statistic that is partly circular is still usable, because the same circularity
+applies to every null.
+
+**The uncomfortable part: we have no statistic with power.** Measured over the
+same pools in run 2, every candidate already to hand fails to separate a real
+axis from a random-pair null:
+
+| statistic | real | null | separates? |
+| --- | --- | --- | --- |
+| `poleLean` swing | ≈0.20 | 0.176–0.231 (**highest** on one seed) | no — and circular besides |
+| `sd` of raw coords | 0.044–0.061 | 0.044–0.061 | no |
+| `midShare` | 0.291–0.448 | 0.329–0.390 | no |
+
+So B is **not** "apply the doc's metric." It is *find a statistic that separates
+a real axis from a null over a real pool, then set the chance line under it.*
+That is a research task with a real chance of a null result, and it must be
+allowed to report one.
+
+**Design.** One script, `npm run axis-power`, over a small matrix: 2 seeds × 4
+axes — two axes expected good (`concrete↔abstract` is the validated 0.980 case),
+one expected mush (`solemn↔playful`, the known failure), and one **surface
+control** of the form `X` / `more X`, which ports from the doc unchanged and
+pins the lexical ceiling. Pools are shared per seed.
+
+Ground truth and two candidate cheap proxies:
+
+1. **LLM-judge AUC — the ground truth.** Sample ~40 pool candidates, have the
+   model rate each on the axis, and compute AUC of the projection against those
+   ratings. This is `scripts/axis-spike.ts`'s existing method moved from
+   hand-labelled word lists onto real pool candidates, reusing `src/metrics.ts`'s
+   AUC so there stays exactly one AUC in this codebase.
+2. **Pole-cluster coherence** — mean pairwise cosine among the top-k at each
+   pole. Non-circular: it never references the axis vector. Hypothesis: a real
+   pole is a coherent cluster while a null's top-k is arbitrary. **Unmeasured.**
+3. **Inter-pole margin** — cosine between the two pole-end centroids. A real axis
+   should push its ends further apart than a null does. **Unmeasured.**
+
+(1) is both the truth and the validator: if (2) or (3) tracks judge-AUC across
+the matrix, the cheap one ships in-app as `axis-lint.js` stage 2 and the
+expensive one stays in `scripts/`. If neither tracks it, we ship the judge behind
+an explicit user action or we ship nothing and say so.
+
+**Do not add an ordering-accuracy metric.** The doc measured its null at 12/16,
+p = 0.038 — at that sample the null has a fat tail and the metric manufactures
+false positives. Gate on the null distribution instead.
+
+**Cost:** ≈40–50 Workers AI requests, the same order as the two mechanic spikes.
+Output is a number with a chance line under it, and a dated entry in
+[docs/measurements/](../../measurements/) per the usual rule.
 
 ## Failure modes
 
@@ -341,12 +461,25 @@ not block this build** — a real dividend of the client-only cut.
 
 Gates are `npm run typecheck` and `npm test`, reported as counts.
 
-**Not testable here, and not claimed:** whether an axis is *legible* (needs
-workstream B's chance line) and whether swiping is *fun* (needs thumbs). Those
-are what shipping this is meant to find out.
+**Workstream B's harness** is a `scripts/` measurement, not a unit test: it
+prints a number against a null distribution and writes a measurements entry, in
+the shape `axis-spike.ts` and `board-calibrate.ts` already use. Its *AUC* comes
+from `src/metrics.ts`, which stays the single AUC in this codebase; its
+random-pair nulls must be **seeded**, and reproducibility from a fixed seed
+should be asserted before anything is asserted about their value.
+
+**Not testable here, and not claimed:** whether swiping is *fun* — that needs
+thumbs, and it is what shipping this is meant to find out. Axis *legibility*
+becomes measurable only if step 0 finds a statistic with power; if it does not,
+that stays unmeasurable and the spec must say so rather than shipping a check
+that reports noise.
 
 ## Sequencing
 
+0. **Workstream B — `npm run axis-power` + a measurements entry.** Lands before
+   any surface code. It gates what `axis-lint.js` stage 2 can honestly claim, and
+   it is allowed to return a null result — in which case stage 2 ships empty and
+   the spec says so rather than shipping a check with no power.
 1. **`position.js` + tests.** Pure, no network, no UI. The mechanic in isolation.
 2. **`working-set.js` + tests.** Resident set, low-water local top-up, `axisIds`
    flush. Mocked fetch.
@@ -360,34 +493,44 @@ are what shipping this is meant to find out.
    [#56](https://github.com/schmug/dewpt/issues/56). Add `/drift/` to the two
    real navs and give `/drift/` its own. Fixing `/app/`'s nav belongs to #56,
    not here; do not silently absorb it.
-6. **`axis-lint.js` stage 2.** BoW-versus-embedding overlap, once a pool exists
-   to run it against.
+6. **`axis-lint.js` stage 2.** BoW-versus-embedding overlap, plus whichever
+   cheap statistic workstream B found to have power — or nothing, if it found
+   none.
 
+Step 0 gates step 6 and nothing else, so 1–5 can proceed in parallel with it.
 1–3 are independent of each other and of the UI; 4 depends on all three.
 
 ## Open questions
 
-1. **Does `drift` inherit the Press design language
-   ([docs/press.md](../../press.md)) or get its own?** #43 says decide
-   explicitly and do not drift into a half-inherited look. **Leaning own**, and
-   the precedent says so: `press.css` is loaded by `/app/` alone. `/board/`
-   deliberately declined it and owns scoped tokens instead, saying so in comments
-   at both `public/board/index.html:13` and `public/board/styles.css:5`. A
-   companion surface writing its own scoped sheet is the established pattern
-   here, not the exception — and Press was authored for desktop, which the
-   44 pt / `dvh` / safe-area floor will fight.
-2. **What is the top-up radius R, and the floor under it?** Both are guesses
-   until measured against a real session. They should be measured, and until
-   they are, said to be unmeasured.
-3. **Does the condensate tray live on this surface or only on the field?** Pins
-   are shared session state, so a `drift` pin already shows up in the field. A
-   tray on a phone costs screen the card wants.
-4. **Should a card ever show more than the word?** #43 leaves this open. The
-   `Served` row already carries `tier`, `alt` and `seedDist`, so a depth or
-   strangeness cue is free if it earns the pixels.
-5. **What catches a weak axis?** Unresolved and the most consequential. The lint
-   catches lexical and register fakes only; `solemn→playful` passes everything
-   and is still mush.
+Resolved 2026-08-22 and kept here as a record of what was decided, since each
+was live when the spec was written:
+
+- ~~**Press or its own look?**~~ **Bind the shared `--t0/--t1/--t2/--pin`
+  contract to the night-walk palette.** See *Design language*. Press is
+  explicitly "two tones, not a ramp" and cannot carry the card's tier cue.
+- ~~**Condensate tray here or only on the field?**~~ **A collapsed count that
+  expands.** A 44 pt chip; tapping opens the list over the card.
+- ~~**More than the word on a card?**~~ **The word plus a tier strangeness
+  cue**, from data already on the wire.
+- ~~**What catches a weak axis?**~~ **Workstream B, ahead of the surface.** See
+  *Workstream B* — and note it is a research task that may return a null result.
+
+Still open:
+
+1. **What are the top-up radius `R` and the shortage floor under it?**
+   **Decided for now: ship labelled guesses, measure in the first real session.**
+   `R = 0.15` in normalized axis space — one and a half swipe steps, so a
+   shortage is detected roughly a swipe and a half before you walk into it — and
+   a floor of 8 unseen candidates inside it, mirroring `pool-client.js`'s
+   `LOW_WATER`. **Both numbers are unmeasured and must say so at their
+   definition**, per the rule at `src/board/types.ts` that an unmeasured
+   threshold is a number someone made up. File an issue to measure them against
+   a real session rather than leaving the guess to harden silently.
+2. **If workstream B returns a null result, what ships?** Leaning: stage 2 ships
+   empty, the spec records that no numeric legibility check has power, and the
+   surface leans on the editable expansion plus the user's own eyes. That is the
+   honest fallback, but it should be a decision taken with B's numbers in hand
+   rather than pre-committed here.
 
 ## Non-goals
 
@@ -404,7 +547,8 @@ are what shipping this is meant to find out.
 - **Mechanic (b)**, drift meters, or any invented fail state, without new
   evidence that supersedes run 1.
 - **A third axis**, 3D, or WebGL. Four directions is two axes.
-- **Workstreams B and C** of the axis-measurement doc.
+- **Workstream C** of the axis-measurement doc. (Workstream **B** was a non-goal
+  when this spec was written and is now sequencing step 0 — see *Workstream B*.)
 - **Map mode** ([#29](https://github.com/schmug/dewpt/issues/29)). Different
   surface, and the one that workstream C's retention numbers actually threaten.
 - **Accounts, auth, or cross-session persistence.** SPEC.md holds.
