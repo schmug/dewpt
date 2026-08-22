@@ -869,13 +869,20 @@ export function createWorkingSet(sessionId, opts = {}) {
     for (const result of results) {
       if (!result) continue;
       if (!sameAxisIds(currentAxisIds, result.axisIds)) {
-        // Every held coord was scored against the old axis set and cannot be
-        // reconciled. Losing the set is free — it is ephemeral by design — and
-        // the caller must also reset its frozen range and seen set, which is
-        // what onFlush is for.
-        items = [];
+        // ADOPTION IS NOT A FLUSH. On the first draw currentAxisIds is [] and
+        // the server returns the real set, which is not a change — there is
+        // nothing stale to discard, and firing onFlush here would make the
+        // caller reset a frozen range it has only just computed. Only an
+        // already-adopted set changing underneath us is a flush.
+        if (currentAxisIds.length > 0) {
+          // Every held coord was scored against the old axis set and cannot be
+          // reconciled. Losing the set is free — it is ephemeral by design —
+          // and the caller must also reset its frozen range and seen set,
+          // which is what onFlush is for.
+          items = [];
+          for (const cb of flushHandlers) cb();
+        }
         currentAxisIds = result.axisIds;
-        for (const cb of flushHandlers) cb();
       }
       for (const row of result.condensed) {
         // An empty coords array means the draw beat the axes to readiness.
