@@ -17,10 +17,14 @@
     "board-calibrate": "tsx scripts/board-calibrate.ts",
     "axis-walk": "tsx scripts/axis-walk-spike.ts",
     "axis-projection": "tsx scripts/axis-projection-spike.ts",
-    "axis-power": "tsx scripts/axis-power-spike.ts"
+    "axis-power": "tsx scripts/axis-power-spike.ts",
+    "smoke": "node scripts/smoke.mjs",
+    "ui-smoke": "node scripts/ui-smoke.mjs",
+    "critic": "node scripts/critic.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",
+    "playwright": "^1.62.1",
     "tsx": "^4",
     "typescript": "^5",
     "vitest": "^3",
