@@ -136,8 +136,16 @@ els.axisForm.addEventListener('submit', async (e) => {
   }
   const button = els.axisForm.querySelector('button');
   button.disabled = true;
-  say('expanding the poles…');
 
+  // A retry after a failed prime must NOT create the axes again — the server
+  // would stack duplicates and walk the session into the MAX_AXES cap. If we
+  // already have axes, this submit means "try the prime again".
+  if (state.axes.length > 0) {
+    await enterStage();
+    return;
+  }
+
+  say('expanding the poles…');
   const created = [];
   for (const [negTerm, posTerm] of pairs) {
     try {
@@ -162,16 +170,35 @@ els.axisForm.addEventListener('submit', async (e) => {
 
 // ── prime and hand off ──────────────────────────────────────────────────────
 
+/** How long to keep waiting for the DO's first generation pass before giving
+ *  up. Generation is alarm-driven and asynchronous, so a BRAND NEW session's
+ *  pool is always empty for the first several seconds — priming once and
+ *  reporting "nothing condensed yet" makes every first run a dead end. Measured
+ *  against production: an empty pool was still empty at 60s on one session, so
+ *  this waits generously and then says something the user can act on.
+ *  UNMEASURED as a threshold; it is a patience budget, not a tuned constant. */
+const PRIME_TIMEOUT_MS = 75_000;
+const PRIME_RETRY_MS = 2_500;
+
 async function enterStage() {
   say('condensing…');
   // Axes before prime: a draw taken before the axes are ready comes back with
   // coords: [] and is unrankable. working-set.js drops those rows, so an early
   // prime would silently yield an empty set rather than a wrong one.
-  await state.set.prime();
-  if (state.set.size() === 0) {
-    say('nothing condensed yet — give it a moment and try again.', 'warn');
-    els.axisForm.querySelector('button').disabled = false;
-    return;
+  //
+  // Retry rather than give up. The pool filling is a matter of when, not
+  // whether — the DO's pump is already running by the time the first draw
+  // returns empty.
+  const deadline = Date.now() + PRIME_TIMEOUT_MS;
+  while (true) {
+    await state.set.prime();
+    if (state.set.size() > 0) break;
+    if (Date.now() >= deadline) {
+      say('still nothing condensing. the field may be busy — reload to try again.', 'warn');
+      els.axisForm.querySelector('button').disabled = false;
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, PRIME_RETRY_MS));
   }
   state.range = freezeRange(state.set.all(), state.axes.length);
   state.position = initialPosition(state.range);
