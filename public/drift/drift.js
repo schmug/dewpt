@@ -1,4 +1,391 @@
-// Replaced in full by Task 5.
-export function onSwipe() {
-  return null;
+// drift's controller. Owns pixels and lifecycle; position.js owns the maths and
+// working-set.js owns the network.
+//
+// Client-only by design: no Durable Object, no src/ change. Coordinates already
+// ship on the wire as Served.coords, so this surface is a new renderer over
+// machinery that has been sitting unrendered since workstream C.
+
+import { createAxisClient } from '/axes.js';
+import { lintPoles } from './axis-lint.js';
+import { createWorkingSet } from './working-set.js';
+import {
+  SUPPLY_FLOOR, SUPPLY_RADIUS,
+  freezeRange, initialPosition, localSupply, nextCard, stepPosition, toNormalized, widenRange,
+} from './position.js';
+
+const els = {
+  setup: document.getElementById('drift-setup'),
+  seedForm: document.getElementById('drift-seed-form'),
+  seedInput: document.getElementById('drift-seed-input'),
+  axisForm: document.getElementById('drift-axis-form'),
+  aNeg: document.getElementById('drift-axis-a-neg'),
+  aPos: document.getElementById('drift-axis-a-pos'),
+  bNeg: document.getElementById('drift-axis-b-neg'),
+  bPos: document.getElementById('drift-axis-b-pos'),
+  status: document.getElementById('drift-axis-status'),
+  stage: document.getElementById('drift-stage'),
+  card: document.getElementById('drift-card'),
+  gauges: document.getElementById('drift-gauges'),
+  condensate: document.getElementById('drift-condensate'),
+  condensateCount: document.getElementById('drift-condensate-count'),
+  condensatePanel: document.getElementById('drift-condensate-panel'),
+  edge: document.getElementById('drift-edge'),
+};
+
+export const state = {
+  sessionId: null,
+  axisClient: null,
+  set: null,
+  range: null,
+  position: null,
+  seen: new Set(),
+  axes: [],
+  pinned: [],
+  current: null,
+};
+
+function say(message, tone) {
+  els.status.textContent = message;
+  if (tone) els.status.dataset.tone = tone;
+  else delete els.status.dataset.tone;
 }
+
+// ── seed ────────────────────────────────────────────────────────────────────
+
+els.seedForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const seed = els.seedInput.value.trim();
+  if (!seed) return;
+  const button = els.seedForm.querySelector('button');
+  button.disabled = true;
+  try {
+    const res = await fetch('/api/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ seed, dewpoint: 0.35, altitude: 0.25, drizzle: 0.5 }),
+    });
+    if (!res.ok) throw new Error(`session create failed: ${res.status}`);
+    const session = await res.json();
+    state.sessionId = session.id;
+    state.axisClient = createAxisClient(session.id);
+    state.set = createWorkingSet(session.id);
+    // A flush means every held coord was scored against a different axis set.
+    // The frozen range and the seen set are shaped for those coords too, so
+    // they go with it.
+    state.set.onFlush(() => { state.range = null; state.seen = new Set(); });
+    location.hash = session.id;
+    els.seedForm.hidden = true;
+    els.axisForm.hidden = false;
+    els.aNeg.focus();
+  } catch (err) {
+    console.error(err);
+    say('could not start a session. try again.', 'warn');
+    button.disabled = false;
+  }
+});
+
+// ── axes ────────────────────────────────────────────────────────────────────
+
+/** Axis creation is slow by design — the server expands both poles with an LLM
+ *  call before embedding them — so this shows progress and never runs on the
+ *  swipe path. */
+async function createAxis(negTerm, posTerm) {
+  // createAxisClient.create() resolves to the axes ARRAY itself, not to a
+  // { axes } envelope — verified against the running server, not assumed. The
+  // newly created axis is the last element.
+  const axes = await state.axisClient.create(negTerm, posTerm);
+  return axes[axes.length - 1];
+}
+
+/** An axis is { id, neg: {term, phrase}, pos: {term, phrase}, ready, degraded }.
+ *  The poles are NESTED; there are no flat negTerm/posPhrase fields. Read off
+ *  the live API rather than assumed — the flat shape cost a full browser debug
+ *  cycle, and the failure was silent in a nasty way: the server had already
+ *  created the axis before the client threw on the shape, so the UI reported
+ *  "could not create that axis" about an axis that existed. */
+const negTermOf = (a) => a.neg.term;
+const posTermOf = (a) => a.pos.term;
+
+function reportAxis(axis) {
+  // A degraded pole means expandPole fell back to the bare term. The spike puts
+  // a bare term at AUC 0.640 against 0.980 for a descriptive phrase, so this is
+  // a quality cliff the user has to be able to see.
+  if (axis.degraded) {
+    say(`"${negTermOf(axis)}" or "${posTermOf(axis)}" could not be expanded, so this axis will sort weakly. Try different words.`, 'degraded');
+    return;
+  }
+  const report = lintPoles(negTermOf(axis), posTermOf(axis), axis.neg.phrase, axis.pos.phrase);
+  if (report.warnings.length > 0) {
+    // Warn and allow, never block. The lint can tell you an axis is fake; it
+    // can never tell you an axis is meaningful, so it must not read as a
+    // verdict — and workstream B found nothing cheap that catches a merely
+    // WEAK axis at all.
+    say(report.warnings[0].message, 'warn');
+  }
+}
+
+els.axisForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pairs = [
+    [els.aNeg.value.trim(), els.aPos.value.trim()],
+    [els.bNeg.value.trim(), els.bPos.value.trim()],
+  ].filter(([n, p]) => n && p);
+  if (pairs.length === 0) {
+    say('name at least one direction — two gives you all four swipes.', 'warn');
+    return;
+  }
+  const button = els.axisForm.querySelector('button');
+  button.disabled = true;
+  say('expanding the poles…');
+
+  const created = [];
+  for (const [negTerm, posTerm] of pairs) {
+    try {
+      const axis = await createAxis(negTerm, posTerm);
+      created.push(axis);
+      reportAxis(axis);
+    } catch (err) {
+      // 409 (cap) and 422 (degenerate poles) both carry `error` plus the
+      // current `axes`, specifically so this can explain and repaint without a
+      // follow-up GET.
+      const detail = err?.payload?.error ?? 'could not create that axis';
+      say(`"${negTerm}" ↔ "${posTerm}": ${detail}`, 'warn');
+    }
+  }
+  if (created.length === 0) {
+    button.disabled = false;
+    return;
+  }
+  state.axes = created;
+  await enterStage();
+});
+
+// ── prime and hand off ──────────────────────────────────────────────────────
+
+async function enterStage() {
+  say('condensing…');
+  // Axes before prime: a draw taken before the axes are ready comes back with
+  // coords: [] and is unrankable. working-set.js drops those rows, so an early
+  // prime would silently yield an empty set rather than a wrong one.
+  await state.set.prime();
+  if (state.set.size() === 0) {
+    say('nothing condensed yet — give it a moment and try again.', 'warn');
+    els.axisForm.querySelector('button').disabled = false;
+    return;
+  }
+  state.range = freezeRange(state.set.all(), state.axes.length);
+  state.position = initialPosition(state.range);
+  els.setup.hidden = true;
+  els.stage.hidden = false;
+  renderGauges();
+  advance();
+}
+
+// renderGauges, advance, onSwipe and the condensate handlers are Task 6 and 7.
+export { enterStage };
+
+// ── the card loop ───────────────────────────────────────────────────────────
+
+const AXIS_KEYS = [
+  { axis: 0, dir: -1, key: 'ArrowLeft' },
+  { axis: 0, dir: 1, key: 'ArrowRight' },
+  { axis: 1, dir: -1, key: 'ArrowUp' },
+  { axis: 1, dir: 1, key: 'ArrowDown' },
+];
+
+function renderGauges() {
+  els.gauges.textContent = '';
+  // With one axis named — or one of two failing to create — up/down have
+  // nowhere to go. The spec's degradation rule is that they go inert and are
+  // LABELLED inert, so the surface opens rather than refusing and the user is
+  // not left swiping at a direction that silently does nothing.
+  document.getElementById('drift-hint').textContent =
+    state.axes.length >= 2 ? 'swipe to move · tap to keep' : 'swipe left and right to move · tap to keep';
+  state.axes.forEach((axis, i) => {
+    const row = document.createElement('div');
+    row.className = 'drift-gauge';
+    const lo = document.createElement('span');
+    // textContent, never innerHTML: these are user-typed terms, and the card
+    // below is model output. Both are untrusted.
+    lo.textContent = negTermOf(axis);
+    const track = document.createElement('div');
+    track.className = 'drift-gauge-track';
+    const mark = document.createElement('i');
+    mark.className = 'drift-gauge-mark';
+    mark.dataset.axis = String(i);
+    track.appendChild(mark);
+    const hi = document.createElement('span');
+    hi.textContent = posTermOf(axis);
+    row.append(lo, track, hi);
+    els.gauges.appendChild(row);
+  });
+  paintGauges();
+}
+
+function paintGauges() {
+  for (const mark of els.gauges.querySelectorAll('.drift-gauge-mark')) {
+    const a = Number(mark.dataset.axis);
+    mark.style.left = `${toNormalized(state.position[a], state.range, a) * 100}%`;
+  }
+}
+
+/** Show the nearest unseen candidate, or the edge. Synchronous by contract —
+ *  never awaits, because a swipe must resolve from the resident set. */
+function advance() {
+  const card = nextCard(state.set.all(), state.position, state.range, state.seen);
+  state.current = card;
+  if (card === null) {
+    // Not an error and not a game over: the tails of a projected blob are thin,
+    // so out here there is nothing left that is still tethered to the seed.
+    els.card.textContent = '';
+    els.edge.hidden = false;
+    els.edge.textContent = 'nothing out here yet';
+    return;
+  }
+  els.edge.hidden = true;
+  els.card.textContent = card.text;
+  els.card.dataset.tier = String(card.tier);
+  els.card.dataset.pinned = String(state.pinned.includes(card.text));
+  state.seen.add(card.text);
+}
+
+/** A swipe. NO await anywhere in here — pool depth is a correctness
+ *  requirement, not an optimization (CLAUDE.md), and the top-up below is
+ *  deliberately un-awaited so the card never waits on the network. */
+function onSwipe(axis, dir) {
+  if (state.range === null || axis >= state.axes.length) return null;
+  state.position = stepPosition(state.position, state.range, axis, dir);
+  paintGauges();
+  advance();
+  maybeTopUp();
+  return state.current;
+}
+
+/** Fire-and-forget. The trigger is LOCAL supply near the current position: a
+ *  set of 180 can be plentiful overall and empty exactly where you stand. */
+function maybeTopUp() {
+  const supply = localSupply(state.set.all(), state.position, state.range, state.seen, SUPPLY_RADIUS);
+  if (supply >= SUPPLY_FLOOR) return;
+  state.set.topUp()
+    .then(() => {
+      if (state.range === null) {
+        // The set flushed under us — the axis set changed. Re-freeze from
+        // whatever arrived rather than reusing a range shaped for old coords.
+        if (state.set.size() === 0) return;
+        state.range = freezeRange(state.set.all(), state.axes.length);
+        state.position = initialPosition(state.range);
+      } else {
+        state.range = widenRange(state.range, state.set.all());
+      }
+      paintGauges();
+      if (state.current === null) advance();
+    })
+    .catch((err) => console.error('drift top-up failed', err));
+}
+
+// ── input ───────────────────────────────────────────────────────────────────
+
+let touchStart = null;
+const SWIPE_MIN_PX = 40;
+
+els.card.addEventListener('touchstart', (e) => {
+  const t = e.changedTouches[0];
+  touchStart = { x: t.clientX, y: t.clientY };
+}, { passive: true });
+
+els.card.addEventListener('touchend', (e) => {
+  if (!touchStart) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touchStart.x;
+  const dy = t.clientY - touchStart.y;
+  touchStart = null;
+  if (Math.abs(dx) < SWIPE_MIN_PX && Math.abs(dy) < SWIPE_MIN_PX) return; // a tap; the click handler owns it
+  if (Math.abs(dx) >= Math.abs(dy)) onSwipe(0, dx > 0 ? 1 : -1);
+  else onSwipe(1, dy > 0 ? 1 : -1);
+}, { passive: true });
+
+// Keyboard parity, so the surface is operable without a pointer (#26's concern,
+// solved here rather than inherited).
+els.card.addEventListener('keydown', (e) => {
+  const match = AXIS_KEYS.find((k) => k.key === e.key);
+  if (match) {
+    e.preventDefault();
+    onSwipe(match.axis, match.dir);
+    return;
+  }
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    pinCurrent();
+  }
+});
+
+export { advance, onSwipe, renderGauges };
+
+// ── condensate ──────────────────────────────────────────────────────────────
+
+/** Tap keeps. Pins are shared session state, so a pin made here is a pin in the
+ *  field. This is a FOREGROUND user action: unlike a background top-up, its
+ *  failure must surface rather than be swallowed. */
+async function pinCurrent() {
+  const card = state.current;
+  if (!card || state.pinned.includes(card.text)) return;
+  els.card.dataset.pinned = 'true';
+  state.pinned.push(card.text);
+  paintCondensate();
+  try {
+    const res = await fetch(`/api/session/${state.sessionId}/pin`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: card.text, tier: card.tier }),
+    });
+    if (!res.ok) throw new Error(`pin failed: ${res.status}`);
+  } catch (err) {
+    console.error(err);
+    // Roll the optimistic paint back rather than showing a pin the server does
+    // not have.
+    state.pinned = state.pinned.filter((t) => t !== card.text);
+    els.card.dataset.pinned = 'false';
+    paintCondensate();
+    els.edge.hidden = false;
+    els.edge.textContent = 'could not keep that one';
+  }
+}
+
+function paintCondensate() {
+  els.condensateCount.textContent = String(state.pinned.length);
+  els.condensatePanel.textContent = '';
+  for (const text of state.pinned) {
+    const row = document.createElement('div');
+    row.className = 'drift-condensate-item';
+    row.textContent = text;
+    els.condensatePanel.appendChild(row);
+  }
+}
+
+els.card.addEventListener('click', (e) => {
+  e.preventDefault();
+  pinCurrent();
+});
+
+els.condensate.addEventListener('click', () => {
+  const open = els.condensatePanel.hidden;
+  els.condensatePanel.hidden = !open;
+  els.condensate.setAttribute('aria-expanded', String(open));
+});
+
+// The panel dismisses on its own click and on Escape — deliberately NOT on a
+// swipe. A swipe-to-dismiss over a swipe surface is the one real hazard in
+// choosing an expandable chip, and the two gestures must not overlap.
+els.condensatePanel.addEventListener('click', () => {
+  els.condensatePanel.hidden = true;
+  els.condensate.setAttribute('aria-expanded', 'false');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !els.condensatePanel.hidden) {
+    els.condensatePanel.hidden = true;
+    els.condensate.setAttribute('aria-expanded', 'false');
+    els.condensate.focus();
+  }
+});
+
+export { pinCurrent };

@@ -38,6 +38,15 @@
     env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
+/* [hidden] MUST beat our own display declarations. The UA rule is
+ * [hidden] { display: none }, which any explicit `display` on the same element
+ * overrides — and .drift-setup, .drift-axes, .drift-stage and the condensate
+ * panel all set display: grid. Without this the setup form stays on screen
+ * after the stage opens while el.hidden dutifully reports true, so the DOM and
+ * the pixels disagree and only a screenshot catches it. Pinned by
+ * test/drift-client-guards.test.ts. */
+.drift-surface [hidden] { display: none !important; }
+
 .drift-surface .drift-vh {
   position: absolute;
   width: 1px; height: 1px;
@@ -125,7 +134,11 @@
   padding: 12px 20px 24px;
 }
 
-.drift-surface .drift-gauges { display: grid; gap: 8px; }
+/* Right padding reserves the condensate chip's corner. The chip is
+ * position: absolute at top/right of the stage and the gauges are the stage's
+ * first grid row, so without this the chip lands on top of the positive pole's
+ * label — 44px chip + 12px breathing room. */
+.drift-surface .drift-gauges { display: grid; gap: 8px; padding-right: 56px; }
 .drift-surface .drift-gauge {
   display: grid;
   grid-template-columns: auto 1fr auto;
