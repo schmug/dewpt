@@ -152,26 +152,40 @@ try {
   console.log("\n## the mechanic: a swipe moves position and changes the card");
   const box = await page.locator("#drift-card").boundingBox();
   const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
-  await page.touchscreen.tap(cx, cy).catch(() => {});      // settle
-  await page.mouse.move(cx, cy);
-  await page.mouse.down();
-  await page.mouse.move(cx + 140, cy, { steps: 12 });
-  await page.mouse.up();
-  await page.keyboard.press("ArrowRight");                  // keyboard parity path
-  await page.waitForTimeout(600);
+
+  // A REAL touch swipe, via CDP. page.mouse does NOT generate touch events, so
+  // a mouse drag never reaches the touchend handler that owns the gesture —
+  // an earlier version of this file "tested" the swipe with a mouse drag and
+  // was actually only testing the ArrowRight that followed it.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: cx, y: cy }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: cx + 90, y: cy }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: cx + 160, y: cy }] });
+  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await page.waitForTimeout(700);
 
   const secondCard = (await page.locator("#drift-card").textContent())?.trim();
   const marksAfter = await page.$$eval(".drift-gauge-mark", (m) => m.map((e) => e.style.left));
-  check("the position mark moved", JSON.stringify(marksBefore) !== JSON.stringify(marksAfter),
+  check("a real touch swipe moves the position mark", JSON.stringify(marksBefore) !== JSON.stringify(marksAfter),
         `${JSON.stringify(marksBefore)} -> ${JSON.stringify(marksAfter)}`);
-  check("the card changed", firstCard !== secondCard, `"${firstCard}" -> "${secondCard}"`);
+  check("a real touch swipe changes the card", firstCard !== secondCard, `"${firstCard}" -> "${secondCard}"`);
+  // Keyboard parity: the surface must be operable without a pointer.
+  const beforeKey = (await page.locator("#drift-card").textContent())?.trim();
+  await page.locator("#drift-card").focus();
+  await page.keyboard.press("ArrowDown");
+  await page.waitForTimeout(500);
+  check("keyboard arrows drive the other axis too",
+        (await page.locator("#drift-card").textContent())?.trim() !== beforeKey);
   check("gauges are labelled with the user's own pole terms",
         (await page.locator(".drift-gauge").first().textContent() ?? "").includes("solemn"));
   await page.screenshot({ path: `${OUT}/04-after-swipe.png`, fullPage: true });
 
   console.log("\n## tap to keep");
-  await page.locator("#drift-card").click();
-  await page.waitForTimeout(900);
+  // A real tap — touchscreen, not mouse. The touchend handler sees a sub-threshold
+  // delta and defers to the click the browser synthesises, which is the pin.
+  const tapBox = await page.locator("#drift-card").boundingBox();
+  await page.touchscreen.tap(tapBox.x + tapBox.width / 2, tapBox.y + tapBox.height / 2);
+  await page.waitForTimeout(1500);
   check("the condensate count incremented",
         (await page.locator("#drift-condensate-count").textContent()) === "1");
   await page.locator("#drift-condensate").click();
