@@ -979,10 +979,6 @@ describe("drift scripts build DOM safely", () => {
     }
   });
 
-  it("uses textContent somewhere, so cards are actually rendered the safe way", () => {
-    expect(scripts.some((s) => /\btextContent\b/.test(s.source))).toBe(true);
-  });
-
   it("never reads an embedding off the wire", () => {
     for (const { name, source } of scripts) {
       expect(liveLines(source).filter((l) => /\bembedding\b/.test(l)), `${name} touches embeddings`).toEqual([]);
@@ -1014,8 +1010,11 @@ describe("drift styles honour prefers-reduced-motion", () => {
 
 describe("drift meets the mobile floor", () => {
   it("uses dvh rather than bare vh", () => {
+    // \b does NOT sit between "0" and "d", so /\bdvh\b/ never matches 100dvh.
+    // Anchor on the digits instead. The bare-vh probe is fine as written:
+    // \d+vh cannot match 100dvh because of the intervening "d".
     expect(css.match(/\b\d+vh\b/), "bare vh found; use dvh").toBeNull();
-    expect(css).toMatch(/\bdvh\b/);
+    expect(css, "no dvh unit found").toMatch(/\d+dvh\b/);
   });
 
   it("declares viewport-fit=cover and uses safe-area insets", () => {
@@ -1053,8 +1052,12 @@ describe("drift styles cannot collide with the other surfaces", () => {
   });
 
   it("does not load the field's or the board's stylesheet", () => {
-    expect(html).not.toMatch(/press\.css/);
-    expect(html).not.toMatch(/\/styles\.css/);
+    // Match an actual <link>, not a mention. The file's own header comment
+    // explains WHY it does not inherit press.css, and a bare substring probe
+    // reads that explanation as the violation it is warning against.
+    const links = [...html.matchAll(/<link\b[^>]*href="([^"]+)"[^>]*>/g)].map((m) => m[1]!);
+    expect(links.filter((h) => /press\.css$/.test(h)), "loads press.css").toEqual([]);
+    expect(links.filter((h) => /^\/styles\.css$/.test(h)), "loads the field's styles.css").toEqual([]);
   });
 });
 ```
@@ -1390,12 +1393,12 @@ export function onSwipe() {
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `npx vitest run test/drift-client-guards.test.ts`
-Expected: PASS, 11 tests.
+Expected: PASS, 10 tests. The `textContent` assertion is deliberately not here — see Task 6 step 2.
 
 - [ ] **Step 7: Run the full gates**
 
 Run: `npm run typecheck && npm test`
-Expected: typecheck clean; 708 passing, 0 failing.
+Expected: typecheck clean; 707 passing, 0 failing.
 
 - [ ] **Step 8: Commit**
 
@@ -1764,7 +1767,19 @@ els.card.addEventListener('keydown', (e) => {
 export { advance, onSwipe, renderGauges };
 ```
 
-- [ ] **Step 2: Run the guard suite**
+- [ ] **Step 2: Restore the textContent assertion, now that a renderer exists**
+
+Add back into `test/drift-client-guards.test.ts`, inside the
+`drift scripts build DOM safely` block. It is deliberately absent from Task 4:
+until the card renderer existed it asserted a claim the code did not make.
+
+```ts
+  it("uses textContent somewhere, so cards are actually rendered the safe way", () => {
+    expect(scripts.some((s) => /\btextContent\b/.test(s.source))).toBe(true);
+  });
+```
+
+- [ ] **Step 3: Run the guard suite**
 
 Run: `npx vitest run test/drift-client-guards.test.ts`
 Expected: PASS, 11 tests. The `never blocks` guard now finds `function onSwipe(` and confirms no `await` in its body.

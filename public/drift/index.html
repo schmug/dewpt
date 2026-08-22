@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>dewpt · drift</title>
+    <meta name="description" content="Name two directions, then steer an idea stream with your thumb." />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..500&family=Space+Grotesk:wght@300..500&display=swap" rel="stylesheet" />
+    <!-- Only this stylesheet. The field's styles.css and press.css are a
+         different binding of the same token contract; every selector in
+         styles.css is scoped to .drift-surface so the surfaces cannot collide.
+         test/drift-client-guards.test.ts enforces both halves. -->
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="drift-surface">
+    <header class="drift-masthead">
+      <nav class="drift-doors" aria-label="dewpt surfaces">
+        <a href="/"><span aria-hidden="true">←</span> night walk</a>
+        <a href="/app/">the field</a>
+        <a href="/board/">board</a>
+      </nav>
+      <h1 class="drift-title">drift</h1>
+    </header>
+
+    <section id="drift-setup" class="drift-setup">
+      <form id="drift-seed-form" class="drift-seed">
+        <label class="drift-vh" for="drift-seed-input">seed</label>
+        <input id="drift-seed-input" class="drift-input" type="text" maxlength="64"
+               placeholder="a topic, a phrase…" autocomplete="off" />
+        <button type="submit" class="drift-button">condense</button>
+      </form>
+
+      <form id="drift-axis-form" class="drift-axes" hidden>
+        <p class="drift-legend">name two directions to steer by</p>
+        <div class="drift-axis-row">
+          <input id="drift-axis-a-neg" class="drift-input" type="text" maxlength="32" placeholder="solemn" autocomplete="off" />
+          <span class="drift-arrow" aria-hidden="true">↔</span>
+          <input id="drift-axis-a-pos" class="drift-input" type="text" maxlength="32" placeholder="playful" autocomplete="off" />
+        </div>
+        <div class="drift-axis-row">
+          <input id="drift-axis-b-neg" class="drift-input" type="text" maxlength="32" placeholder="concrete" autocomplete="off" />
+          <span class="drift-arrow" aria-hidden="true">↔</span>
+          <input id="drift-axis-b-pos" class="drift-input" type="text" maxlength="32" placeholder="abstract" autocomplete="off" />
+        </div>
+        <button type="submit" class="drift-button">set the compass</button>
+        <!-- Expansion output, lint warnings and failures all land here. It is a
+             live region because axis creation is slow by design: the server
+             expands both poles with an LLM call before embedding them. -->
+        <p id="drift-axis-status" class="drift-status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <main id="drift-stage" class="drift-stage" hidden>
+      <div id="drift-gauges" class="drift-gauges"></div>
+      <button id="drift-condensate" class="drift-condensate" type="button" aria-expanded="false">
+        <span class="drift-vh">condensate</span>
+        <span id="drift-condensate-count">0</span>
+      </button>
+      <div id="drift-condensate-panel" class="drift-condensate-panel" hidden></div>
+      <div id="drift-card" class="drift-card" tabindex="0" role="button"
+           aria-describedby="drift-hint">…</div>
+      <p id="drift-edge" class="drift-edge" role="status" aria-live="polite" hidden></p>
+      <p id="drift-hint" class="drift-hint">swipe to move · tap to keep</p>
+    </main>
+
+    <script type="module" src="./drift.js"></script>
+  </body>
+</html>
