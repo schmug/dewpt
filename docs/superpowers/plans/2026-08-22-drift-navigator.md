@@ -440,8 +440,8 @@ describe("the three checks are independent", () => {
   it("a register gap trips only registerDelta", () => {
     const r = lint.lintPoles(
       "plain", "arcane",
-      "a thing you can see and use",                 // all everyday words
-      "heteroscedastic epistemic praxis nomothetic", // no everyday words
+      "a thing you use",                             // 4 tokens, all everyday
+      "heteroscedastic epistemic praxis nomothetic", // 4 tokens, none everyday
     );
     expect(checks(r)).toEqual(["registerDelta"]);
     expect(r.registerDelta).toBeGreaterThanOrEqual(lint.REGISTER_DELTA_MAX);
@@ -520,6 +520,15 @@ export const LEN_DELTA_MAX = 2;
  *  threshold cry wolf. Measure before tightening. */
 export const REGISTER_DELTA_MAX = 0.5;
 
+/** Below this, commonShare carries no register signal and must not be trusted.
+ *  A one-token phrase scores 0 or 1; a two-token phrase scores 0, 0.5 or 1. The
+ *  `X` / `more X` surface control is exactly that shape — "playful" scores 0/1
+ *  and "more playful" scores 1/2 — so a single function word manufactures a
+ *  0.5 delta out of nothing. That is quantization, not register, and without
+ *  this floor the register check fires on every contained pole and stops being
+ *  independent of the containment check. */
+const MIN_REGISTER_TOKENS = 3;
+
 /** The ~150 most frequent English words. Enough to separate "everyday" from
  *  "technical" in a 4-8 word phrase, and small enough to ship in a client
  *  module. Not a frequency table and not a substitute for one. */
@@ -566,8 +575,14 @@ function isContained(a, b) {
  *  reports in terms of the TYPED terms, because that is what the user can
  *  change. */
 export function lintPoles(negTerm, posTerm, negPhrase, posPhrase) {
-  const lenDelta = Math.abs(tokenize(negPhrase).length - tokenize(posPhrase).length);
+  const negTokens = tokenize(negPhrase);
+  const posTokens = tokenize(posPhrase);
+  const lenDelta = Math.abs(negTokens.length - posTokens.length);
+  // Scored either way so the caller can see it, but only ACTED on when both
+  // sides are long enough for the share to mean anything.
   const registerDelta = Math.abs(commonShare(negPhrase) - commonShare(posPhrase));
+  const registerMeasurable =
+    negTokens.length >= MIN_REGISTER_TOKENS && posTokens.length >= MIN_REGISTER_TOKENS;
   const contained = isContained(negPhrase, posPhrase);
 
   const warnings = [];
@@ -583,7 +598,7 @@ export function lintPoles(negTerm, posTerm, negPhrase, posPhrase) {
       message: `"${negTerm}" and "${posTerm}" expanded to very different lengths, which can make the axis sort by wordiness. Try re-expanding.`,
     });
   }
-  if (registerDelta >= REGISTER_DELTA_MAX) {
+  if (registerMeasurable && registerDelta >= REGISTER_DELTA_MAX) {
     warnings.push({
       check: 'registerDelta',
       message: `"${negTerm}" and "${posTerm}" expanded into different registers — one everyday, one technical — which can make the axis sort by vocabulary. Try re-expanding.`,
