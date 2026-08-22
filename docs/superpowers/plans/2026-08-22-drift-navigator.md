@@ -256,10 +256,17 @@ export function freezeRange(candidates, axisCount) {
       if (v < mn) mn = v;
       if (v > mx) mx = v;
     }
-    // A degenerate or empty axis gets a unit span. A zero span would divide by
-    // zero in toNormalized, land every card at NaN, and empty the surface with
-    // no error anywhere.
-    if (!usable(mn) || !usable(mx) || mn === mx) { mn = -0.5; mx = 0.5; }
+    // A degenerate or empty axis gets a unit span CENTRED ON THE VALUE ITSELF,
+    // not on zero. A zero span would divide by zero in toNormalized, land every
+    // card at NaN, and empty the surface with no error anywhere — but a span of
+    // [-0.5, 0.5] around zero is just as wrong when every candidate sits at,
+    // say, 0.2: they would all normalize to 0.7 and sit off-centre on a gauge
+    // that has nothing to be off-centre about. Centre it and they read 0.5.
+    if (!usable(mn) || !usable(mx) || mn === mx) {
+      const centre = usable(mn) ? mn : 0;
+      mn = centre - 0.5;
+      mx = centre + 0.5;
+    }
     lo.push(mn);
     hi.push(mx);
   }
