@@ -242,7 +242,15 @@ interface BoardStub {
 
 /** Drive the real exported fetch handler against a stub BOARD_DO. */
 function callRoute(stub: BoardStub, request: Request): Promise<Response> {
-  const env = { BOARD_DO: { getByName: () => stub } };
+  const env = {
+    BOARD_DO: { getByName: () => stub },
+    CLIENT_RATE_LIMIT: {
+      getByName: () => ({ admit: async () => ({ allowed: true, retryAfterSeconds: 0 }) }),
+    },
+    ACCOUNT_BUDGET: {
+      getByName: () => ({ admitCreation: async () => ({ allowed: true, retryAfterSeconds: 0 }) }),
+    },
+  };
   const handler = worker as unknown as { fetch(request: Request, env: unknown): Promise<Response> };
   return handler.fetch(request, env);
 }

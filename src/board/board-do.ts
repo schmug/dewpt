@@ -14,7 +14,7 @@
 //    re-checks it structurally at the route boundary.
 
 import { DurableObject } from "cloudflare:workers";
-import { fakeAiRunner } from "../dev-fake-ai";
+import { selectBudgetedAiRunner } from "../ai-runner";
 import { embedTexts, expandPole, type AiRunner } from "../generation";
 import { BeltCore, type BeltCoreState, type BoardView } from "./belt-core";
 import { beltNow, isClockState, isPaused, pauseClock, resumeClock, startedClock, type ClockState } from "./clock";
@@ -259,7 +259,7 @@ export class BoardDO extends DurableObject<Env> {
    *  resolves, so a write that throws leaves the previous value standing and the
    *  next save retries rather than assuming it landed. */
   private persistedBelt: string | null = null;
-  private devFakeAi: AiRunner | null = null;
+  private ai: AiRunner | null = null;
 
   private speed: BeltSpeed = DEFAULT_BELT_SPEED;
   /** Running, not paused, as the pre-`load()` default.
@@ -305,15 +305,9 @@ export class BoardDO extends DurableObject<Env> {
   }
 
   private aiRunner(): AiRunner {
-    // dev-only escape hatch for local runtimes with no egress; see dev-fake-ai.ts
-    if ((this.env as Env & { DEV_FAKE_AI?: string }).DEV_FAKE_AI === "1") {
-      this.devFakeAi ??= fakeAiRunner();
-      return this.devFakeAi;
-    }
-    const ai = this.env.AI;
-    return {
-      run: (model, inputs) => ai.run(model as Parameters<typeof ai.run>[0], inputs as Parameters<typeof ai.run>[1]),
-    };
+    // Selection and budget wrapping share the session path, so background
+    // board alarms cannot bypass the account-wide concurrency/spend boundary.
+    return (this.ai ??= selectBudgetedAiRunner(this.env, `board:${this.ctx.id.toString()}`));
   }
 
   private async load(): Promise<void> {

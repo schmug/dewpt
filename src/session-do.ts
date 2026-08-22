@@ -5,7 +5,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { axisFromRow, axisToRow, isDegeneratePole } from "./axis-core";
-import { selectAiRunner } from "./ai-runner";
+import { selectBudgetedAiRunner } from "./ai-runner";
 import { embedTexts, expandPole, generateCandidates, type AiRunner } from "./generation";
 import { PoolCore } from "./pool-core";
 import {
@@ -428,8 +428,9 @@ export class SessionDO extends DurableObject<Env> {
 
   private aiRunner(): AiRunner {
     // Workers AI, a local OpenAI-compatible server, or the offline fake — see
-    // ai-runner.ts for the precedence and the dev-only escape hatches.
-    return (this.ai ??= selectAiRunner(this.env));
+    // ai-runner.ts for the precedence and the dev-only escape hatches. The DO
+    // id is a stable, unforgeable capability budget key across hibernation.
+    return (this.ai ??= selectBudgetedAiRunner(this.env, `session:${this.ctx.id.toString()}`));
   }
 
   // ---- persistence --------------------------------------------------------------

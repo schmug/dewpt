@@ -16,14 +16,17 @@
   "durable_objects": {
     "bindings": [
       { "name": "SESSION_DO", "class_name": "SessionDO" },
-      { "name": "BOARD_DO", "class_name": "BoardDO" }
+      { "name": "BOARD_DO", "class_name": "BoardDO" },
+      { "name": "CLIENT_RATE_LIMIT", "class_name": "ClientRateLimitDO" },
+      { "name": "ACCOUNT_BUDGET", "class_name": "AccountBudgetDO" }
     ]
   },
   // Migration tags are an append-only ledger: v1 is already applied in
   // production, so it is never edited. A new class gets a new tag.
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["SessionDO"] },
-    { "tag": "v2", "new_sqlite_classes": ["BoardDO"] }
+    { "tag": "v2", "new_sqlite_classes": ["BoardDO"] },
+    { "tag": "v3", "new_sqlite_classes": ["ClientRateLimitDO", "AccountBudgetDO"] }
   ],
   "ai": { "binding": "AI", "remote": true },
   "observability": { "enabled": true },
