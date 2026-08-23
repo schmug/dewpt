@@ -223,8 +223,14 @@ try {
       side: document.querySelector("#drift-bearing").dataset.side,
       bearing: [Math.round(b.left), Math.round(b.right)],
       word: [Math.round(t.left), Math.round(t.right)],
-      cardWidth: Math.round(document.querySelector("#drift-card").getBoundingClientRect().width),
-      deckWidth: Math.round(document.querySelector("#drift-deck").getBoundingClientRect().width),
+      // offsetWidth, not getBoundingClientRect: the card is mid-drag and
+      // tilted, and a rotated box's bounding rect is wider than its layout box.
+      // Measuring the rect reported a 6px overflow that is rotation, not
+      // layout. Third measurement bug on this one feature — the instrument has
+      // to match the question, and the question here is "does it fit", which
+      // is about layout.
+      cardWidth: document.querySelector("#drift-card").offsetWidth,
+      deckWidth: document.querySelector("#drift-deck").offsetWidth,
     };
   });
   check("the card fits inside its own deck",
