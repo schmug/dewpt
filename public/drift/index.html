@@ -77,6 +77,12 @@
       <div id="drift-deck" class="drift-deck">
         <i class="drift-ghost drift-ghost-2" aria-hidden="true"></i>
         <i class="drift-ghost drift-ghost-1" aria-hidden="true"></i>
+        <!-- The bearing sits on the card BELOW, revealed as the top card is
+             thrown clear. It names the pole you are sending this toward, so the
+             gesture says where it is going while you are still deciding.
+             aria-hidden: it is a transient echo of the gauges, and announcing
+             it on every drag frame would be noise. -->
+        <p id="drift-bearing" class="drift-bearing" aria-hidden="true"></p>
         <div id="drift-card" class="drift-card" tabindex="0" role="button"
              aria-describedby="drift-hint"></div>
       </div>
