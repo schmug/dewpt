@@ -28,12 +28,30 @@ export const DRAW_COUNT = 30;
  *  Axis requests remain in the shared public/axes.js, which predates this
  *  surface and is used by others — that is a deliberate exception, stated
  *  rather than glossed. Critic cycle 1. */
+/** Thrown when the field's abuse control turns a request away. Carries the wait
+ *  so callers can say how long rather than reporting a generic failure — a 429
+ *  is the system working, and telling someone "could not start a session" when
+ *  the truth is "wait 20 seconds" is the wrong sentence. */
+export class ThrottledError extends Error {
+  constructor(waitMs) {
+    super(`rate limited for ${Math.ceil(waitMs / 1000)}s`);
+    this.name = 'ThrottledError';
+    this.waitMs = waitMs;
+  }
+}
+
+function retryAfterMs(res, fallback = 15_000) {
+  const after = Number(res.headers?.get?.('retry-after'));
+  return Number.isFinite(after) && after > 0 ? after * 1000 : fallback;
+}
+
 export async function createSession(seed, params, fetchImpl = fetch) {
   const res = await fetchImpl('/api/session', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ seed, ...params }),
   });
+  if (res.status === 429) throw new ThrottledError(retryAfterMs(res));
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
     throw new Error(`session create failed: ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ''}`);
@@ -49,6 +67,7 @@ export async function pinWord(sessionId, text, tier, fetchImpl = fetch) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ text, tier }),
   });
+  if (res.status === 429) throw new ThrottledError(retryAfterMs(res));
   if (!res.ok) {
     // Carry the server's own explanation. A bare status turned one transient
     // 500 during a smoke run into an unfalsifiable mystery; the next occurrence

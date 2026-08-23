@@ -226,8 +226,10 @@ try {
     await page.locator("#drift-card").focus();
     // Paced. A 90ms cadence over 28 swipes triggers the field's own rate limiter,
     // and a harness that trips abuse control is testing the limiter, not the app.
-    for (let i = 0; i < 14; i++) { await page.keyboard.press("ArrowLeft"); await page.waitForTimeout(220); }
-    for (let i = 0; i < 14; i++) { await page.keyboard.press("ArrowUp"); await page.waitForTimeout(220); }
+    // MAX_REACH means the edge arrives in a handful of steps, so 14 was mostly
+    // spent generating top-ups and burning the 240 req/min client budget.
+    for (let i = 0; i < 6; i++) { await page.keyboard.press("ArrowLeft"); await page.waitForTimeout(260); }
+    for (let i = 0; i < 6; i++) { await page.keyboard.press("ArrowUp"); await page.waitForTimeout(260); }
     await page.waitForTimeout(800);
     const st = await page.evaluate(() => ({
       edgeShown: !document.querySelector("#drift-edge").hidden,
@@ -239,10 +241,10 @@ try {
     // Walk ALL the way back. Stepping back only half the distance left the tap
     // below landing in empty space, so a passing pin check depended on where the
     // walk happened to stop. Position clamps, so overshooting is safe.
-    for (let i = 0; i < 16; i++) { await page.keyboard.press("ArrowRight"); await page.waitForTimeout(200); }
-    for (let i = 0; i < 16; i++) { await page.keyboard.press("ArrowDown"); await page.waitForTimeout(200); }
-    for (let i = 0; i < 8; i++) { await page.keyboard.press("ArrowLeft"); await page.waitForTimeout(200); }
-    for (let i = 0; i < 8; i++) { await page.keyboard.press("ArrowUp"); await page.waitForTimeout(200); }
+    for (let i = 0; i < 8; i++) { await page.keyboard.press("ArrowRight"); await page.waitForTimeout(260); }
+    for (let i = 0; i < 8; i++) { await page.keyboard.press("ArrowDown"); await page.waitForTimeout(260); }
+    
+    
     await page.waitForTimeout(1200);
     // The pin check is about pinning, not about finding a card. Assert the
     // precondition explicitly so a failure says which of the two broke.
@@ -283,6 +285,11 @@ try {
     viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
     serviceWorkers: "block", reducedMotion: "reduce",
   });
+  // The main flow has just spent a chunk of the 240 req/min client budget, and
+  // the reduced-motion pass is a whole second session. Let the window drain, or
+  // this run tests the rate limiter rather than the surface.
+  console.log("  (pausing 45s so the reduced-motion session is not rate limited)");
+  await new Promise((r) => setTimeout(r, 45_000));
   const rmPage = await rmCtx.newPage();
   await blockOffOrigin(rmPage);
   await rmPage.goto(`${ORIGIN}/drift/`, { waitUntil: "domcontentloaded", timeout: 45000 });

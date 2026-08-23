@@ -7,7 +7,7 @@
 
 import { createAxisClient } from '/axes.js';
 import { lintAgainstPool, lintPoles } from './axis-lint.js';
-import { createSession, createWorkingSet, pinWord } from './working-set.js';
+import { createSession, createWorkingSet, pinWord, ThrottledError } from './working-set.js';
 import {
   SUPPLY_FLOOR, SUPPLY_RADIUS,
   freezeRange, initialPosition, localSupply, nextCard, stepPosition, toNormalized, widenRange,
@@ -83,7 +83,9 @@ els.seedForm.addEventListener('submit', async (e) => {
     els.aNeg.focus();
   } catch (err) {
     console.error(err);
-    say('could not start a session. try again.', 'warn');
+    say(err instanceof ThrottledError
+      ? `the field is busy — try again in ${Math.ceil(err.waitMs / 1000)}s.`
+      : 'could not start a session. try again.', 'warn');
     button.disabled = false;
   }
 });
@@ -708,7 +710,9 @@ async function pinCurrent() {
     els.card.dataset.pinned = 'false';
     paintCondensate();
     els.edge.hidden = false;
-    els.edge.textContent = 'could not keep that one';
+    els.edge.textContent = err instanceof ThrottledError
+      ? `too fast — try keeping again in ${Math.ceil(err.waitMs / 1000)}s`
+      : 'could not keep that one';
   }
 }
 
