@@ -24,6 +24,17 @@
   --label: #9a97b0;
   --faint: #565378;
   --hair: rgb(232 233 240 / 0.14);
+  /* The stack's hierarchy, measured rather than eyeballed. The card, the ghosts
+     and the ground were 1.03-1.07:1 apart — mathematically indistinguishable,
+     which is why the top of the stack did not read as the thing you touch.
+     On a ground this dark a FILL cannot reach the 3:1 WCAG 1.4.11 asks of a
+     component boundary without going grey and leaving the night palette, so the
+     definition is carried by the EDGE. --card-edge measures 3.12:1 against the
+     ground; --ghost-edge deliberately does not, so the layers cannot be
+     confused for each other. */
+  --card: #242240;
+  --card-edge: #5e589f;
+  --ghost-edge: rgb(232 233 240 / 0.10);
   --serif: 'Fraunces', 'Iowan Old Style', Georgia, serif;
   --sans: 'Space Grotesk', ui-sans-serif, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -307,10 +318,13 @@
   min-height: 34dvh;
   display: grid;
   place-items: center;
-  background: var(--field);
-  border: 1px solid var(--hair);
-  border-radius: 6px;
-  box-shadow: 0 14px 40px rgb(0 0 0 / 0.45);
+  background: var(--card);
+  border: 1px solid var(--card-edge);
+  border-radius: 8px;
+  /* Two shadows: a tight one that reads as contact with the stack, and a wide
+     soft one that reads as height above it. One shadow gives you either
+     "sitting on" or "floating", never both. */
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.55), 0 18px 44px rgb(0 0 0 / 0.6);
   text-align: center;
   font-family: var(--serif);
   font-weight: 300;
@@ -344,14 +358,14 @@
   100% { transform: translate(0, 0); }
 }
 @keyframes drift-wander-slow {
-  0%   { transform: translateY(10px) rotate(-1.1deg); }
-  50%  { transform: translateY(13px) rotate(-1.6deg); }
-  100% { transform: translateY(10px) rotate(-1.1deg); }
+  0%   { transform: translateY(14px) rotate(-1.3deg); }
+  50%  { transform: translateY(17px) rotate(-1.8deg); }
+  100% { transform: translateY(14px) rotate(-1.3deg); }
 }
 @keyframes drift-wander-slower {
-  0%   { transform: translateY(20px) rotate(1.4deg); }
-  50%  { transform: translateY(24px) rotate(2deg); }
-  100% { transform: translateY(20px) rotate(1.4deg); }
+  0%   { transform: translateY(26px) rotate(1.7deg); }
+  50%  { transform: translateY(30px) rotate(2.3deg); }
+  100% { transform: translateY(26px) rotate(1.7deg); }
 }
 /* The ghosts drift too, on different periods, so the stack breathes rather than
    sliding as one rigid block. */
@@ -451,8 +465,8 @@
   .drift-surface .drift-bearing { transition: none; }
   /* The ghosts keep their offsets — that is layout, and the stack must still
      read as a stack — but they stop moving. */
-  .drift-surface .drift-ghost-1 { animation: none; transform: translateY(10px) rotate(-1.1deg); }
-  .drift-surface .drift-ghost-2 { animation: none; transform: translateY(20px) rotate(1.4deg); }
+  .drift-surface .drift-ghost-1 { animation: none; transform: translateY(14px) rotate(-1.3deg); }
+  .drift-surface .drift-ghost-2 { animation: none; transform: translateY(26px) rotate(1.7deg); }
   .drift-surface .drift-gauge-mark {
     animation: none;
     transition: none;
