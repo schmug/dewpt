@@ -36,9 +36,14 @@ export const REGISTER_DELTA_MAX = 0.5;
  *  independent of the containment check. */
 const MIN_REGISTER_TOKENS = 3;
 
-/** The ~150 most frequent English words. Enough to separate "everyday" from
- *  "technical" in a 4-8 word phrase, and small enough to ship in a client
- *  module. Not a frequency table and not a substitute for one. */
+/** Roughly the most frequent English words, by eye rather than by corpus.
+ *
+ *  CLAIM NARROWED, cycle 2: the earlier comment asserted this is "enough to
+ *  separate everyday from technical in a 4-8 word phrase". Nothing has measured
+ *  that. What can be said without a harness is only that a token in this list
+ *  is common and a token outside it may or may not be — the list has no
+ *  measured separating power, and the register check that reads it is already
+ *  labelled UNMEASURED for the same reason. Treat both as a smoke signal. */
 const COMMON = new Set([
   'a','about','after','all','also','an','and','any','are','as','at','back','be','because','been','before',
   'being','between','both','but','by','can','come','could','day','do','does','down','each','even','first',

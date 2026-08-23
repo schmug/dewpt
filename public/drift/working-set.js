@@ -95,6 +95,7 @@ export function createWorkingSet(sessionId, opts = {}) {
   }
 
   let lastFailedBuckets = [];
+  let lastEmptyBuckets = [];
 
   async function draw() {
     const results = await Promise.all(
@@ -103,6 +104,11 @@ export function createWorkingSet(sessionId, opts = {}) {
     // Which buckets contributed nothing, so the caller can keep trying them in
     // the background instead of treating one bad pass as the final answer.
     lastFailedBuckets = BUCKETS.filter((_, i) => results[i] === null);
+    // A 200 carrying zero candidates is NOT a success. It means generation has
+    // not caught up for that bucket, and treating it as done is how a sparse
+    // pool got mistaken for a full one. Tracked separately from a request
+    // failure because the two want different responses: retry vs wait. Cycle 2.
+    lastEmptyBuckets = BUCKETS.filter((_, i) => results[i] !== null && (results[i].condensed?.length ?? 0) === 0);
     for (const result of results) {
       if (!result) continue;
       if (!sameAxisIds(currentAxisIds, result.axisIds)) {
@@ -145,8 +151,11 @@ export function createWorkingSet(sessionId, opts = {}) {
     all: () => items,
     size: () => items.length,
     axisIds: () => currentAxisIds,
-    /** Buckets that errored on the last pass. Empty means the pass was clean. */
+    /** Buckets whose REQUEST errored on the last pass. */
     failedBuckets: () => [...lastFailedBuckets],
+    /** Buckets that answered 200 with nothing in them — generation has not
+     *  caught up there yet. */
+    emptyBuckets: () => [...lastEmptyBuckets],
     onFlush(cb) { flushHandlers.push(cb); },
   };
 }

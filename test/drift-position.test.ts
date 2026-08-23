@@ -21,6 +21,8 @@ const position = positionUntyped as {
   stepPosition(pos: number[], range: Range, axis: number, dir: number, step?: number): number[];
   distanceTo(c: Candidate, pos: number[], range: Range): number;
   MAX_REACH: number;
+  SEED_TETHER_MIN: number;
+  isTethered(c: Candidate, min?: number): boolean;
   nextCard(cs: Candidate[], pos: number[], range: Range, seen: Set<string>, maxReach?: number): Candidate | null;
   localSupply(cs: Candidate[], pos: number[], range: Range, seen: Set<string>, radius: number): number;
 };
@@ -179,5 +181,45 @@ describe("the edge is LOCAL, not global (critic cycle 1, blocker)", () => {
 
   it("keeps MAX_REACH above SUPPLY_RADIUS so top-up fires before the edge", () => {
     expect(position.MAX_REACH).toBeGreaterThan(position.SUPPLY_RADIUS);
+  });
+});
+
+describe("seed retention is an INVARIANT, not a statistical tendency (cycle 2, blocker)", () => {
+  const range = { lo: [0, 0], hi: [1, 1] };
+  const tethered = (text: string, coords: number[], seedDist: number) =>
+    ({ text, tier: 1, alt: 0, seedDist, coords, arrivedAt: 1 });
+
+  it("never surfaces a card below the anisotropy floor", () => {
+    // 0.414 is the measured mean cosine between two UNRELATED bge-m3 phrases.
+    // Below it, a candidate is not distinguishable from a random one, so it
+    // cannot be presented as being about the seed. Ranking used to consider
+    // only axis distance, so a nearby-but-unrelated card won at the extremes.
+    const untethered = tethered("unrelated", [0.5, 0.5], 1 - 0.30); // cosine 0.30
+    expect(position.nextCard([untethered], [0.5, 0.5], range, new Set())).toBeNull();
+  });
+
+  it("prefers a tethered card over a nearer untethered one", () => {
+    const near = tethered("near but unrelated", [0.50, 0.50], 1 - 0.20);
+    const far = tethered("further but tethered", [0.56, 0.56], 1 - 0.60);
+    expect(position.nextCard([near, far], [0.5, 0.5], range, new Set())!.text)
+      .toBe("further but tethered");
+  });
+
+  it("admits a card exactly at the floor", () => {
+    const edge = tethered("exactly at the floor", [0.5, 0.5], 1 - position.SEED_TETHER_MIN);
+    expect(position.nextCard([edge], [0.5, 0.5], range, new Set())!.text).toBe("exactly at the floor");
+  });
+
+  it("fails closed on a missing seedDist", () => {
+    const unscored = { text: "unscored", tier: 1, alt: 0, coords: [0.5, 0.5], arrivedAt: 1 } as never;
+    expect(position.isTethered(unscored)).toBe(false);
+  });
+
+  it("localSupply counts only cards that could actually be shown", () => {
+    // Otherwise supply reads healthy while every draw is rejected at ranking,
+    // which is cycle 1's supply/card disagreement coming back from the other side.
+    const cs = [tethered("untethered", [0.5, 0.5], 1 - 0.10)];
+    expect(position.localSupply(cs, [0.5, 0.5], range, new Set(), 0.15)).toBe(0);
+    expect(position.nextCard(cs, [0.5, 0.5], range, new Set())).toBeNull();
   });
 });

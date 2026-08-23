@@ -24,6 +24,7 @@
   },
   "devDependencies": {
     "@types/node": "^22",
+    "jsdom": "^30.0.1",
     "playwright": "^1.62.1",
     "tsx": "^4",
     "typescript": "^5",

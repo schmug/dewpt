@@ -29,6 +29,11 @@ import { generateCandidates, expandPole, type AiRunner } from "../src/generation
 import { ALT_ABSTRACTION, BUCKET_KEYS, DEDUPE_COSINE, TIER_STRANGENESS, type Alt, type Tier } from "../src/types";
 import { cloudflareRunner, CF_GEN_MODEL } from "./runner-lib";
 import { cosine, embedTexts, requireCreds, sub } from "./axis-lib";
+// The SHIPPED ranker, imported rather than reimplemented. A local copy of
+// nextCard would measure a loop the app does not run — the same mistake cycle 2
+// flagged about the band values.
+// @ts-expect-error — public/drift/position.js ships untyped
+import * as shippedPosition from "../public/drift/position.js";
 
 /** The DO's six buckets, built from the SHIPPED constants rather than from
  *  representative values. An earlier version used 0.2/0.5/0.85 x 0.25/0.75,
@@ -222,6 +227,68 @@ async function main(): Promise<void> {
       for (let j = i + 1; j < poles.length; j++)
         console.log(`  r(${poles[i]!.name}, ${poles[j]!.name}) = ${f(pearson(coordSets[i]!, coordSets[j]!))}`);
   }
+  // ── seed retention, measured over the loop the app actually runs ──────────
+  //
+  // Cycle 2's blocker: retention was claimed "at every position" on the strength
+  // of three stops of separate 1D sweeps. This walks the real thing — 2D
+  // position, unseen-first, reach-bounded, drawing from the shipped
+  // position.js — and reports the tether of EVERY card actually surfaced.
+  console.log(`\n${"═".repeat(78)}\nSEED RETENTION over the shipped 2D loop`);
+  const pos = shippedPosition as {
+    STEP: number; MAX_REACH: number;
+    freezeRange(c: unknown[], n: number): { lo: number[]; hi: number[] };
+    initialPosition(r: { lo: number[]; hi: number[] }): number[];
+    stepPosition(p: number[], r: { lo: number[]; hi: number[] }, a: number, d: number): number[];
+    nextCard(c: unknown[], p: number[], r: { lo: number[]; hi: number[] }, seen: Set<string>): { text: string } | null;
+  };
+
+  const allTethers: number[] = [];
+  let surfaced = 0;
+  let edges = 0;
+  for (const seed of SEEDS) {
+    const pool = await buildPool(ai, accountId, token, seed);
+    const a0 = poles[0]!, a1 = poles[1]!;
+    const v0 = sub(a0.pos, a0.neg), v1 = sub(a1.pos, a1.neg);
+    const cands = pool.embs.map((e, i) => ({
+      text: pool.texts[i]!, tier: 1, alt: 0,
+      seedDist: 1 - cosine(e, pool.seedEmb),   // exactly how PoolCore computes it
+      coords: [cosine(e, v0), cosine(e, v1)],
+      arrivedAt: i,
+    }));
+    const range = pos.freezeRange(cands, 2);
+    let position = pos.initialPosition(range);
+    const seen = new Set<string>();
+    const tethers: number[] = [];
+    // A deterministic serpentine walk over the whole square, so this covers the
+    // space rather than three hand-picked stops.
+    const r = mulberry32(0xc0ffee);
+    for (let stepN = 0; stepN < 400; stepN++) {
+      const axis = r() < 0.5 ? 0 : 1;
+      const dir = r() < 0.5 ? -1 : 1;
+      position = pos.stepPosition(position, range, axis, dir);
+      const card = pos.nextCard(cands, position, range, seen);
+      if (card === null) { edges++; continue; }
+      seen.add(card.text);
+      const c = cands.find((x) => x.text === card.text)!;
+      tethers.push(1 - c.seedDist);   // report as cosine, matching run 2
+      surfaced++;
+    }
+    tethers.sort((x, y) => x - y);
+    const q = (p: number) => tethers[Math.min(tethers.length - 1, Math.floor(p * tethers.length))] ?? NaN;
+    console.log(`\n  seed "${seed}" — ${tethers.length} cards surfaced over 400 swipes`);
+    console.log(`    tetherSeed  min ${f(tethers[0] ?? NaN)}  p05 ${f(q(0.05))}  p50 ${f(q(0.5))}  p95 ${f(q(0.95))}  max ${f(tethers[tethers.length - 1] ?? NaN)}`);
+    const worst = cands.filter((c) => seen.has(c.text)).sort((x, y) => y.seedDist - x.seedDist).slice(0, 5);
+    console.log(`    weakest surfaced: ${worst.map((w) => `"${w.text}" (${f(1 - w.seedDist)})`).join(" · ")}`);
+    allTethers.push(...tethers);
+  }
+  allTethers.sort((a, b) => a - b);
+  const Q = (p: number) => allTethers[Math.min(allTethers.length - 1, Math.floor(p * allTethers.length))] ?? NaN;
+  console.log(`\n  ACROSS BOTH SEEDS — ${surfaced} cards surfaced, ${edges} edge hits`);
+  console.log(`    min ${f(allTethers[0] ?? NaN)}  p01 ${f(Q(0.01))}  p05 ${f(Q(0.05))}  p50 ${f(Q(0.5))}  max ${f(allTethers[allTethers.length - 1] ?? NaN)}`);
+  console.log(`\n  A retention floor set at the p01 of ${f(Q(0.01))} cosine would exclude the`);
+  console.log(`  weakest 1% of surfaced cards. Expressed as PoolCore's seedDist that is`);
+  console.log(`  ${f(1 - Q(0.01))}. This is the number to put in position.js, or to argue with.`);
+
   console.log(`\nrequests spent: ${requests}`);
 }
 

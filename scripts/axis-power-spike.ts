@@ -36,14 +36,17 @@
 
 import { generateCandidates, expandPole, type AiRunner, type ChatMessage } from "../src/generation";
 import { auc } from "../src/metrics";
+import { ALT_ABSTRACTION, BUCKET_KEYS, DEDUPE_COSINE, TIER_STRANGENESS, type Alt, type Tier } from "../src/types";
 import { cloudflareRunner, CF_GEN_MODEL } from "./runner-lib";
 import { cosine, embedTexts, mean as meanVec, requireCreds, sub } from "./axis-lib";
 
-const BANDS = [
-  { strangeness: 0.2, altitude: 0.25 }, { strangeness: 0.2, altitude: 0.75 },
-  { strangeness: 0.5, altitude: 0.25 }, { strangeness: 0.5, altitude: 0.75 },
-  { strangeness: 0.85, altitude: 0.25 }, { strangeness: 0.85, altitude: 0.75 },
-];
+/** Built from the SHIPPED constants. This file previously hard-coded
+ *  0.2/0.5/0.85 x 0.25/0.75 while describing its input as a real pool; production
+ *  is TIER_STRANGENESS 0.15/0.5/0.85 and ALT_ABSTRACTION 0.2/0.8. Cycle 2. */
+const BANDS = BUCKET_KEYS.map((bucket) => ({
+  strangeness: TIER_STRANGENESS[Number(bucket[1]) as Tier],
+  altitude: ALT_ABSTRACTION[Number(bucket[3]) as Alt],
+}));
 const PER_BAND = 24;
 const JUDGED = 40;      // candidates rated per (seed, axis)
 const TOP_K = 8;        // pole-end sample for the cheap proxies
@@ -224,7 +227,19 @@ async function buildPool(ai: AiRunner, id: string, tok: string, seed: string): P
       if (key && !seen.has(key)) { seen.add(key); texts.push(t.trim()); }
     }
   }
-  return { seed, texts, embs: await embed(id, tok, texts) };
+  const rawEmbs = await embed(id, tok, texts);
+  // PoolCore drops near-duplicates by embedding cosine, not by exact text.
+  // Calling a text-deduped list "a real pool" was the other half of cycle 2's
+  // parity finding.
+  const keptTexts: string[] = [];
+  const keptEmbs: number[][] = [];
+  for (let i = 0; i < texts.length; i++) {
+    if (keptEmbs.some((e) => cosine(e, rawEmbs[i]!) > DEDUPE_COSINE)) continue;
+    keptTexts.push(texts[i]!);
+    keptEmbs.push(rawEmbs[i]!);
+  }
+  console.log(`  (dedupe: ${texts.length} raw -> ${keptTexts.length} kept at cosine > ${DEDUPE_COSINE})`);
+  return { seed, texts: keptTexts, embs: keptEmbs };
 }
 
 interface Cell {
