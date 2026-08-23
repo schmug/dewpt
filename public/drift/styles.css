@@ -257,7 +257,9 @@
   align-self: center;
   justify-self: center;
   width: min(88vw, 420px);
-  min-height: 40dvh;
+  /* Matches .drift-card's min-height so the ghosts, at inset: 0, are exactly
+     the card's box offset downward. */
+  min-height: 34dvh;
   display: grid;
   place-items: center;
   /* The browser must not reserve panning on the gesture plane. Load-bearing for
@@ -267,7 +269,11 @@
 
 .drift-surface .drift-ghost {
   position: absolute;
-  inset: 12% 4%;
+  /* Same box as the card, only offset. Sized as a percentage inset of the DECK
+     they were a larger frame AROUND the card rather than paper under it —
+     visible above and below it, which read as a border bug rather than a
+     stack. The deck is sized to the card below, so inset: 0 matches it. */
+  inset: 0;
   border: 1px solid var(--hair);
   border-radius: 6px;
   background: var(--deep);
@@ -282,7 +288,7 @@
  * be clear of it. */
 .drift-surface .drift-bearing {
   position: absolute;
-  inset: 12% 4%;
+  inset: 0;
   z-index: 1;
   margin: 0;
   display: grid;
@@ -302,8 +308,21 @@
 .drift-surface .drift-bearing[data-side='down']  { place-items: end center; padding-bottom: 6px; }
 .drift-surface .drift-bearing[data-side='up']    { place-items: start center; padding-top: 6px; }
 
-.drift-surface .drift-ghost-1 { transform: translateY(10px) rotate(-1.1deg); opacity: 0.55; }
-.drift-surface .drift-ghost-2 { transform: translateY(20px) rotate(1.4deg); opacity: 0.3; }
+/* ONE rule per ghost. These were split across two — offsets here, animation two
+   hundred lines away — and an edit that updated one and not the other left the
+   ghosts rendering old offsets while the keyframes used new ones. Nothing
+   failed; it just quietly drew the wrong thing. The ghosts drift on different
+   periods so the stack breathes rather than sliding as one rigid block. */
+.drift-surface .drift-ghost-1 {
+  transform: translateY(14px) rotate(-1.3deg);
+  opacity: 0.7;
+  animation: drift-wander-slow 23s ease-in-out infinite;
+}
+.drift-surface .drift-ghost-2 {
+  transform: translateY(26px) rotate(1.7deg);
+  opacity: 0.4;
+  animation: drift-wander-slower 31s ease-in-out infinite;
+}
 
 /* THE CARD IS A CARD. It had no box of its own — only the ghosts carried a
  * background and border — so the thing that looked like the top card was
@@ -372,10 +391,7 @@
   50%  { transform: translateY(30px) rotate(2.3deg); }
   100% { transform: translateY(26px) rotate(1.7deg); }
 }
-/* The ghosts drift too, on different periods, so the stack breathes rather than
-   sliding as one rigid block. */
-.drift-surface .drift-ghost-1 { animation: drift-wander-slow 23s ease-in-out infinite; }
-.drift-surface .drift-ghost-2 { animation: drift-wander-slower 31s ease-in-out infinite; }
+
 /* The strangeness cue. tier already ships on Served, so this costs nothing.
  * SPEC.md holds the ramp as a guardrail: pale slate -> lilac -> warm ember,
  * pinned = gold. */
