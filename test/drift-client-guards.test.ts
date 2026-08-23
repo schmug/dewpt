@@ -93,8 +93,17 @@ describe("drift meets the mobile floor", () => {
     const cardRule = css.slice(css.indexOf(".drift-surface .drift-card {"));
     const decl = cardRule.slice(0, cardRule.indexOf("}"));
     expect(decl, "the card declares no minimum size").toMatch(/min-height:\s*\S+/);
-    expect((decl.match(/min-height:/g) ?? []).length,
-           "two min-height declarations in one rule — the later one wins silently").toBe(1);
+
+    // NO PROPERTY MAY BE DECLARED TWICE IN THIS RULE. Two separate bugs came
+    // from exactly this: a stale `min-height: 44px` collapsed the card to a
+    // band, and a stale `background: none` left over from when the card was
+    // bare text made its fill fully transparent — in both cases the later
+    // declaration silently beat the intended one, and the surface looked
+    // plausible enough that only a screenshot caught it. Checking the general
+    // shape rather than the two properties that happened to break.
+    const props = [...decl.matchAll(/^\s*([a-z-]+)\s*:/gm)].map((m) => m[1]!);
+    const dupes = props.filter((x, i) => props.indexOf(x) !== i);
+    expect([...new Set(dupes)], "duplicated declarations in .drift-card").toEqual([]);
   });
 
   it("declares no tap target under 44px", () => {

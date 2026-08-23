@@ -332,8 +332,10 @@
   line-height: 1.08;
   letter-spacing: -0.01em;
   color: var(--t0);
-  background: none;
-  border: 0;
+  /* No background/border reset here. Both were left over from when the card was
+     bare text with no surface of its own, and being LATER in the rule they beat
+     the fill and edge declared above — the card rendered fully transparent, and
+     what looked like a card was its shadow and border alone. */
   cursor: pointer;
   /* The card IS the primary control — tap keeps, swipe moves — so it carries a
    * real hit box. It is a div[role=button] rather than a <button>, which is
