@@ -27,6 +27,7 @@ const els = {
   stage: document.getElementById('drift-stage'),
   card: document.getElementById('drift-card'),
   deck: document.getElementById('drift-deck'),
+  bearing: document.getElementById('drift-bearing'),
   gauges: document.getElementById('drift-gauges'),
   condensate: document.getElementById('drift-condensate'),
   condensateCount: document.getElementById('drift-condensate-count'),
@@ -643,16 +644,46 @@ els.deck.addEventListener('touchmove', (e) => {
   // pixel would swallow taps and make the surface feel sticky.
   if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
     if (e.cancelable) e.preventDefault();
-    // Follow the thumb. The card tracking the finger is what tells someone this
-    // is a swipe surface before they have read a word of the hint.
-    const damp = 0.35;
-    els.card.style.transform = `translate(${dx * damp}px, ${dy * damp}px)`;
+    // Follow the thumb. The whole CARD moves, not the word on it — it carries
+    // its own background and border for exactly this reason. Damped so it
+    // trails the finger rather than sticking to it, and tilted a little so it
+    // reads as being thrown rather than slid.
+    const damp = 0.55;
+    const tilt = Math.max(-7, Math.min(7, dx * 0.03));
+    els.card.style.transform = `translate(${dx * damp}px, ${dy * damp}px) rotate(${tilt}deg)`;
+    showBearing(dx, dy);
   }
 }, { passive: false });
+
+/** Names the pole this throw is heading for, on the card below. The direction
+ *  is decided by the dominant axis of the drag — the same rule touchend uses to
+ *  pick which axis moves — so what the bearing promises is what the release
+ *  delivers. Fades in with distance, so a hesitant nudge does not shout. */
+function showBearing(dx, dy) {
+  const horizontal = Math.abs(dx) >= Math.abs(dy);
+  const axisIdx = horizontal ? 0 : 1;
+  const axis = state.axes[axisIdx];
+  if (!axis) {
+    // One axis named, or the second failed. Say so rather than implying a
+    // direction that does not exist.
+    els.bearing.textContent = 'no direction this way';
+    els.bearing.dataset.active = 'true';
+    return;
+  }
+  const forward = horizontal ? dx > 0 : dy > 0;
+  els.bearing.textContent = `${forward ? '' : '← '}${forward ? posTermOf(axis) : negTermOf(axis)}${forward ? ' →' : ''}`;
+  els.bearing.dataset.active = 'true';
+}
+
+function clearBearing() {
+  els.bearing.dataset.active = 'false';
+  els.bearing.textContent = '';
+}
 
 els.deck.addEventListener('touchend', (e) => {
   gestureActive = false;
   els.card.style.transform = '';
+  clearBearing();
   if (!touchStart) return;
   const t = e.changedTouches[0];
   const dx = t.clientX - touchStart.x;
@@ -667,6 +698,7 @@ els.deck.addEventListener('touchcancel', () => {
   gestureActive = false;
   touchStart = null;
   els.card.style.transform = '';
+  clearBearing();
 }, { passive: true });
 
 // Keyboard parity, so the surface is operable without a pointer (#26's concern,

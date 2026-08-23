@@ -193,8 +193,27 @@ try {
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: cx, y: cy }] });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: cx + 90, y: cy }] });
   await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: cx + 160, y: cy }] });
+  // Hold mid-drag: the card should be displaced and the card below should name
+  // the pole this throw is heading for.
+  const midDrag = await page.evaluate(() => ({
+    cardMoved: (document.querySelector("#drift-card").style.transform || "").includes("translate"),
+    bearing: document.querySelector("#drift-bearing").textContent.trim(),
+    bearingShown: document.querySelector("#drift-bearing").dataset.active === "true",
+  }));
+  check("the card itself moves with the thumb", midDrag.cardMoved, JSON.stringify(midDrag));
+  check("the card below names the direction", midDrag.bearingShown && midDrag.bearing.length > 0,
+        JSON.stringify(midDrag));
+  await page.screenshot({ path: `${OUT}/08-mid-throw.png`, fullPage: true });
+
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await page.waitForTimeout(700);
+  const afterRelease = await page.evaluate(() => ({
+    transform: document.querySelector("#drift-card").style.transform,
+    bearingShown: document.querySelector("#drift-bearing").dataset.active === "true",
+  }));
+  check("the card settles and the bearing clears on release",
+        !afterRelease.transform.includes("translate") && !afterRelease.bearingShown,
+        JSON.stringify(afterRelease));
 
   const secondCard = (await page.locator("#drift-card").textContent())?.trim();
   const marksAfter = await page.$$eval(".drift-gauge-mark", (m) => m.map((e) => e.style.left));

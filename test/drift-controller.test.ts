@@ -39,6 +39,7 @@ const MARKUP = `
     <div id="drift-deck">
       <i class="drift-ghost drift-ghost-2"></i>
       <i class="drift-ghost drift-ghost-1"></i>
+      <p id="drift-bearing"></p>
       <div id="drift-card" tabindex="0" role="button"></div>
     </div>
     <p id="drift-edge" hidden></p>

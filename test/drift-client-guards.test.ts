@@ -188,3 +188,48 @@ describe("the compass recommends measured pairs, and the gesture plane is real",
       .toMatch(/drift-ghost-1\s*\{[^}]*animation:\s*none/s);
   });
 });
+
+describe("the card is thrown, and the card below says where", () => {
+  const drift = scripts.find((s) => s.name === "drift.js")!;
+
+  it("the card carries its own surface, so it is the thing that moves", () => {
+    // It had none: only the ghosts had a background and border, so what looked
+    // like the top card was ghost-1 and a swipe appeared to move only the text.
+    const block = css.slice(css.indexOf(".drift-surface .drift-card {"));
+    const decl = block.slice(0, block.indexOf("}"));
+    expect(decl, "the card has no background").toMatch(/background:\s*var\(--field\)/);
+    expect(decl, "the card has no border").toMatch(/border:\s*1px solid var\(--hair\)/);
+  });
+
+  it("the drag transforms the card element itself", () => {
+    const start = drift.source.indexOf("addEventListener('touchmove'");
+    const block = drift.source.slice(start, drift.source.indexOf("});", start));
+    expect(block, "the drag does not move the card").toMatch(/els\.card\.style\.transform/);
+  });
+
+  it("a drag names the pole it is heading for", () => {
+    expect(drift.source, "no bearing is shown during a drag").toMatch(/showBearing/);
+    expect(html, "no bearing element on the card below").toMatch(/id="drift-bearing"/);
+    // The bearing must use the SAME dominant-axis rule as touchend, or it
+    // promises one direction and the release delivers another.
+    const fn = drift.source.slice(drift.source.indexOf("function showBearing"));
+    expect(fn.slice(0, fn.indexOf("\n}")), "bearing does not pick the axis the same way")
+      .toMatch(/Math\.abs\(dx\)\s*>=\s*Math\.abs\(dy\)/);
+  });
+
+  it("clears the bearing when the thumb leaves", () => {
+    for (const ev of ["touchend", "touchcancel"]) {
+      const start = drift.source.indexOf(`addEventListener('${ev}'`);
+      const block = drift.source.slice(start, drift.source.indexOf("});", start));
+      expect(block, `${ev} leaves the bearing showing`).toMatch(/clearBearing/);
+    }
+  });
+
+  it("reduced motion keeps direct manipulation but drops the decoration", () => {
+    // A drag is the card under the thumb. Removing it would break the gesture
+    // rather than calm it, so only the idle wander and the tilt go.
+    const idx = css.indexOf("@media (prefers-reduced-motion: reduce)");
+    expect(css.slice(idx), "the reduced-motion rule would fight an active drag")
+      .toMatch(/drift-card:not\(\[style\*='translate'\]\)/);
+  });
+});
