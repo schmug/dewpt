@@ -34,7 +34,10 @@ export async function createSession(seed, params, fetchImpl = fetch) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ seed, ...params }),
   });
-  if (!res.ok) throw new Error(`session create failed: ${res.status}`);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`session create failed: ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ''}`);
+  }
   return res.json();
 }
 
@@ -46,7 +49,13 @@ export async function pinWord(sessionId, text, tier, fetchImpl = fetch) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ text, tier }),
   });
-  if (!res.ok) throw new Error(`pin failed: ${res.status}`);
+  if (!res.ok) {
+    // Carry the server's own explanation. A bare status turned one transient
+    // 500 during a smoke run into an unfalsifiable mystery; the next occurrence
+    // should say what the server thought was wrong.
+    const detail = await res.text().catch(() => '');
+    throw new Error(`pin failed: ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ''}`);
+  }
   return res.json();
 }
 
