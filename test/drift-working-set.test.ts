@@ -19,6 +19,8 @@ interface WorkingSet {
 const ws = wsUntyped as {
   BUCKETS: string[];
   DRAW_COUNT: number;
+  createSession(seed: string, params: object, f?: typeof fetch): Promise<{ id: string }>;
+  pinWord(id: string, text: string, tier: number, f?: typeof fetch): Promise<unknown>;
   createWorkingSet(id: string, opts?: { fetchImpl?: typeof fetch }): WorkingSet;
 };
 
@@ -187,5 +189,36 @@ describe("429 is a state, not an error (critic cycle 2 follow-up)", () => {
     await set.prime();
     expect(set.throttledFor()).toBe(0);
     expect(set.failedBuckets().length).toBe(ws.BUCKETS.length);
+  });
+});
+
+describe("throttling is reported on every call, not just pool draws", () => {
+  const throttled = (retryAfter?: string) =>
+    vi.fn(async () => ({
+      ok: false, status: 429,
+      headers: { get: (k: string) => (k.toLowerCase() === "retry-after" ? (retryAfter ?? null) : null) },
+      json: async () => ({}), text: async () => "",
+    })) as unknown as typeof fetch;
+
+  it("createSession throws ThrottledError carrying the wait", async () => {
+    // Reporting "could not start a session" when the truth is "wait 20 seconds"
+    // is the wrong sentence: a 429 is the system working.
+    await expect(ws.createSession("seed", {}, throttled("20"))).rejects.toMatchObject({
+      name: "ThrottledError", waitMs: 20_000,
+    });
+  });
+
+  it("pinWord throws ThrottledError too", async () => {
+    await expect(ws.pinWord("s1", "word", 0, throttled("5"))).rejects.toMatchObject({
+      name: "ThrottledError", waitMs: 5_000,
+    });
+  });
+
+  it("an ordinary failure is not reported as throttling", async () => {
+    const failing = vi.fn(async () => ({
+      ok: false, status: 500, headers: { get: () => null },
+      json: async () => ({}), text: async () => "boom",
+    })) as unknown as typeof fetch;
+    await expect(ws.createSession("seed", {}, failing)).rejects.not.toMatchObject({ name: "ThrottledError" });
   });
 });
