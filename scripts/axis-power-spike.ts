@@ -52,7 +52,10 @@ const JUDGED = 40;      // candidates rated per (seed, axis)
 const TOP_K = 8;        // pole-end sample for the cheap proxies
 const NULLS = 200;      // permutation nulls. Free — pure maths on existing vectors.
 
-const SEEDS = ["public transit", "home cooking"];
+/** Three seeds, deliberately unlike each other. The pills this ranks are shown
+ *  to every user against whatever they type, so an axis that only works on
+ *  concrete nouns is not a recommendation. Still thin — three is not many. */
+const SEEDS = ["public transit", "home cooking", "friendship"];
 
 /** Three real axes and one surface control. concrete<->abstract is the design
  *  doc's validated case (AUC 0.980 on hand-labelled words); solemn<->playful is
@@ -61,9 +64,20 @@ const SEEDS = ["public transit", "home cooking"];
  *  the doc unchanged and pins what a pure token-difference achieves — it is
  *  deliberately NOT expanded, since expanding it would destroy what it measures. */
 const AXES = [
+  // Two with prior evidence, kept as anchors so this run is comparable to the
+  // earlier ones.
   { name: "concrete -> abstract", neg: "concrete", pos: "abstract", expand: true },
   { name: "practical -> mystical", neg: "practical", pos: "mystical", expand: true },
+  // The known-mush axis, kept as a NEGATIVE reference. If a candidate cannot
+  // beat this it does not belong on a pill.
   { name: "solemn -> playful", neg: "solemn", pos: "playful", expand: true },
+  // Candidates being auditioned for the compass.
+  { name: "simple -> intricate", neg: "simple", pos: "intricate", expand: true },
+  { name: "ancient -> futuristic", neg: "ancient", pos: "futuristic", expand: true },
+  { name: "intimate -> industrial", neg: "intimate", pos: "industrial", expand: true },
+  { name: "calm -> frantic", neg: "calm", pos: "frantic", expand: true },
+  { name: "natural -> synthetic", neg: "natural", pos: "synthetic", expand: true },
+  // The lexical ceiling. Nothing at or below this is an axis.
   { name: "SURFACE playful -> more playful", neg: "playful", pos: "more playful", expand: false },
 ];
 
@@ -368,6 +382,29 @@ async function main(): Promise<void> {
     const beats = Number.isFinite(c.judgeAUC) && c.judgeAUC > c.nullAUCp95;
     console.log(`  ${c.seed.padEnd(15)} ${c.axis.padEnd(32)}  ${f(c.judgeAUC)}   ${f(c.nullAUCp95)}   ${beats ? "YES" : "no"}`);
   }
+  // ── ranking, which is the point of this run ───────────────────────────────
+  console.log(`\n${"═".repeat(78)}\nAXIS RANKING — mean judgeAUC across ${SEEDS.length} seeds`);
+  const byAxis = new Map<string, number[]>();
+  for (const c of cells) {
+    if (!Number.isFinite(c.judgeAUC)) continue;
+    if (!byAxis.has(c.axis)) byAxis.set(c.axis, []);
+    byAxis.get(c.axis)!.push(c.judgeAUC);
+  }
+  const surfaceMean = avg(byAxis.get("SURFACE playful -> more playful") ?? [NaN]);
+  const ranked = [...byAxis.entries()]
+    .map(([axis, v]) => ({ axis, mean: avg(v), n: v.length, spread: Math.max(...v) - Math.min(...v) }))
+    .sort((a, b) => b.mean - a.mean);
+  console.log(`\n  ${"axis".padEnd(34)} mean   spread  n   vs lexical ceiling`);
+  for (const r of ranked) {
+    const verdict = r.axis.startsWith("SURFACE") ? "— the ceiling itself"
+      : r.mean > surfaceMean + 0.10 ? "RECOMMEND"
+      : r.mean > surfaceMean ? "marginal"
+      : "REJECT — at or below the ceiling";
+    console.log(`  ${r.axis.padEnd(34)} ${f(r.mean)}  ${f(r.spread)}   ${r.n}   ${verdict}`);
+  }
+  console.log(`\n  lexical ceiling (X / more X) = ${f(surfaceMean)}. An axis must clear it by a`);
+  console.log(`  clear margin to earn a pill; "marginal" means the evidence does not separate it.`);
+
   console.log(`\nrequests spent: ${requests}`);
 }
 

@@ -23,8 +23,10 @@ const els = {
   bNeg: document.getElementById('drift-axis-b-neg'),
   bPos: document.getElementById('drift-axis-b-pos'),
   status: document.getElementById('drift-axis-status'),
+  pills: document.getElementById('drift-pills'),
   stage: document.getElementById('drift-stage'),
   card: document.getElementById('drift-card'),
+  deck: document.getElementById('drift-deck'),
   gauges: document.getElementById('drift-gauges'),
   condensate: document.getElementById('drift-condensate'),
   condensateCount: document.getElementById('drift-condensate-count'),
@@ -85,6 +87,74 @@ els.seedForm.addEventListener('submit', async (e) => {
     button.disabled = false;
   }
 });
+
+// ── suggested directions ────────────────────────────────────────────────────
+//
+// MEASURED, not chosen by ear. npm run axis-power scores each pair by LLM-judge
+// AUC over real pooled candidates across three seeds, against the lexical
+// ceiling set by an `X` / `more X` control. Raw output and the full ranking are
+// in docs/measurements/2026-08-23-axis-recommendations.md.
+//
+// Only pairs that clear the ceiling by a clear margin appear here. Notably
+// absent: `solemn <-> playful`, which ranked LAST at 0.597 against a 0.713
+// ceiling and had been this surface's placeholder example everywhere.
+const SUGGESTED_AXES = [
+  { neg: 'natural', pos: 'synthetic', score: 0.880 },
+  { neg: 'calm', pos: 'frantic', score: 0.867 },
+  { neg: 'practical', pos: 'mystical', score: 0.813 },
+  // Marginal at 0.783 in the three-seed run, but it carries the strongest prior
+  // of any pair here — 0.980 on hand-labelled words in the original axis spike,
+  // and top of the two-seed run. Kept on the strength of accumulated evidence
+  // rather than this run alone, which is a judgement and is recorded as one.
+  { neg: 'concrete', pos: 'abstract', score: 0.783 },
+];
+
+function renderPills() {
+  els.pills.textContent = '';
+  for (const pair of SUGGESTED_AXES) {
+    const pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'drift-pill';
+    pill.dataset.neg = pair.neg;
+    pill.dataset.pos = pair.pos;
+    // textContent, never innerHTML — same rule as the card.
+    pill.textContent = `${pair.neg} ↔ ${pair.pos}`;
+    pill.addEventListener('click', () => applyPill(pair));
+    els.pills.appendChild(pill);
+  }
+}
+
+/** Fills the first row that is empty, or the first row if both are full, so a
+ *  second tap replaces rather than doing nothing. Typing over either row is
+ *  always allowed; the pills are a shortcut, not a mode. */
+function applyPill(pair) {
+  const rows = [[els.aNeg, els.aPos], [els.bNeg, els.bPos]];
+  const target = rows.find(([n, p]) => !n.value.trim() && !p.value.trim()) ?? rows[0];
+  target[0].value = pair.neg;
+  target[1].value = pair.pos;
+  markUsedPills();
+  target[1].focus();
+}
+
+/** Dims a pill whose pair is already in play, so the set reads as a palette
+ *  being spent rather than a list of buttons that may or may not have worked. */
+function markUsedPills() {
+  const inUse = new Set([
+    `${els.aNeg.value.trim()}|${els.aPos.value.trim()}`,
+    `${els.bNeg.value.trim()}|${els.bPos.value.trim()}`,
+  ]);
+  for (const pill of els.pills.querySelectorAll('.drift-pill')) {
+    pill.dataset.used = String(inUse.has(`${pill.dataset.neg}|${pill.dataset.pos}`));
+  }
+}
+
+for (const input of ['aNeg', 'aPos', 'bNeg', 'bPos']) {
+  // Typing a custom pair must un-dim whatever pill it replaced.
+  document.addEventListener('DOMContentLoaded', () => {});
+  els[input]?.addEventListener('input', markUsedPills);
+}
+
+renderPills();
 
 // ── axes ────────────────────────────────────────────────────────────────────
 
@@ -418,6 +488,12 @@ let fadeTimer = null;
  *  transition that never ran. Cycle 2. */
 function paintCard(card) {
   const write = () => {
+    // Commit HERE, not at selection. state.current used to be assigned the
+    // instant a card was chosen while the paint landed 300ms later, so a tap
+    // during the fade pinned a word that was not on screen yet, and rapid
+    // swipes consumed candidates that were never displayed. Cycle 3.
+    state.current = card;
+    if (card !== null) state.seen.add(card.text);
     if (card === null) {
       els.card.textContent = '';
       els.card.removeAttribute('data-tier');
@@ -454,10 +530,7 @@ function prefersReducedMotionInstant() {
 }
 
 function advance() {
-  const card = nextCard(state.set.all(), state.position, state.range, state.seen);
-  state.current = card;
-  if (card !== null) state.seen.add(card.text);
-  paintCard(card);
+  paintCard(nextCard(state.set.all(), state.position, state.range, state.seen));
 }
 
 /** A swipe. NO await anywhere in here — pool depth is a correctness
@@ -497,18 +570,53 @@ function maybeTopUp() {
 // ── input ───────────────────────────────────────────────────────────────────
 
 let touchStart = null;
+let gestureActive = false;
 /** Minimum travel before a touch counts as a swipe rather than a tap.
  *  UNMEASURED — 40px is roughly a thumb's incidental drift on a 390px screen,
  *  chosen so a deliberate swipe and a resting tap separate cleanly. Should be
  *  checked against real thumbs; it is a judgement call, not a tuned value. */
 const SWIPE_MIN_PX = 40;
 
-els.card.addEventListener('touchstart', (e) => {
+// THE GESTURE PLANE.
+//
+// Up and down did not work on a phone, and the cause was here: both listeners
+// were { passive: true }. A passive listener CANNOT call preventDefault, so the
+// browser claimed every vertical gesture first — as page scroll near the middle
+// and as pull-to-refresh near the top — and the swipe never reached this code.
+// Horizontal worked only because nothing else wanted it.
+//
+// Three things are needed together, and any one alone is insufficient:
+//   - touch-action: none on the deck, so the browser does not reserve
+//     vertical panning before the first touchmove is even dispatched;
+//   - overscroll-behavior: none on the surface, so a downward drag at the top
+//     is not pull-to-refresh;
+//   - a NON-passive touchmove that preventDefaults, for the browsers that
+//     honour the listener over the CSS.
+els.deck.addEventListener('touchstart', (e) => {
   const t = e.changedTouches[0];
   touchStart = { x: t.clientX, y: t.clientY };
+  gestureActive = true;
 }, { passive: true });
 
-els.card.addEventListener('touchend', (e) => {
+els.deck.addEventListener('touchmove', (e) => {
+  if (!gestureActive || !touchStart) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touchStart.x;
+  const dy = t.clientY - touchStart.y;
+  // Only claim the gesture once it is clearly a drag. Claiming from the first
+  // pixel would swallow taps and make the surface feel sticky.
+  if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+    if (e.cancelable) e.preventDefault();
+    // Follow the thumb. The card tracking the finger is what tells someone this
+    // is a swipe surface before they have read a word of the hint.
+    const damp = 0.35;
+    els.card.style.transform = `translate(${dx * damp}px, ${dy * damp}px)`;
+  }
+}, { passive: false });
+
+els.deck.addEventListener('touchend', (e) => {
+  gestureActive = false;
+  els.card.style.transform = '';
   if (!touchStart) return;
   const t = e.changedTouches[0];
   const dx = t.clientX - touchStart.x;
@@ -517,6 +625,12 @@ els.card.addEventListener('touchend', (e) => {
   if (Math.abs(dx) < SWIPE_MIN_PX && Math.abs(dy) < SWIPE_MIN_PX) return; // a tap; the click handler owns it
   if (Math.abs(dx) >= Math.abs(dy)) onSwipe(0, dx > 0 ? 1 : -1);
   else onSwipe(1, dy > 0 ? 1 : -1);
+}, { passive: false });
+
+els.deck.addEventListener('touchcancel', () => {
+  gestureActive = false;
+  touchStart = null;
+  els.card.style.transform = '';
 }, { passive: true });
 
 // Keyboard parity, so the surface is operable without a pointer (#26's concern,
@@ -542,6 +656,9 @@ export { advance, onSwipe, renderGauges };
  *  field. This is a FOREGROUND user action: unlike a background top-up, its
  *  failure must surface rather than be swallowed. */
 async function pinCurrent() {
+  // Refuse while the card is mid-fade. What gets kept must be what was on
+  // screen when the thumb came down.
+  if (els.card.dataset.leaving === 'true') return;
   const card = state.current;
   if (!card || state.pinned.includes(card.text)) return;
   els.card.dataset.pinned = 'true';

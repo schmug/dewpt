@@ -35,15 +35,20 @@
 
       <form id="drift-axis-form" class="drift-axes" hidden>
         <p class="drift-legend">name two directions to steer by</p>
+        <!-- Suggested pairs, ordered by MEASURED judgeAUC against the lexical
+             ceiling (docs/measurements/2026-08-23-axis-recommendations.md).
+             Tapping one fills the next empty row; both rows stay editable, so
+             custom pairs are a first-class option rather than a fallback. -->
+        <div id="drift-pills" class="drift-pills" role="group" aria-label="suggested directions"></div>
         <div class="drift-axis-row">
-          <input id="drift-axis-a-neg" class="drift-input" type="text" maxlength="32" placeholder="solemn" autocomplete="off" />
+          <input id="drift-axis-a-neg" class="drift-input" type="text" maxlength="32" placeholder="calm" autocomplete="off" />
           <span class="drift-arrow" aria-hidden="true">↔</span>
-          <input id="drift-axis-a-pos" class="drift-input" type="text" maxlength="32" placeholder="playful" autocomplete="off" />
+          <input id="drift-axis-a-pos" class="drift-input" type="text" maxlength="32" placeholder="frantic" autocomplete="off" />
         </div>
         <div class="drift-axis-row">
-          <input id="drift-axis-b-neg" class="drift-input" type="text" maxlength="32" placeholder="concrete" autocomplete="off" />
+          <input id="drift-axis-b-neg" class="drift-input" type="text" maxlength="32" placeholder="natural" autocomplete="off" />
           <span class="drift-arrow" aria-hidden="true">↔</span>
-          <input id="drift-axis-b-pos" class="drift-input" type="text" maxlength="32" placeholder="abstract" autocomplete="off" />
+          <input id="drift-axis-b-pos" class="drift-input" type="text" maxlength="32" placeholder="synthetic" autocomplete="off" />
         </div>
         <button type="submit" class="drift-button">set the compass</button>
         <!-- Expansion output, lint warnings and failures all land here. It is a
@@ -60,8 +65,15 @@
         <span id="drift-condensate-count">0</span>
       </button>
       <div id="drift-condensate-panel" class="drift-condensate-panel" hidden></div>
-      <div id="drift-card" class="drift-card" tabindex="0" role="button"
-           aria-describedby="drift-hint">…</div>
+      <!-- The deck owns the gesture, not the card: the ghosts must not create
+           dead zones where a swipe does nothing. Two ghosts are enough to read
+           as a stack; more just muddies the top card. -->
+      <div id="drift-deck" class="drift-deck">
+        <i class="drift-ghost drift-ghost-2" aria-hidden="true"></i>
+        <i class="drift-ghost drift-ghost-1" aria-hidden="true"></i>
+        <div id="drift-card" class="drift-card" tabindex="0" role="button"
+             aria-describedby="drift-hint">…</div>
+      </div>
       <p id="drift-edge" class="drift-edge" role="status" aria-live="polite" hidden></p>
       <p id="drift-hint" class="drift-hint">swipe to move · tap to keep</p>
     </main>

@@ -34,6 +34,10 @@
   margin: 0;
   min-height: 100dvh;
   overflow-x: hidden;
+  /* No pull-to-refresh and no rubber-banding. A downward drag near the top of
+     the page was being taken by the browser before the swipe handler saw it,
+     which is why up and down did nothing on a phone. */
+  overscroll-behavior: none;
   background: var(--ink);
   color: var(--t0);
   font-family: var(--sans);
@@ -95,6 +99,34 @@
 }
 
 .drift-surface .drift-setup { padding: 24px 20px; display: grid; gap: 22px; }
+/* Suggested pairs. They wrap rather than scroll — a horizontal scroller at
+   390px hides options behind a gesture that competes with the swipe surface
+   below it. */
+.drift-surface .drift-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.drift-surface .drift-pill {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  background: transparent;
+  color: var(--t1);
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: lowercase;
+  cursor: pointer;
+  transition: color 0.3s var(--ease), border-color 0.3s var(--ease), opacity 0.3s var(--ease);
+}
+.drift-surface .drift-pill:hover,
+.drift-surface .drift-pill:focus-visible { color: var(--t0); border-color: var(--pin); }
+.drift-surface .drift-pill[data-used='true'] { opacity: 0.4; color: var(--pin); border-color: var(--pin); }
+
 .drift-surface .drift-legend {
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
   text-transform: uppercase; color: var(--label); margin: 0 0 10px;
@@ -193,7 +225,37 @@
   transition: left 0.3s var(--ease);
 }
 
+/* THE DECK. Two ghosts behind the card so the surface reads as a stack you can
+   throw, rather than a word sitting on a background. They are offset and rotated
+   a little — a perfectly square stack looks like a shadow bug, a slightly loose
+   one looks like paper. */
+.drift-surface .drift-deck {
+  position: relative;
+  align-self: center;
+  justify-self: center;
+  width: min(88vw, 420px);
+  min-height: 40dvh;
+  display: grid;
+  place-items: center;
+  /* The browser must not reserve panning on the gesture plane. Load-bearing for
+     vertical swipes; see the touchmove handler in drift.js. */
+  touch-action: none;
+}
+
+.drift-surface .drift-ghost {
+  position: absolute;
+  inset: 12% 4%;
+  border: 1px solid var(--hair);
+  border-radius: 6px;
+  background: var(--deep);
+  pointer-events: none;
+}
+.drift-surface .drift-ghost-1 { transform: translateY(10px) rotate(-1.1deg); opacity: 0.55; }
+.drift-surface .drift-ghost-2 { transform: translateY(20px) rotate(1.4deg); opacity: 0.3; }
+
 .drift-surface .drift-card {
+  position: relative;
+  z-index: 1;
   align-self: center;
   justify-self: center;
   max-width: 90%;
@@ -214,7 +276,35 @@
   min-width: 44px;
   padding: 12px 8px;
   transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
+  /* DRIFT. The whole surface is named for it, so the resting state should not
+     be perfectly still — the card wanders a few pixels on a long, uneven cycle,
+     the way something suspended in air does. Slow enough that you notice it
+     only if you stop and look, which is the point. Suppressed entirely under
+     prefers-reduced-motion. */
+  animation: drift-wander 19s ease-in-out infinite;
 }
+
+@keyframes drift-wander {
+  0%   { transform: translate(0, 0); }
+  27%  { transform: translate(4px, -6px); }
+  53%  { transform: translate(-3px, 3px); }
+  78%  { transform: translate(5px, 4px); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes drift-wander-slow {
+  0%   { transform: translateY(10px) rotate(-1.1deg); }
+  50%  { transform: translateY(13px) rotate(-1.6deg); }
+  100% { transform: translateY(10px) rotate(-1.1deg); }
+}
+@keyframes drift-wander-slower {
+  0%   { transform: translateY(20px) rotate(1.4deg); }
+  50%  { transform: translateY(24px) rotate(2deg); }
+  100% { transform: translateY(20px) rotate(1.4deg); }
+}
+/* The ghosts drift too, on different periods, so the stack breathes rather than
+   sliding as one rigid block. */
+.drift-surface .drift-ghost-1 { animation: drift-wander-slow 23s ease-in-out infinite; }
+.drift-surface .drift-ghost-2 { animation: drift-wander-slower 31s ease-in-out infinite; }
 /* The strangeness cue. tier already ships on Served, so this costs nothing.
  * SPEC.md holds the ramp as a guardrail: pale slate -> lilac -> warm ember,
  * pinned = gold. */
@@ -223,6 +313,9 @@
 .drift-surface .drift-card[data-tier='2'] { color: var(--t2); }
 .drift-surface .drift-card[data-pinned='true'] { color: var(--pin); }
 .drift-surface .drift-card[data-leaving='true'] { opacity: 0; }
+/* While a thumb is on it the card follows the finger, so the idle wander has to
+   get out of the way or the two transforms fight. */
+.drift-surface .drift-card[style*='translate'] { animation: none; transition: none; }
 
 .drift-surface .drift-condensate {
   position: absolute;
@@ -293,6 +386,10 @@
     transition: opacity 0.3s var(--ease);
     transform: none !important;
   }
+  /* The ghosts keep their offsets — that is layout, and the stack must still
+     read as a stack — but they stop moving. */
+  .drift-surface .drift-ghost-1 { animation: none; transform: translateY(10px) rotate(-1.1deg); }
+  .drift-surface .drift-ghost-2 { animation: none; transform: translateY(20px) rotate(1.4deg); }
   .drift-surface .drift-gauge-mark {
     animation: none;
     transition: none;
