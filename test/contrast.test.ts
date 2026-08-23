@@ -113,6 +113,22 @@ describe("the drift surface meets contrast on every tier", () => {
     expect(contrast(channels(driftToken("--label")), ground)).toBeGreaterThanOrEqual(4.5);
   });
 
+  it("the top card's edge clears the 3:1 component-boundary bar", () => {
+    // WCAG 1.4.11. Before this, card fill, ghost fill and ground sat within
+    // 1.03-1.07:1 of each other — the top of the stack was mathematically
+    // indistinguishable from the paper under it, which is why it did not read
+    // as the thing you touch. A fill cannot reach 3:1 on a ground this dark
+    // without leaving the palette, so the edge carries the definition.
+    expect(contrast(channels(driftToken("--card-edge")), ground)).toBeGreaterThanOrEqual(3);
+  });
+
+  it("the ghosts stay clearly weaker than the card, so the layers cannot be confused", () => {
+    const cardEdge = contrast(channels(driftToken("--card-edge")), ground);
+    const ghostFill = contrast(channels(driftToken("--deep")), ground);
+    expect(cardEdge, "the ghost fill is competing with the card's edge")
+      .toBeGreaterThan(ghostFill * 2);
+  });
+
   it("--faint is never used for text on this surface", () => {
     // It measures 2.69:1 and cannot carry text at any size. It is a decorative
     // token — hairlines and the inert arrow glyph — and the hint line was drawn

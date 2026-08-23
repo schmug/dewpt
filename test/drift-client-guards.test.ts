@@ -197,8 +197,23 @@ describe("the card is thrown, and the card below says where", () => {
     // like the top card was ghost-1 and a swipe appeared to move only the text.
     const block = css.slice(css.indexOf(".drift-surface .drift-card {"));
     const decl = block.slice(0, block.indexOf("}"));
-    expect(decl, "the card has no background").toMatch(/background:\s*var\(--field\)/);
-    expect(decl, "the card has no border").toMatch(/border:\s*1px solid var\(--hair\)/);
+    // Assert the INTENT, not a token name. The first version pinned
+    // var(--field) and broke the moment the palette was retuned, which would
+    // train someone to edit the guard rather than think about it.
+    expect(decl, "the card has no fill of its own").toMatch(/background:\s*var\(--[\w-]+\)/);
+    // The edge is the measured boundary — test/contrast.test.ts holds it to the
+    // 3:1 WCAG 1.4.11 bar — so the card must actually use it.
+    expect(decl, "the card does not use the measured boundary colour")
+      .toMatch(/border:\s*1px solid var\(--card-edge\)/);
+    expect(decl, "the card has no lift off the stack").toMatch(/box-shadow:/);
+  });
+
+  it("the ghosts do not use the card's boundary colour", () => {
+    // If they did, all three layers would read as equals and the top of the
+    // stack would stop being obviously the thing you touch.
+    const g = css.slice(css.indexOf(".drift-surface .drift-ghost {"));
+    expect(g.slice(0, g.indexOf("}")), "a ghost is drawn with the card's edge")
+      .not.toMatch(/var\(--card-edge\)/);
   });
 
   it("the drag transforms the card element itself", () => {
