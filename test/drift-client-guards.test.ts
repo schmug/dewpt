@@ -84,7 +84,17 @@ describe("drift meets the mobile floor", () => {
   it("gives the card itself a hit box", () => {
     // The card is a div[role=button] and was excluded from every audit — source
     // and browser alike — while being the surface's primary control.
-    expect(css, "the card has no min-height").toMatch(/\.drift-card\s*\{[^}]*min-height:\s*(4[4-9]|[5-9]\d|\d{3,})px/s);
+    // A px literal is the wrong assertion: the card is sized in dvh, and
+    // demanding px here is what led to a second min-height being added to the
+    // same rule, where it silently won and collapsed the card to a 44px band.
+    // The REAL check is the browser audit in scripts/ui-smoke.mjs, which
+    // measures rendered targets at >= 44px including [role=button]. This only
+    // pins that a floor is declared at all.
+    const cardRule = css.slice(css.indexOf(".drift-surface .drift-card {"));
+    const decl = cardRule.slice(0, cardRule.indexOf("}"));
+    expect(decl, "the card declares no minimum size").toMatch(/min-height:\s*\S+/);
+    expect((decl.match(/min-height:/g) ?? []).length,
+           "two min-height declarations in one rule — the later one wins silently").toBe(1);
   });
 
   it("declares no tap target under 44px", () => {
