@@ -642,6 +642,10 @@ els.deck.addEventListener('touchmove', (e) => {
   const dy = t.clientY - touchStart.y;
   // Only claim the gesture once it is clearly a drag. Claiming from the first
   // pixel would swallow taps and make the surface feel sticky.
+  // 8px is enough to claim the gesture from the browser, but not enough to have
+  // opened any room. The bearing waits for real travel so it never appears
+  // under the card it is meant to sit beside.
+  const BEARING_MIN_PX = 34;
   if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
     if (e.cancelable) e.preventDefault();
     // Follow the thumb. The whole CARD moves, not the word on it — it carries
@@ -651,7 +655,8 @@ els.deck.addEventListener('touchmove', (e) => {
     const damp = 0.55;
     const tilt = Math.max(-7, Math.min(7, dx * 0.03));
     els.card.style.transform = `translate(${dx * damp}px, ${dy * damp}px) rotate(${tilt}deg)`;
-    showBearing(dx, dy);
+    if (Math.abs(dx) > BEARING_MIN_PX || Math.abs(dy) > BEARING_MIN_PX) showBearing(dx, dy);
+    else clearBearing();
   }
 }, { passive: false });
 
@@ -664,9 +669,12 @@ function showBearing(dx, dy) {
   const axisIdx = horizontal ? 0 : 1;
   const axis = state.axes[axisIdx];
   const forward = horizontal ? dx > 0 : dy > 0;
-  // Place it on the destination edge. Centred, it sat behind the card's word
-  // and the two overlapped at any drag short of a full throw.
-  els.bearing.dataset.side = horizontal ? (forward ? 'right' : 'left') : (forward ? 'down' : 'up');
+  // Placed in the space the card VACATES, which is the side it came from — not
+  // the destination edge. Putting it on the destination put it exactly where
+  // the card was travelling, so the card chased it and they still overlapped.
+  // The arrow carries the direction; the placement only has to be somewhere the
+  // card is not. Pushing right reveals it on the left, and so on.
+  els.bearing.dataset.side = horizontal ? (forward ? 'left' : 'right') : (forward ? 'up' : 'down');
   if (!axis) {
     // One axis named, or the second failed. Say so rather than implying a
     // direction that does not exist.
