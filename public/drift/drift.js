@@ -241,9 +241,12 @@ async function enterStage() {
       // SAY WHICH FAILURE THIS IS. A generic "reload to try again" left the
       // user unable to tell a busy generator from a broken one, and left me
       // unable to tell either from a smoke log. Cycle 2.
-      const diagnosis = failed.length > 0
-        ? `${failed.length} of 6 requests failed — the field may be unreachable.`
-        : 'the field is still generating and has produced nothing yet.';
+      const throttled = state.set.throttledFor();
+      const diagnosis = throttled > 0
+        ? `the field is rate-limiting this client for another ${Math.ceil(throttled / 1000)}s.`
+        : failed.length > 0
+          ? `${failed.length} of 6 requests failed — the field may be unreachable.`
+          : 'the field is still generating and has produced nothing yet.';
       say(`nothing condensed after ${Math.round(PRIME_TIMEOUT_MS / 1000)}s. ${diagnosis} reload to try again.`, 'warn');
       console.error('drift prime gave up', { attempts, failed, empty, elapsedMs: PRIME_TIMEOUT_MS });
       els.axisForm.querySelector('button').disabled = false;
@@ -281,6 +284,12 @@ let fillTimer = null;
 function backgroundFill(attempt = 0) {
   clearTimeout(fillTimer);
   if (attempt >= 6) return;
+  // Wait out a throttle rather than counting it as a retry attempt.
+  const throttled = state.set.throttledFor();
+  if (throttled > 0) {
+    fillTimer = setTimeout(() => backgroundFill(attempt), throttled + 500);
+    return;
+  }
   fillTimer = setTimeout(() => {
     state.set.topUp()
       .then(() => {

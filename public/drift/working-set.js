@@ -85,10 +85,22 @@ export function createWorkingSet(sessionId, opts = {}) {
     };
   }
 
+  let throttledUntil = 0;
+
   async function drawBucket(bucket) {
     // No try/catch swallow at the call site: a bucket that fails is a bucket
     // that contributed nothing, and prime()/topUp() proceed with what arrived.
     const res = await doFetch(`/api/session/${sessionId}/pool?bucket=${bucket}&count=${DRAW_COUNT}`);
+    if (res.status === 429) {
+      // The field's own abuse control, not a fault. Honour Retry-After when it
+      // is offered, and record that we are throttled so callers can say "busy"
+      // instead of logging an error per bucket per attempt. A client that keeps
+      // hammering through a 429 is the behaviour the limiter exists to stop.
+      const after = Number(res.headers?.get?.('retry-after'));
+      const waitMs = Number.isFinite(after) && after > 0 ? after * 1000 : 15_000;
+      throttledUntil = Math.max(throttledUntil, Date.now() + waitMs);
+      return null;
+    }
     if (!res.ok) return null;
     const body = await res.json();
     return { condensed: body.condensed ?? [], axisIds: body.axisIds ?? [] };
@@ -140,6 +152,9 @@ export function createWorkingSet(sessionId, opts = {}) {
   /** Serialized: draws are destructive, so two concurrent passes drain the DO
    *  faster than its pump refills. */
   function once() {
+    // Refuse to draw at all while throttled. Six buckets x every retry is
+    // exactly how a rate limit turns into a console full of 429s.
+    if (Date.now() < throttledUntil) return Promise.resolve();
     if (inflight) return inflight;
     inflight = draw().finally(() => { inflight = null; });
     return inflight;
@@ -156,6 +171,8 @@ export function createWorkingSet(sessionId, opts = {}) {
     /** Buckets that answered 200 with nothing in them — generation has not
      *  caught up there yet. */
     emptyBuckets: () => [...lastEmptyBuckets],
+    /** Milliseconds until the field will accept draws again, or 0. */
+    throttledFor: () => Math.max(0, throttledUntil - Date.now()),
     onFlush(cb) { flushHandlers.push(cb); },
   };
 }

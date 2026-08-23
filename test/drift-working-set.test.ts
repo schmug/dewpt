@@ -9,6 +9,9 @@ interface WorkingSet {
   all(): Item[];
   topUp(): Promise<void>;
   axisIds(): string[];
+  failedBuckets(): string[];
+  emptyBuckets(): string[];
+  throttledFor(): number;
   onFlush(cb: () => void): void;
   size(): number;
 }
@@ -141,5 +144,48 @@ describe("topUp", () => {
     const set = ws.createWorkingSet("s1", { fetchImpl });
     await set.prime();
     for (const item of set.all()) expect(Object.keys(item)).not.toContain("embedding");
+  });
+});
+
+describe("429 is a state, not an error (critic cycle 2 follow-up)", () => {
+  function throttlingFetch(status: number, retryAfter?: string) {
+    return vi.fn(async () => ({
+      ok: status < 400, status,
+      headers: { get: (k: string) => (k.toLowerCase() === "retry-after" ? (retryAfter ?? null) : null) },
+      json: async () => ({}),
+    })) as unknown as typeof fetch;
+  }
+
+  it("stops drawing entirely while throttled", async () => {
+    // Six buckets x every retry is exactly how a rate limit becomes a console
+    // full of 429s. Once throttled, the client must go quiet.
+    const fetchImpl = throttlingFetch(429, "30");
+    const set = ws.createWorkingSet("s1", { fetchImpl });
+    await set.prime();
+    const callsAfterFirst = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    expect(callsAfterFirst).toBe(ws.BUCKETS.length);
+    await set.topUp();
+    expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.length,
+           "kept drawing through a 429").toBe(callsAfterFirst);
+  });
+
+  it("honours Retry-After when the server offers one", async () => {
+    const set = ws.createWorkingSet("s1", { fetchImpl: throttlingFetch(429, "30") });
+    await set.prime();
+    expect(set.throttledFor()).toBeGreaterThan(20_000);
+    expect(set.throttledFor()).toBeLessThanOrEqual(30_000);
+  });
+
+  it("falls back to a default wait when Retry-After is absent", async () => {
+    const set = ws.createWorkingSet("s1", { fetchImpl: throttlingFetch(429) });
+    await set.prime();
+    expect(set.throttledFor()).toBeGreaterThan(0);
+  });
+
+  it("does not report throttling for an ordinary failure", async () => {
+    const set = ws.createWorkingSet("s1", { fetchImpl: throttlingFetch(500) });
+    await set.prime();
+    expect(set.throttledFor()).toBe(0);
+    expect(set.failedBuckets().length).toBe(ws.BUCKETS.length);
   });
 });

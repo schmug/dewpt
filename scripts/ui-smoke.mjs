@@ -224,8 +224,10 @@ try {
     // is nothing here rather than teleport to the nearest thing anywhere in the
     // pool. This is cycle 1's mechanic blocker, pinned in the browser.
     await page.locator("#drift-card").focus();
-    for (let i = 0; i < 14; i++) { await page.keyboard.press("ArrowLeft"); await page.waitForTimeout(90); }
-    for (let i = 0; i < 14; i++) { await page.keyboard.press("ArrowUp"); await page.waitForTimeout(90); }
+    // Paced. A 90ms cadence over 28 swipes triggers the field's own rate limiter,
+    // and a harness that trips abuse control is testing the limiter, not the app.
+    for (let i = 0; i < 14; i++) { await page.keyboard.press("ArrowLeft"); await page.waitForTimeout(220); }
+    for (let i = 0; i < 14; i++) { await page.keyboard.press("ArrowUp"); await page.waitForTimeout(220); }
     await page.waitForTimeout(800);
     const st = await page.evaluate(() => ({
       edgeShown: !document.querySelector("#drift-edge").hidden,
@@ -234,10 +236,22 @@ try {
     check("a corner either shows a card or declares the edge — never blank silence",
           st.edgeShown || st.card.length > 0, JSON.stringify(st));
     await page.screenshot({ path: `${OUT}/07-edge.png`, fullPage: true });
-    // Walk back so the pin check below has a card.
-    for (let i = 0; i < 7; i++) { await page.keyboard.press("ArrowRight"); await page.waitForTimeout(90); }
-    for (let i = 0; i < 7; i++) { await page.keyboard.press("ArrowDown"); await page.waitForTimeout(90); }
-    await page.waitForTimeout(700);
+    // Walk ALL the way back. Stepping back only half the distance left the tap
+    // below landing in empty space, so a passing pin check depended on where the
+    // walk happened to stop. Position clamps, so overshooting is safe.
+    for (let i = 0; i < 16; i++) { await page.keyboard.press("ArrowRight"); await page.waitForTimeout(200); }
+    for (let i = 0; i < 16; i++) { await page.keyboard.press("ArrowDown"); await page.waitForTimeout(200); }
+    for (let i = 0; i < 8; i++) { await page.keyboard.press("ArrowLeft"); await page.waitForTimeout(200); }
+    for (let i = 0; i < 8; i++) { await page.keyboard.press("ArrowUp"); await page.waitForTimeout(200); }
+    await page.waitForTimeout(1200);
+    // The pin check is about pinning, not about finding a card. Assert the
+    // precondition explicitly so a failure says which of the two broke.
+    await page.waitForFunction(() => {
+      const t = document.querySelector("#drift-card")?.textContent ?? "";
+      return t.trim().length > 0;
+    }, { timeout: 30000 }).catch(() => {});
+    check("walked back to a populated position before the pin check",
+          ((await page.locator("#drift-card").textContent()) ?? "").trim().length > 0);
   }
 
   console.log("\n## tap to keep");
@@ -276,7 +290,7 @@ try {
   // nothing about how a card behaves under reduced motion. Critic cycle 1.
   await rmPage.fill("#drift-seed-input", "smoketest-reduced motion");
   await rmPage.click("#drift-seed-form button[type=submit]");
-  await rmPage.waitForSelector("#drift-axis-form:not([hidden])", { timeout: 60000 });
+  await rmPage.waitForSelector("#drift-axis-form:not([hidden])", { timeout: 120000 });
   await rmPage.fill("#drift-axis-a-neg", "solemn");
   await rmPage.fill("#drift-axis-a-pos", "playful");
   await rmPage.fill("#drift-axis-b-neg", "concrete");
@@ -305,7 +319,15 @@ try {
   console.log("\n## console");
   // Off-origin aborts are this harness's doing, not the product's — filter them
   // out or the font block would read as an application error every run.
-  const realErrors = consoleErrors.filter((e) => !/fonts\.(googleapis|gstatic)\.com|ERR_FAILED|net::ERR_ABORTED/.test(e));
+  // A 429 is the field's abuse control working correctly. The surface must not
+  // LOG it as an error, and this run must not FAIL on it — but it is reported
+  // separately so a throttled run is never mistaken for a clean one.
+  const throttles = consoleErrors.filter((e) => /429|Too Many Requests/.test(e));
+  const realErrors = consoleErrors.filter((e) =>
+    !/fonts\.(googleapis|gstatic)\.com|ERR_FAILED|net::ERR_ABORTED|429|Too Many Requests/.test(e));
+  if (throttles.length > 0) {
+    console.log(`  (NOTE: ${throttles.length} rate-limit responses — this run was throttled by the field)`);
+  }
   check("no console errors during the whole run", realErrors.length === 0,
         realErrors.slice(0, 3).join(" | "));
   if (consoleErrors.length !== realErrors.length) {
