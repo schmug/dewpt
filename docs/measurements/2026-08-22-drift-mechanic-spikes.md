@@ -194,8 +194,12 @@ requests spent: 21
 
 ### What it decided
 
-- **Seed retention — decisive.** `tetherSeed` 0.456–0.642 at every position on
-  both seeds, and every card at every position is still visibly about the seed.
+- **Seed retention — decisive.** `tetherSeed` 0.456–0.642 on both seeds.
+  **CORRECTION (2026-08-23):** this originally read "at every position", which
+  the harness never measured — it sampled three stops of two separate 1D
+  sweeps. The real loop was measured afterwards in
+  [2026-08-23-production-parity-and-retention.md](2026-08-23-production-parity-and-retention.md);
+  the conclusion holds, the original phrasing overstated the evidence, and every card at every position is still visibly about the seed.
   Against run 1's identical-looking 0.407–0.532 while semantically gone, this is
   the head-to-head that picks the mechanic.
 - **Turnover — the gesture does real work.** A sweep surfaced 38–51 of ~141

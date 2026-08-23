@@ -183,7 +183,20 @@ els.axisForm.addEventListener('submit', async (e) => {
     button.disabled = false;
     return;
   }
-  state.axes = created;
+  // A ready:false axis produces no coordinate, so pool rows come back with fewer
+  // coords than axes and every candidate ranks as unreachable — the surface goes
+  // silently empty rather than degrading to one axis. Cycle 2.
+  const usable = created.filter((a) => a.ready !== false);
+  if (usable.length < created.length) {
+    axisNotes.push({ axisId: null, degraded: false, message: 'one axis is not ready yet and has been left out.' });
+    say(axisNotes.map((n) => n.message).join('  '), 'warn');
+  }
+  if (usable.length === 0) {
+    say('no axis is ready — try different words.', 'warn');
+    button.disabled = false;
+    return;
+  }
+  state.axes = usable;
   await enterStage();
 });
 
@@ -197,6 +210,8 @@ els.axisForm.addEventListener('submit', async (e) => {
  *  this waits generously and then says something the user can act on.
  *  UNMEASURED as a threshold; it is a patience budget, not a tuned constant. */
 const PRIME_TIMEOUT_MS = 75_000;
+/** Gap between prime attempts. UNMEASURED — chosen to be slower than a render
+ *  frame and faster than a user gives up, which is a judgement, not a finding. */
 const PRIME_RETRY_MS = 2_500;
 
 async function enterStage() {
@@ -209,22 +224,35 @@ async function enterStage() {
   // whether — the DO's pump is already running by the time the first draw
   // returns empty.
   const deadline = Date.now() + PRIME_TIMEOUT_MS;
+  let wait = PRIME_RETRY_MS;
+  let attempts = 0;
   while (true) {
     await state.set.prime();
+    attempts++;
+    const failed = state.set.failedBuckets();
+    const empty = state.set.emptyBuckets();
     if (state.set.size() > 0) {
-      // Some buckets may still have errored. Keep filling them in the
-      // background rather than running the whole session on a partial pool.
-      if (state.set.failedBuckets().length > 0) {
-        state.set.topUp().catch((err) => console.error('drift background refill failed', err));
-      }
+      // A partial pool is not a finished one. Keep filling both the buckets
+      // that errored and the ones that answered empty, in the background.
+      if (failed.length > 0 || empty.length > 0) backgroundFill();
       break;
     }
     if (Date.now() >= deadline) {
-      say('still nothing condensing. the field may be busy — reload to try again.', 'warn');
+      // SAY WHICH FAILURE THIS IS. A generic "reload to try again" left the
+      // user unable to tell a busy generator from a broken one, and left me
+      // unable to tell either from a smoke log. Cycle 2.
+      const diagnosis = failed.length > 0
+        ? `${failed.length} of 6 requests failed — the field may be unreachable.`
+        : 'the field is still generating and has produced nothing yet.';
+      say(`nothing condensed after ${Math.round(PRIME_TIMEOUT_MS / 1000)}s. ${diagnosis} reload to try again.`, 'warn');
+      console.error('drift prime gave up', { attempts, failed, empty, elapsedMs: PRIME_TIMEOUT_MS });
       els.axisForm.querySelector('button').disabled = false;
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, PRIME_RETRY_MS));
+    // Bounded exponential backoff rather than a fixed interval: a busy DO is
+    // not helped by being asked six more times a second.
+    await new Promise((resolve) => setTimeout(resolve, wait));
+    wait = Math.min(wait * 1.5, 10_000);
   }
   state.range = freezeRange(state.set.all(), state.axes.length);
   state.position = initialPosition(state.range);
@@ -239,11 +267,35 @@ async function enterStage() {
   els.setup.hidden = true;
   els.stage.hidden = false;
   renderGauges();
+  paintCondensate();
   advance();
 }
 
 // renderGauges, advance, onSwipe and the condensate handlers are Task 6 and 7.
 export { enterStage };
+
+/** Keeps refilling buckets that errored or came back empty, with backoff, until
+ *  they are all contributing or the attempts run out. A single immediate top-up
+ *  left the session running on whatever the first pass happened to get. */
+let fillTimer = null;
+function backgroundFill(attempt = 0) {
+  clearTimeout(fillTimer);
+  if (attempt >= 6) return;
+  fillTimer = setTimeout(() => {
+    state.set.topUp()
+      .then(() => {
+        if (state.range) state.range = widenRange(state.range, state.set.all());
+        paintGauges();
+        if (state.current === null) advance();
+        const outstanding = state.set.failedBuckets().length + state.set.emptyBuckets().length;
+        if (outstanding > 0) backgroundFill(attempt + 1);
+      })
+      .catch((err) => {
+        console.error('drift background refill failed', err);
+        backgroundFill(attempt + 1);
+      });
+  }, Math.min(2_000 * 2 ** attempt, 20_000));
+}
 
 // ── resume ──────────────────────────────────────────────────────────────────
 
@@ -264,6 +316,15 @@ async function resumeFromHash() {
     const ready = (Array.isArray(axes) ? axes : axes?.axes ?? []).filter((a) => a.ready !== false);
     if (ready.length === 0) return false;
     state.axes = ready.slice(0, 2);
+    // Anchors live server-side and come back on GET /api/session/:id. Resuming
+    // without them reset the condensate to zero while a comment claimed pins
+    // survive a reload — the claim was false. Cycle 2.
+    try {
+      const info = await fetch(`/api/session/${id}`).then((r) => (r.ok ? r.json() : null));
+      if (info && Array.isArray(info.anchors)) state.pinned = info.anchors.map((a) => a.text);
+    } catch (err) {
+      console.error('drift could not restore pins', err);
+    }
     state.set = createWorkingSet(id);
     state.set.onFlush(() => {
       state.range = null;
@@ -336,22 +397,58 @@ function paintGauges() {
 
 /** Show the nearest unseen candidate, or the edge. Synchronous by contract —
  *  never awaits, because a swipe must resolve from the resident set. */
+/** Must match the opacity transition in styles.css. Declared here rather than
+ *  read from computed style so the swap cannot silently outrun the fade. */
+const FADE_MS = 300;
+let fadeTimer = null;
+
+/** The actual crossfade. styles.css has always DECLARED an opacity transition,
+ *  but the old advance() replaced textContent outright and never toggled
+ *  anything, so nothing ever animated — and both the source guard and the
+ *  browser check inspected computed declarations, so both passed on a
+ *  transition that never ran. Cycle 2. */
+function paintCard(card) {
+  const write = () => {
+    if (card === null) {
+      els.card.textContent = '';
+      els.card.removeAttribute('data-tier');
+      els.edge.hidden = false;
+      // Say WHICH way is empty, not just that something is.
+      els.edge.textContent = 'nothing tethered out this far — swipe back';
+    } else {
+      els.edge.hidden = true;
+      els.card.textContent = card.text;
+      els.card.dataset.tier = String(card.tier);
+      els.card.dataset.pinned = String(state.pinned.includes(card.text));
+    }
+    delete els.card.dataset.leaving;
+  };
+
+  // Nothing on screen yet, or no motion wanted: swap straight away.
+  if (!els.card.textContent || prefersReducedMotionInstant()) { write(); return; }
+
+  els.card.dataset.leaving = 'true';
+  clearTimeout(fadeTimer);
+  // Scheduled, never awaited — onSwipe stays synchronous and the card never
+  // waits on anything.
+  fadeTimer = setTimeout(write, FADE_MS);
+}
+
+/** Reduced motion still CROSSFADES — opacity keeps transitioning, transform
+ *  does not move. This returns true only if the user has asked for no motion
+ *  AND the browser reports no transition at all, which is the belt-and-braces
+ *  case where waiting for a fade would hang the swap forever. */
+function prefersReducedMotionInstant() {
+  if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return false;
+  const dur = getComputedStyle(els.card).transitionDuration;
+  return !dur || /^0s(,\s*0s)*$/.test(dur);
+}
+
 function advance() {
   const card = nextCard(state.set.all(), state.position, state.range, state.seen);
   state.current = card;
-  if (card === null) {
-    // Not an error and not a game over: the tails of a projected blob are thin,
-    // so out here there is nothing left that is still tethered to the seed.
-    els.card.textContent = '';
-    els.edge.hidden = false;
-    els.edge.textContent = 'nothing out here yet';
-    return;
-  }
-  els.edge.hidden = true;
-  els.card.textContent = card.text;
-  els.card.dataset.tier = String(card.tier);
-  els.card.dataset.pinned = String(state.pinned.includes(card.text));
-  state.seen.add(card.text);
+  if (card !== null) state.seen.add(card.text);
+  paintCard(card);
 }
 
 /** A swipe. NO await anywhere in here — pool depth is a correctness

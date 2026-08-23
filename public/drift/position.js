@@ -36,6 +36,24 @@ export const SUPPLY_FLOOR = 8;
  *  and it should be checked against a real session. */
 export const MAX_REACH = 3 * STEP;
 
+/** Minimum cosine to the seed for a card to be shown at all. Expressed against
+ *  `Served.seedDist`, which PoolCore computes as `1 - cosine(seed, candidate)`,
+ *  so the test is `seedDist <= 1 - SEED_TETHER_MIN`.
+ *
+ *  MEASURED, and the number is not arbitrary. dewpt's `bge-m3` anisotropy is
+ *  0.414 — the mean cosine between two UNRELATED phrases
+ *  (docs/measurements/2026-08-22-drift-mechanic-spikes.md). A candidate whose
+ *  cosine to the seed sits below that is, by the space's own yardstick, no more
+ *  related to the seed than a random phrase would be. Showing it breaks the one
+ *  claim that chose projection over translation.
+ *
+ *  Walking the shipped 2D loop over two seeds surfaced 277 cards with tether
+ *  min 0.377, p01 0.398, p05 0.436, p50 0.545 — so this excludes a small tail
+ *  (`larder time capsules` 0.377, `can opener` 0.392) and nothing else. It is a
+ *  floor under a property the pool mostly has for free, not a curation filter.
+ *  Reproduce with `npm run axis-projection`. */
+export const SEED_TETHER_MIN = 0.414;
+
 function usable(v) {
   return typeof v === 'number' && Number.isFinite(v);
 }
@@ -142,6 +160,10 @@ export function nextCard(candidates, position, range, seen, maxReach = MAX_REACH
     // LOCAL, not global. A candidate outside the reach is not "here", and
     // showing it would misreport where you are standing.
     if (d > maxReach) continue;
+    // TETHERED. Ranking by axis distance alone let a weakly related candidate
+    // win at an extreme, where the pool is thin and the competition is poor —
+    // retention held only statistically, never as an invariant. Now it is one.
+    if (!isTethered(c)) continue;
     if (d < bestD || (d === bestD && best !== null && c.arrivedAt > best.arrivedAt)) {
       best = c;
       bestD = d;
@@ -154,10 +176,29 @@ export function nextCard(candidates, position, range, seen, maxReach = MAX_REACH
  *  LOCAL on purpose: a set of 180 can be plentiful overall and empty exactly
  *  where you stand, and a global count would let you walk into a hole while the
  *  client believes it is well stocked. */
+/** True when a candidate is close enough to the seed to be worth showing.
+ *  A missing or non-finite seedDist fails closed: an unscored candidate cannot
+ *  demonstrate it is tethered. */
+export function isTethered(candidate, minCosine = SEED_TETHER_MIN) {
+  const d = candidate.seedDist;
+  if (typeof d !== 'number' || !Number.isFinite(d)) return false;
+  // Compared in seedDist space, which is how the value is STORED, rather than
+  // converting back to cosine first. `1 - d >= minCosine` round-trips through a
+  // subtraction the server already did, and the two do not always land on the
+  // same float: a candidate sitting exactly on the floor was rejected. Inclusive
+  // at the threshold, and pinned as such by test/drift-position.test.ts.
+  return d <= 1 - minCosine;
+}
+
+/** Counts only candidates that could ACTUALLY be shown. Counting untethered
+ *  ones would let supply look healthy while every draw was rejected at
+ *  ranking — the same disagreement between supply and card that cycle 1's
+ *  blocker was about, reintroduced from the other side. */
 export function localSupply(candidates, position, range, seen, radius) {
   let n = 0;
   for (const c of candidates) {
     if (seen.has(c.text)) continue;
+    if (!isTethered(c)) continue;
     if (distanceTo(c, position, range) <= radius) n++;
   }
   return n;

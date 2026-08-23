@@ -12,7 +12,7 @@
  * Exits 2 when no JSON verdict could be extracted.
  */
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -112,9 +112,38 @@ for (const [path, name] of CAPTURE_PATHS) {
 }
 writeFileSync(join(cap, "timings.json"), JSON.stringify(timings, null, 2));
 
+// CLEAR the screenshot directory before capture. Without this, a run that dies
+// before writing an image bundles the PREVIOUS run's file as current evidence —
+// the harness lying to the critic, which is the one thing it must never do.
+// Caught by the critic itself in cycle 2, on its own bundle.
+for (const dir of COPY_DIRS) rmSync(dir, { recursive: true, force: true });
+
+// Evidence steps record their EXIT CODE. A suite that exits non-zero while its
+// output scrolls past unremarked is a failing gate presented as evidence; cycle
+// 2 found both smoke suites exiting non-zero with nothing in the bundle saying
+// so.
+const evidenceStatus = [];
 for (const step of EVIDENCE) {
-  writeFileSync(join(cap, step.file), tryRun(step.cmd, step.args, 600_000));
+  let code = 0;
+  let out = "";
+  try {
+    out = execFileSync(step.cmd, step.args, { encoding: "utf8", timeout: 900_000, maxBuffer: 16 * 1024 * 1024 });
+  } catch (err) {
+    out = `${err.stdout ?? ""}\n${err.stderr ?? ""}`;
+    code = typeof err.status === "number" ? err.status : 1;
+  }
+  evidenceStatus.push({ file: step.file, exitCode: code });
+  writeFileSync(join(cap, step.file), `# exit code: ${code}\n\n${out}`);
 }
+writeFileSync(
+  join(cap, "evidence-status.txt"),
+  [
+    "Exit code of every verification rung. A NON-ZERO CODE MEANS THAT GATE FAILED",
+    "on this exact revision, regardless of how much of its output looks healthy.",
+    "",
+    ...evidenceStatus.map((e) => `${e.exitCode === 0 ? "PASS" : "FAIL"}  exit=${e.exitCode}  ${e.file}`),
+  ].join("\n"),
+);
 for (const dir of COPY_DIRS) {
   try {
     cpSync(dir, join(cap, dir.split("/").pop()), { recursive: true });
