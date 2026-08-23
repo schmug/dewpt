@@ -59,11 +59,17 @@
     </section>
 
     <main id="drift-stage" class="drift-stage" hidden>
-      <div id="drift-gauges" class="drift-gauges"></div>
-      <button id="drift-condensate" class="drift-condensate" type="button" aria-expanded="false">
-        <span class="drift-vh">condensate</span>
-        <span id="drift-condensate-count">0</span>
-      </button>
+      <!-- Gauges and chip are FLEX SIBLINGS, not an absolutely positioned chip
+           over the gauges. The chip has now collided with the positive pole's
+           label twice, each time because a hardcoded reservation was sized for
+           the chip as it looked that week. Siblings cannot overlap. -->
+      <div class="drift-stage-head">
+        <div id="drift-gauges" class="drift-gauges"></div>
+        <button id="drift-condensate" class="drift-condensate" type="button" aria-expanded="false">
+          <span class="drift-vh">condensate</span>
+          <span id="drift-condensate-count">0</span>
+        </button>
+      </div>
       <div id="drift-condensate-panel" class="drift-condensate-panel" hidden></div>
       <!-- The deck owns the gesture, not the card: the ghosts must not create
            dead zones where a swipe does nothing. Two ghosts are enough to read

@@ -31,8 +31,10 @@ const MARKUP = `
     </form>
   </section>
   <main id="drift-stage" hidden>
-    <div id="drift-gauges"></div>
-    <button id="drift-condensate" aria-expanded="false"><span id="drift-condensate-count">0</span></button>
+    <div class="drift-stage-head">
+      <div id="drift-gauges"></div>
+      <button id="drift-condensate" aria-expanded="false"><span id="drift-condensate-count">0</span></button>
+    </div>
     <div id="drift-condensate-panel" hidden></div>
     <div id="drift-deck">
       <i class="drift-ghost drift-ghost-2"></i>

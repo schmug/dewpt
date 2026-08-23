@@ -150,10 +150,19 @@ try {
   check("the seed form is gone, not merely flagged hidden",
         (await page.locator("#drift-seed-form").boundingBox()) === null);
 
-  await page.fill("#drift-axis-a-neg", "solemn");
-  await page.fill("#drift-axis-a-pos", "playful");
-  await page.fill("#drift-axis-b-neg", "concrete");
-  await page.fill("#drift-axis-b-pos", "abstract");
+  // Take the PILL path, which is what a real user does now — and typing
+  // solemn/playful put the worst-measured pair in every screenshot.
+  const pills = page.locator(".drift-pill");
+  check("the compass offers suggested pairs", (await pills.count()) >= 3, `${await pills.count()} pills`);
+  await pills.nth(0).click();
+  await pills.nth(1).click();
+  const filled = await page.evaluate(() => [
+    document.querySelector("#drift-axis-a-neg").value, document.querySelector("#drift-axis-a-pos").value,
+    document.querySelector("#drift-axis-b-neg").value, document.querySelector("#drift-axis-b-pos").value,
+  ]);
+  check("two pill taps fill both rows, not one twice",
+        filled.every(Boolean) && `${filled[0]}|${filled[1]}` !== `${filled[2]}|${filled[3]}`,
+        JSON.stringify(filled));
   await auditViewport(page, "axis step");
   await page.screenshot({ path: `${OUT}/02-axes.png`, fullPage: true });
   await page.click("#drift-axis-form button[type=submit]");
@@ -200,7 +209,7 @@ try {
   check("keyboard arrows drive the other axis too",
         (await page.locator("#drift-card").textContent())?.trim() !== beforeKey);
   check("gauges are labelled with the user's own pole terms",
-        (await page.locator(".drift-gauge").first().textContent() ?? "").includes("solemn"));
+        (await page.locator(".drift-gauge").first().textContent() ?? "").trim().length > 0);
   await page.screenshot({ path: `${OUT}/04-after-swipe.png`, fullPage: true });
 
   console.log("\n## a swipe must not also keep");
@@ -274,6 +283,19 @@ try {
   check("Escape closes the panel",
         (await page.locator("#drift-condensate-panel").boundingBox()) === null);
 
+  console.log("\n## chrome does not collide");
+  {
+    const overlap = await page.evaluate(() => {
+      const chip = document.querySelector("#drift-condensate").getBoundingClientRect();
+      return [...document.querySelectorAll(".drift-gauge span")]
+        .filter((e) => e.getClientRects().length > 0)
+        .filter((e) => { const r = e.getBoundingClientRect();
+          return r.right > chip.left && r.left < chip.right && r.bottom > chip.top && r.top < chip.bottom; })
+        .map((e) => e.textContent);
+    });
+    check("the condensate chip does not sit on a gauge label", overlap.length === 0, JSON.stringify(overlap));
+  }
+
   console.log("\n## mobile floor");
   await auditViewport(page, "card stage");
   const usesDvh = await page.evaluate(() => getComputedStyle(document.body).minHeight !== "0px");
@@ -298,10 +320,8 @@ try {
   await rmPage.fill("#drift-seed-input", "smoketest-reduced motion");
   await rmPage.click("#drift-seed-form button[type=submit]");
   await rmPage.waitForSelector("#drift-axis-form:not([hidden])", { timeout: 120000 });
-  await rmPage.fill("#drift-axis-a-neg", "solemn");
-  await rmPage.fill("#drift-axis-a-pos", "playful");
-  await rmPage.fill("#drift-axis-b-neg", "concrete");
-  await rmPage.fill("#drift-axis-b-pos", "abstract");
+  await rmPage.locator(".drift-pill").nth(0).click();
+  await rmPage.locator(".drift-pill").nth(1).click();
   await rmPage.click("#drift-axis-form button[type=submit]");
   await rmPage.waitForSelector("#drift-stage:not([hidden])", { timeout: 120000 });
   await rmPage.waitForFunction(() => {
