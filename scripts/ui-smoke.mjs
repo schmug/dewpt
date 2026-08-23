@@ -203,6 +203,21 @@ try {
   check("the card itself moves with the thumb", midDrag.cardMoved, JSON.stringify(midDrag));
   check("the card below names the direction", midDrag.bearingShown && midDrag.bearing.length > 0,
         JSON.stringify(midDrag));
+  // Same class of check as the chip-versus-gauge collision: a label that reads
+  // correctly in the DOM and sits on top of another one is still broken.
+  const collide = await page.evaluate(() => {
+    const b = document.querySelector("#drift-bearing").getBoundingClientRect();
+    const c = document.querySelector("#drift-card").getBoundingClientRect();
+    // Compare the bearing against the card's TEXT box, not the card element,
+    // which spans the deck by design.
+    const r = document.createRange();
+    r.selectNodeContents(document.querySelector("#drift-card"));
+    const t = r.getBoundingClientRect();
+    return { overlapsText: b.right > t.left && b.left < t.right && b.bottom > t.top && b.top < t.bottom,
+             side: document.querySelector("#drift-bearing").dataset.side, card: c.width };
+  });
+  check("the bearing does not sit on top of the card's word",
+        !collide.overlapsText, JSON.stringify(collide));
   await page.screenshot({ path: `${OUT}/08-mid-throw.png`, fullPage: true });
 
   await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });

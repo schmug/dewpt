@@ -663,6 +663,10 @@ function showBearing(dx, dy) {
   const horizontal = Math.abs(dx) >= Math.abs(dy);
   const axisIdx = horizontal ? 0 : 1;
   const axis = state.axes[axisIdx];
+  const forward = horizontal ? dx > 0 : dy > 0;
+  // Place it on the destination edge. Centred, it sat behind the card's word
+  // and the two overlapped at any drag short of a full throw.
+  els.bearing.dataset.side = horizontal ? (forward ? 'right' : 'left') : (forward ? 'down' : 'up');
   if (!axis) {
     // One axis named, or the second failed. Say so rather than implying a
     // direction that does not exist.
@@ -670,7 +674,6 @@ function showBearing(dx, dy) {
     els.bearing.dataset.active = 'true';
     return;
   }
-  const forward = horizontal ? dx > 0 : dy > 0;
   els.bearing.textContent = `${forward ? '' : '← '}${forward ? posTermOf(axis) : negTermOf(axis)}${forward ? ' →' : ''}`;
   els.bearing.dataset.active = 'true';
 }
