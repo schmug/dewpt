@@ -1,0 +1,111 @@
+Verdict: fail. The deployed assets match the checkout, and the happy path is genuine projection over real pooled candidates—not translation. However, the seed guarantee is not established by the metric enforcing it, normal interaction can pin an unseen card, mobile gestures are reliable only on a small word-sized target, and several recovery/evidence gates remain materially incomplete.
+
+| Category | Score | Assessment |
+|---|---:|---|
+| Mechanic | 7 | Projection, position-dependent ranking, real pooled cards, clamping, and an informational edge exist. The 0.414 tether cannot prove semantic seed survival, and transition state can consume or pin cards never displayed. |
+| Evidence | 5 | Workstream B’s null is recorded honestly and its powerless metrics do not ship. The current projection harness cannot reproduce the committed retention output, the source measurement for 0.414 is absent, and several behavioral constants remain unlabeled. |
+| Mobile UX | 6 | The 390px, 44px, `dvh`, safe-area, overflow, and reduced-motion floors pass. The gesture surface collapses to the word, vertical touch is unverified, the chip crowds labels, and the edge leaves an almost invisible swipe target. |
+| Robustness | 6 | Most specified failures have intentional handling, and fresh production sessions now populate. Card/pin races, broken axis-flush recovery, and destructive whole-pool retries remain release-grade defects. |
+| Code quality | 7 | Pure projection/lint modules, scoped CSS, `textContent`, field-selective ingestion, and substantive unit tests are strong. The declared network boundary is violated, the stalled-network test does not actually stall the captured fetch, and failure-table controller coverage is sparse. |
+
+The strongest evidence is in [position.js](/var/folders/5d/wrtvmttj6x9448syv5l7hdc00000gn/T/critic-03-1787446940787/public/drift/position.js:133), [drift.js](/var/folders/5d/wrtvmttj6x9448syv5l7hdc00000gn/T/critic-03-1787446940787/public/drift/drift.js:419), the [production-parity measurement](/var/folders/5d/wrtvmttj6x9448syv5l7hdc00000gn/T/critic-03-1787446940787/docs/measurements/2026-08-23-production-parity-and-retention.md:24), and [gates.txt](/var/folders/5d/wrtvmttj6x9448syv5l7hdc00000gn/T/critic-03-1787446940787/live-capture/gates.txt:52). The review skill’s evidence-first workflow also led me to verify every reported defect directly rather than relying on the prior critic reports or specification claims.
+
+```json
+{
+  "scores": {
+    "mechanic": 7,
+    "evidence": 5,
+    "mobileUx": 6,
+    "robustness": 6,
+    "codeQuality": 7
+  },
+  "verdict": "fail — every category must score at least 8",
+  "summary": "drift's foundation is real: production serves the reviewed code, projection re-ranks actual pooled candidates, and the captured happy path works. It is not professionally shippable because semantic seed survival is not proven by its enforcement metric, card transition state can pin unseen content, mobile gesture coverage is incomplete, and axis/refill recovery can dead-end or amplify rate limiting.",
+  "requiredFixes": [
+    {
+      "severity": "blocker",
+      "category": "mechanic",
+      "title": "Establish a real seed-survival invariant",
+      "detail": "public/drift/position.js:39-55 treats cosine 0.414 as proof that a card remains about the seed, but docs/measurements/2026-08-22-drift-mechanic-spikes.md:96-103 records visibly abandoned candidates scoring 0.407-0.532. Projection and seed-conditioned generation reduce the risk, but the cutoff cannot establish the claimed invariant. Validate surfaced cards with a non-circular relevance instrument or labelled set, measure false accepts and rejects, calibrate enforcement, and rerun the exact shipped 2D loop."
+    },
+    {
+      "severity": "major",
+      "category": "robustness",
+      "title": "Make displayed and pinnable card state atomic",
+      "detail": "public/drift/drift.js:456-460 updates state.current and marks the next candidate seen before paintCard commits it 300 ms later at lines 419-443. pinCurrent at lines 544-560 therefore can pin an unseen next card while the previous word remains visible; rapid swipes also consume never-displayed candidates. Commit current and seen only when the paint commits, or disable pinning during transition, and add fake-timer tests for rapid swipes, tap-during-fade, and pin failure after another swipe."
+    },
+    {
+      "severity": "major",
+      "category": "robustness",
+      "title": "Complete axis-set flush recovery",
+      "detail": "working-set.js:126-147 invokes the flush callback, which nulls range in drift.js:72-77 and 338-343. backgroundFill then calls paintGauges with that null range at drift.js:294-300, while the separate maybeTopUp path rebuilds the range but retains old axis labels. Centralize recovery: cancel pending fades, refresh serialized axes, clear stale state, re-prime, freeze a new range, reset position, and repaint. Test mismatches through both refill paths."
+    },
+    {
+      "severity": "major",
+      "category": "robustness",
+      "title": "Retry only deficient buckets",
+      "detail": "working-set.js:112-123 identifies failed and empty buckets, but every retry still draws all six. drift.js:284-306 can repeat those destructive draws six times because one bucket remains empty; src/session-do.ts:113-138 deletes every returned row. Retry only the deficient subset and prove with tests that a permanently empty bucket does not redrain healthy buckets. The live UI run's three rate-limit responses show this amplification is already observable."
+    },
+    {
+      "severity": "major",
+      "category": "mobileUx",
+      "title": "Provide a full-size, reliable gesture plane",
+      "detail": "Touch handlers exist only on the content-sized card at drift.js:506-520, whose CSS minimum is merely 44x44. At the edge the card text is cleared, leaving the tiny empty rectangle visible in live-capture/ui/07-edge.png as the only way to obey 'swipe back.' Capture gestures on a broad central plane, exclude condensate controls, remove the inactive keep affordance at an edge, and add a real-touch recovery test starting outside the word bounds."
+    },
+    {
+      "severity": "major",
+      "category": "mobileUx",
+      "title": "Verify and control vertical touch navigation",
+      "detail": "The card uses passive touch listeners with no touchcancel handler or touch-action policy. scripts/ui-smoke.mjs:175-194 proves only a horizontal touch swipe; the second axis is tested by ArrowDown at lines 195-201. Define scroll-versus-navigation behavior, handle cancellation, and add a real vertical touch test proving axis B moves without page pan or overscroll."
+    },
+    {
+      "severity": "major",
+      "category": "evidence",
+      "title": "Restore projection-harness reproducibility",
+      "detail": "docs/measurements/2026-08-23-production-parity-and-retention.md:31-50 reports surfaced minima of 0.398 and 0.377 and says npm run axis-projection reproduces them. The current harness imports shipped nextCard, which rejects everything below 0.414, and scripts/axis-projection-spike.ts:288-290 still recommends the p01 despite the shipped anisotropy rule. Separate pre-filter measurement from post-filter behavior, rerun at the reviewed revision, and reconcile the script narration and committed output."
+    },
+    {
+      "severity": "major",
+      "category": "evidence",
+      "title": "Commit the measurement behind 0.414",
+      "detail": "position.js:43-55 and the measurement documents call 0.414 the measured mean cosine of unrelated bge-m3 phrases, but axis-walk, axis-projection, and axis-power neither contain the unrelated-pair corpus nor calculate that value. Add a reproducible corpus and computation, commit its raw output, and cite that artifact at SEED_TETHER_MIN."
+    },
+    {
+      "severity": "major",
+      "category": "evidence",
+      "title": "Finish the behavioral constant audit",
+      "detail": "MIN_REGISTER_TOKENS in axis-lint.js:30-37, the 15-second throttle fallback in working-set.js:99-101, and retry factors, attempt counts, cushions, backoff caps, and fade timing in drift.js:255-306 and 409-443 lack either committed measurements or explicit UNMEASURED labels. The test named 'unmeasured constants are labelled' at drift-position.test.ts:148-152 only asserts two values are positive. Label or cite every behavioral judgment call at its definition and replace that shape assertion with an actual audit."
+    },
+    {
+      "severity": "major",
+      "category": "codeQuality",
+      "title": "Make the network boundary and nonblocking test truthful",
+      "detail": "working-set.js claims network ownership except for shared axes.js, but drift.js:331-335 directly fetches session state. Move that operation behind the injected data client. Also fix drift-controller.test.ts:113-131: replacing global fetch after createWorkingSet has captured the old function does not stall its top-up. Inject a deferred fetch before construction, force low local supply, assert the top-up remains unresolved, and prove onSwipe still updates synchronously."
+    },
+    {
+      "severity": "major",
+      "category": "codeQuality",
+      "title": "Behaviorally cover the failure table",
+      "detail": "The six controller tests cover happy setup, swipe, fade, edge, and tethering, but not session-create failure, 409/422 payload adoption, persistent degraded marking, first-run empty retries, pin rollback, or controller recovery after an axisIds flush. Add controller-level tests for each specified failure, including fake-timer retry behavior and both refill-triggered flush paths."
+    },
+    {
+      "severity": "major",
+      "category": "mobileUx",
+      "title": "Keep condensate clear of gauge labels",
+      "detail": "styles.css:165-169 reserves 56px, but the chip at lines 227-249 is wider once its dot, count, 'kept' label, gap, and padding are included. It already crowds 'PLAYFUL' in the captures, while inputs allow 32-character pole terms. Give the chip its own layout area or reserve its measured width, define accessible truncation or wrapping, and smoke-test maximum-length terms at 390px."
+    },
+    {
+      "severity": "minor",
+      "category": "mobileUx",
+      "title": "Polish essential guidance and overlay dismissal",
+      "detail": "The 9px gesture hint uses #565378 over #0d0c14, approximately 2.69:1 contrast, and the full-stage condensate panel has no visible close affordance; any content tap closes it. Raise essential instruction contrast to at least 4.5:1, add drift-specific contrast coverage, and provide a labelled 44px close control with backdrop-only dismissal."
+    },
+    {
+      "severity": "minor",
+      "category": "evidence",
+      "title": "Harden Workstream B and reconcile stale prose",
+      "detail": "axis-power-spike.ts:139-148 accepts nonempty judge lists without enforcing the promised exact 10-per-pole cardinality, allowing the lopsided-instrument failure to recur. Require exactly JUDGE_K unique entries per side and unit-test malformed responses. Also update the spec's 'not yet implemented' status and clarify that stage-2 BoW overlap is computed diagnostically but emits no shipped warning."
+    }
+  ]
+}
+```
