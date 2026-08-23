@@ -267,3 +267,16 @@ describe("the card is thrown, and the card below says where", () => {
       .toMatch(/drift-card:not\(\[style\*='translate'\]\)/);
   });
 });
+
+describe("the stylesheet does not shadow itself", () => {
+  it("declares no selector's base state twice", () => {
+    // A stale .drift-ghost-1 rule survived an edit that was meant to replace it,
+    // so the ghosts kept their old offsets while the reduced-motion override
+    // and the keyframes moved to new ones. Nothing failed; the surface just
+    // quietly rendered the wrong thing. Base-state rules only — attribute and
+    // media variants are legitimately repeated.
+    const base = [...css.matchAll(/^(\.drift-surface\s+\.[\w-]+)\s*\{/gm)].map((m) => m[1]!);
+    const dupes = base.filter((x, i) => base.indexOf(x) !== i);
+    expect([...new Set(dupes)], "selector declared twice at base state").toEqual([]);
+  });
+});
