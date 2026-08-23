@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
 //
+/// <reference lib="dom" />
+// The DOM lib is referenced HERE rather than added to tsconfig's lib array.
+// src/ targets the Workers runtime, where browser globals do not exist and
+// having them in scope would let a genuine mistake typecheck. Only this file
+// runs against a DOM, so only this file gets the types.
+//
 // CONTROLLER-LEVEL BEHAVIOUR, with a real DOM and an injected network.
 //
 // Cycle 1 and cycle 2 both landed the same criticism: the release guards
@@ -68,6 +74,8 @@ async function boot(pool: unknown[]) {
   // resetModules gives a fresh evaluation; vite cannot do a variable dynamic
   // import, so the specifier has to be static.
   vi.resetModules();
+  // @ts-expect-error — public/drift/drift.js ships untyped, same arrangement as
+  // the other public/ mirrors in this suite.
   const mod = await import("../public/drift/drift.js");
   return { mod, fetchMock };
 }
