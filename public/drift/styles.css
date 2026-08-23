@@ -194,11 +194,16 @@
   padding: 12px 20px 24px;
 }
 
-/* Right padding reserves the condensate chip's corner. The chip is
- * position: absolute at top/right of the stage and the gauges are the stage's
- * first grid row, so without this the chip lands on top of the positive pole's
- * label — 44px chip + 12px breathing room. */
-.drift-surface .drift-gauges { display: grid; gap: 8px; padding-right: 56px; }
+/* No reservation, because nothing overlaps any more: the chip is a flex sibling
+ * of the gauges rather than an absolutely positioned overlay. A reserved gutter
+ * has to be re-guessed every time the chip's content changes, and it was wrong
+ * twice. */
+.drift-surface .drift-stage-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.drift-surface .drift-gauges { flex: 1 1 auto; min-width: 0; display: grid; gap: 8px; }
 .drift-surface .drift-gauge {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -318,8 +323,7 @@
 .drift-surface .drift-card[style*='translate'] { animation: none; transition: none; }
 
 .drift-surface .drift-condensate {
-  position: absolute;
-  top: 0; right: 20px;
+  flex: 0 0 auto;
   min-width: 44px; min-height: 44px;
   background: transparent;
   border: 1px solid var(--hair);
