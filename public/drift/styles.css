@@ -75,8 +75,13 @@
   text-decoration: none;
   border-bottom: 1px solid transparent;
   min-height: 44px;
+  /* WCAG target size is 44 in BOTH axes. "board" is a short word and measured
+   * 41px wide; only checking height hid that. */
+  min-width: 44px;
+  padding: 0 4px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
 }
 .drift-surface .drift-doors a:hover,
 .drift-surface .drift-doors a:focus-visible { color: var(--t0); border-color: var(--pin); }
@@ -104,11 +109,18 @@
   .drift-surface .drift-axis-row { flex-wrap: wrap; }
   .drift-surface .drift-axis-row .drift-input { flex: 1 1 100%; }
   .drift-surface .drift-arrow {
-    width: 100%; text-align: center; transform: rotate(90deg); line-height: 1;
+    width: 100%; text-align: center; line-height: 1;
+    /* rotate the glyph itself, not the box — a rotated full-width box overlaps
+     * whatever sits beneath it in the wrapped column. */
+    display: block;
   }
+  .drift-surface .drift-arrow::before { content: ''; }
 }
 .drift-surface .drift-axes { display: grid; gap: 14px; }
-.drift-surface .drift-arrow { color: var(--faint); }
+ /* aria-hidden decoration. pointer-events: none is load-bearing — in the
+  * wrapped layout below it spans the full row and would otherwise sit on top of
+  * the submit button and swallow every click. */
+.drift-surface .drift-arrow { color: var(--faint); pointer-events: none; }
 
 .drift-surface .drift-input {
   flex: 1 1 auto;
