@@ -257,10 +257,11 @@
 }
 /* Reads off the card below, so it only becomes legible as the top card is
  * thrown clear of it. Sits above the ghosts and below the card. */
-/* The bearing sits ON THE SIDE YOU ARE PUSHING TOWARD, not in the middle.
- * Centred, it sat directly behind the card's word and the two collided at any
- * drag short of a full throw. Putting it on the destination edge fixes the
- * overlap and says the direction twice — in the word and in the placement. */
+/* The bearing fills the space the card VACATES, and the arrow in its text
+ * carries the direction. Two earlier placements failed: centred, it sat behind
+ * the card's word; on the destination edge, the card travelled straight at it
+ * and chased it down. The side a card leaves is the only region guaranteed to
+ * be clear of it. */
 .drift-surface .drift-bearing {
   position: absolute;
   inset: 12% 4%;
