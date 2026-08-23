@@ -26,16 +26,20 @@
 //   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run axis-projection
 
 import { generateCandidates, expandPole, type AiRunner } from "../src/generation";
+import { ALT_ABSTRACTION, BUCKET_KEYS, DEDUPE_COSINE, TIER_STRANGENESS, type Alt, type Tier } from "../src/types";
 import { cloudflareRunner, CF_GEN_MODEL } from "./runner-lib";
 import { cosine, embedTexts, requireCreds, sub } from "./axis-lib";
 
-/** The DO's six buckets: 3 strangeness tiers x 2 altitudes. Representative
- *  values per band, matching calibrate.ts's 0.2 / 0.5 / 0.85. */
-const BANDS = [
-  { strangeness: 0.2, altitude: 0.25 }, { strangeness: 0.2, altitude: 0.75 },
-  { strangeness: 0.5, altitude: 0.25 }, { strangeness: 0.5, altitude: 0.75 },
-  { strangeness: 0.85, altitude: 0.25 }, { strangeness: 0.85, altitude: 0.75 },
-];
+/** The DO's six buckets, built from the SHIPPED constants rather than from
+ *  representative values. An earlier version used 0.2/0.5/0.85 x 0.25/0.75,
+ *  which is not what production generates — TIER_STRANGENESS starts at 0.15 and
+ *  ALT_ABSTRACTION is 0.2/0.8. Measuring the mechanic against a candidate
+ *  population the app never produces makes the result describe a different
+ *  pool than the one being shipped. Critic cycle 1. */
+const BANDS = BUCKET_KEYS.map((bucket) => ({
+  strangeness: TIER_STRANGENESS[Number(bucket[1]) as Tier],
+  altitude: ALT_ABSTRACTION[Number(bucket[3]) as Alt],
+}));
 const PER_BAND = 24;
 const TOP_K = 5;        // cards visible at one position
 const SWEEP = 11;       // positions sampled across the normalized axis
@@ -108,7 +112,7 @@ interface Pool { seed: string; seedEmb: number[]; texts: string[]; embs: number[
 
 async function buildPool(ai: AiRunner, id: string, tok: string, seed: string): Promise<Pool> {
   const seen = new Set<string>();
-  const texts: string[] = [];
+  const raw: string[] = [];
   for (const band of BANDS) {
     const out = await generateCandidates(ai, CF_GEN_MODEL, {
       seed, strangeness: band.strangeness, altitude: band.altitude,
@@ -116,11 +120,27 @@ async function buildPool(ai: AiRunner, id: string, tok: string, seed: string): P
     });
     for (const t of out) {
       const key = t.trim().toLowerCase();
-      if (key && !seen.has(key)) { seen.add(key); texts.push(t.trim()); }
+      if (key && !seen.has(key)) { seen.add(key); raw.push(t.trim()); }
     }
   }
-  const all = await embed(id, tok, [seed, ...texts]);
-  return { seed, seedEmb: all[0]!, texts, embs: all.slice(1) };
+  const all = await embed(id, tok, [seed, ...raw]);
+  const seedEmb = all[0]!;
+  const rawEmbs = all.slice(1);
+
+  // PoolCore drops near-duplicates by EMBEDDING COSINE above DEDUPE_COSINE, not
+  // by exact text. Text-only dedupe leaves a pool full of paraphrases that
+  // production would never hold, which inflates apparent density and changes
+  // every neighbourhood the projection is judged on.
+  const texts: string[] = [];
+  const embs: number[][] = [];
+  let dropped = 0;
+  for (let i = 0; i < raw.length; i++) {
+    if (embs.some((e) => cosine(e, rawEmbs[i]!) > DEDUPE_COSINE)) { dropped++; continue; }
+    texts.push(raw[i]!);
+    embs.push(rawEmbs[i]!);
+  }
+  console.log(`  (dedupe: ${raw.length} raw -> ${texts.length} kept, ${dropped} near-duplicates dropped at cosine > ${DEDUPE_COSINE})`);
+  return { seed, seedEmb, texts, embs };
 }
 
 function analyseAxis(pool: Pool, axisName: string, negEmb: number[], posEmb: number[]): number[] {

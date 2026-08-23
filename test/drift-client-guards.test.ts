@@ -54,12 +54,16 @@ describe("the swipe path never blocks", () => {
 });
 
 describe("drift styles honour prefers-reduced-motion", () => {
-  it("declares a reduced-motion block that removes animation and transition", () => {
+  it("degrades to a CROSSFADE, not to no motion at all", () => {
+    // SPEC.md asks for fade-only, which means the fade survives. The earlier
+    // guard asserted `transition: none`, so it happily passed an implementation
+    // that removed the fade and made cards snap. Critic cycle 1.
     const idx = css.indexOf("@media (prefers-reduced-motion: reduce)");
     expect(idx, "no reduced-motion block").toBeGreaterThan(-1);
-    const block = css.slice(idx, css.indexOf("}\n}", idx) + 3);
-    expect(block, "reduced motion does not remove animation").toMatch(/animation:\s*none/);
-    expect(block, "reduced motion does not remove transition").toMatch(/transition:\s*none/);
+    const block = css.slice(idx);
+    expect(block, "animation is not disabled").toMatch(/animation:\s*none/);
+    expect(block, "the opacity fade was removed instead of kept").toMatch(/transition:\s*opacity/);
+    expect(block, "transform motion is not suppressed").toMatch(/transform:\s*none/);
   });
 });
 
@@ -75,6 +79,12 @@ describe("drift meets the mobile floor", () => {
   it("declares viewport-fit=cover and uses safe-area insets", () => {
     expect(html).toMatch(/viewport-fit=cover/);
     expect(css).toMatch(/safe-area-inset/);
+  });
+
+  it("gives the card itself a hit box", () => {
+    // The card is a div[role=button] and was excluded from every audit — source
+    // and browser alike — while being the surface's primary control.
+    expect(css, "the card has no min-height").toMatch(/\.drift-card\s*\{[^}]*min-height:\s*(4[4-9]|[5-9]\d|\d{3,})px/s);
   });
 
   it("declares no tap target under 44px", () => {
@@ -110,10 +120,18 @@ describe("drift styles cannot collide with the other surfaces", () => {
     for (const sel of selectors) {
       for (const part of sel.split(",")) {
         const t = part.trim();
-        if (!t || t.startsWith(":root")) continue;
+        if (!t) continue;
         expect(t, `unscoped selector: ${t}`).toMatch(/\.drift-surface/);
       }
     }
+  });
+
+  it("defines no design tokens on a global :root", () => {
+    // The previous version of this suite SKIPPED :root, which is precisely how
+    // a global token block shipped under a "fully scoped" claim. A :root here
+    // would leak this palette to any page that loads the sheet. Critic cycle 1.
+    expect(css.match(/(^|\})\s*:root\b/), "tokens defined on a global :root").toBeNull();
+    expect(css, "tokens are not on .drift-surface").toMatch(/\.drift-surface\s*\{[^}]*--t0:/);
   });
 
   it("does not load the field's or the board's stylesheet", () => {

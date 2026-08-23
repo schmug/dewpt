@@ -23,6 +23,33 @@ export const BUCKETS = ['w0a0', 'w0a1', 'w1a0', 'w1a1', 'w2a0', 'w2a1'];
  *  half the pool and the pump refills behind it. */
 export const DRAW_COUNT = 30;
 
+/** Session lifecycle and pinning live here so this module genuinely owns the
+ *  network, rather than owning most of it while drift.js quietly fetches too.
+ *  Axis requests remain in the shared public/axes.js, which predates this
+ *  surface and is used by others — that is a deliberate exception, stated
+ *  rather than glossed. Critic cycle 1. */
+export async function createSession(seed, params, fetchImpl = fetch) {
+  const res = await fetchImpl('/api/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ seed, ...params }),
+  });
+  if (!res.ok) throw new Error(`session create failed: ${res.status}`);
+  return res.json();
+}
+
+/** Foreground user action: the caller must surface a failure rather than
+ *  swallow it, unlike a background top-up. */
+export async function pinWord(sessionId, text, tier, fetchImpl = fetch) {
+  const res = await fetchImpl(`/api/session/${sessionId}/pin`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text, tier }),
+  });
+  if (!res.ok) throw new Error(`pin failed: ${res.status}`);
+  return res.json();
+}
+
 export function createWorkingSet(sessionId, opts = {}) {
   const doFetch = opts.fetchImpl ?? fetch;
   let items = [];
@@ -58,10 +85,15 @@ export function createWorkingSet(sessionId, opts = {}) {
     return { condensed: body.condensed ?? [], axisIds: body.axisIds ?? [] };
   }
 
+  let lastFailedBuckets = [];
+
   async function draw() {
     const results = await Promise.all(
       BUCKETS.map((b) => drawBucket(b).catch(() => null)),
     );
+    // Which buckets contributed nothing, so the caller can keep trying them in
+    // the background instead of treating one bad pass as the final answer.
+    lastFailedBuckets = BUCKETS.filter((_, i) => results[i] === null);
     for (const result of results) {
       if (!result) continue;
       if (!sameAxisIds(currentAxisIds, result.axisIds)) {
@@ -104,6 +136,8 @@ export function createWorkingSet(sessionId, opts = {}) {
     all: () => items,
     size: () => items.length,
     axisIds: () => currentAxisIds,
+    /** Buckets that errored on the last pass. Empty means the pass was clean. */
+    failedBuckets: () => [...lastFailedBuckets],
     onFlush(cb) { flushHandlers.push(cb); },
   };
 }

@@ -20,7 +20,8 @@ const position = positionUntyped as {
   initialPosition(range: Range): number[];
   stepPosition(pos: number[], range: Range, axis: number, dir: number, step?: number): number[];
   distanceTo(c: Candidate, pos: number[], range: Range): number;
-  nextCard(cs: Candidate[], pos: number[], range: Range, seen: Set<string>): Candidate | null;
+  MAX_REACH: number;
+  nextCard(cs: Candidate[], pos: number[], range: Range, seen: Set<string>, maxReach?: number): Candidate | null;
   localSupply(cs: Candidate[], pos: number[], range: Range, seen: Set<string>, radius: number): number;
 };
 
@@ -113,7 +114,10 @@ describe("nextCard", () => {
   });
 
   it("never returns a candidate with a missing or non-finite coord", () => {
-    const cs = [cand("broken", [0.5], 1), cand("ok", [0.9, 0.9], 1)];
+    // "ok" sits inside MAX_REACH on purpose; at [0.9,0.9] it would be 0.566
+    // from centre and correctly excluded by the reach bound, which would make
+    // this pass for the wrong reason.
+    const cs = [cand("broken", [0.5], 1), cand("ok", [0.6, 0.6], 1)];
     expect(position.nextCard(cs, [0.5, 0.5], range, new Set())!.text).toBe("ok");
   });
 
@@ -143,5 +147,37 @@ describe("unmeasured constants are labelled as such", () => {
   it("declares SUPPLY_RADIUS and SUPPLY_FLOOR", () => {
     expect(position.SUPPLY_RADIUS).toBeGreaterThan(0);
     expect(position.SUPPLY_FLOOR).toBeGreaterThan(0);
+  });
+});
+
+describe("the edge is LOCAL, not global (critic cycle 1, blocker)", () => {
+  const range = { lo: [0, 0], hi: [1, 1] };
+
+  it("does not show a candidate beyond the maximum reach", () => {
+    // Before this, nextCard returned the globally nearest unseen candidate, so
+    // localSupply could report zero supply while a distant card rendered — the
+    // surface claiming a position it was not showing.
+    const far = [cand("far away", [0.99, 0.99])];
+    expect(position.nextCard(far, [0.0, 0.0], range, new Set())).toBeNull();
+  });
+
+  it("still shows a candidate inside the reach", () => {
+    const near = [cand("close by", [0.05, 0.05])];
+    expect(position.nextCard(near, [0.0, 0.0], range, new Set())!.text).toBe("close by");
+  });
+
+  it("agrees with localSupply: zero supply nearby means no card", () => {
+    // These two must never disagree. If supply is 0 within SUPPLY_RADIUS and a
+    // card still renders, the edge is a fiction.
+    const cs = [cand("far", [0.9, 0.9])];
+    const pos = [0.0, 0.0];
+    const supply = position.localSupply(cs, pos, range, new Set(), position.SUPPLY_RADIUS);
+    const card = position.nextCard(cs, pos, range, new Set());
+    expect(supply).toBe(0);
+    expect(card).toBeNull();
+  });
+
+  it("keeps MAX_REACH above SUPPLY_RADIUS so top-up fires before the edge", () => {
+    expect(position.MAX_REACH).toBeGreaterThan(position.SUPPLY_RADIUS);
   });
 });

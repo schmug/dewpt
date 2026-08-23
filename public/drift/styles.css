@@ -7,8 +7,13 @@
  * reasons, both in the spec: SPEC.md's tier guardrail is this palette ("pale
  * slate -> lilac -> warm ember; pinned = gold"), and press.css is explicitly
  * "two tones, not a ramp", so it structurally cannot carry the card's
- * strangeness cue. */
-:root {
+ * strangeness cue.
+ *
+ * The tokens live on .drift-surface, NOT on :root. A global :root would leak
+ * this binding to any page that ever loads this sheet, which is the same
+ * collision the scoping rule exists to prevent — the earlier version claimed
+ * full scoping while defining every colour globally. Critic cycle 1. */
+.drift-surface {
   --ink: #0d0c14;
   --field: #151327;
   --deep: #100f1e;
@@ -91,6 +96,17 @@
 }
 .drift-surface .drift-seed,
 .drift-surface .drift-axis-row { display: flex; gap: 10px; align-items: center; }
+/* MEASURED overflow: the axis step rendered 442px wide in a 390px viewport
+ * (critic cycle 1, live-capture/ui/02-axes.png). Two 44pt-min inputs plus an
+ * arrow plus gaps cannot fit side by side at that width, so the row wraps and
+ * each pole takes a full line below 430px. */
+@media (max-width: 430px) {
+  .drift-surface .drift-axis-row { flex-wrap: wrap; }
+  .drift-surface .drift-axis-row .drift-input { flex: 1 1 100%; }
+  .drift-surface .drift-arrow {
+    width: 100%; text-align: center; transform: rotate(90deg); line-height: 1;
+  }
+}
 .drift-surface .drift-axes { display: grid; gap: 14px; }
 .drift-surface .drift-arrow { color: var(--faint); }
 
@@ -150,6 +166,12 @@
   text-transform: uppercase;
   color: var(--label);
 }
+/* A degraded axis stays visibly degraded for the life of the session, not just
+ * while the setup form is on screen. A bare pole scores AUC 0.640 against 0.980
+ * for an expanded one, so this is a quality cliff the user must keep seeing. */
+.drift-surface .drift-gauge[data-degraded='true'] { color: var(--t2); }
+.drift-surface .drift-gauge[data-degraded='true'] span::after { content: ' ~'; opacity: 0.7; }
+
 .drift-surface .drift-gauge-track {
   position: relative; height: 1px; background: var(--hair);
 }
@@ -173,6 +195,12 @@
   background: none;
   border: 0;
   cursor: pointer;
+  /* The card IS the primary control — tap keeps, swipe moves — so it carries a
+   * real hit box. It is a div[role=button] rather than a <button>, which is
+   * exactly why the earlier audit missed it. */
+  min-height: 44px;
+  min-width: 44px;
+  padding: 12px 8px;
   transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
 }
 /* The strangeness cue. tier already ships on Served, so this costs nothing.
@@ -193,9 +221,20 @@
   border-radius: 999px;
   color: var(--pin);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   cursor: pointer;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
+/* A bare circled number says nothing, and says it hardest at zero. The label
+ * makes the chip self-describing without a legend, and the drop reads at a
+ * glance. Critic cycle 1, minor. */
+.drift-surface .drift-condensate::before { content: '\25CF'; font-size: 8px; opacity: 0.8; }
+.drift-surface .drift-condensate::after { content: 'kept'; opacity: 0.75; }
 .drift-surface .drift-condensate-panel {
   position: absolute;
   inset: 0;
@@ -230,9 +269,18 @@
   margin: 0;
 }
 
-/* Fade only, no drift — a correctness constraint, not a preference. */
+/* Fade ONLY, no drift — a correctness constraint, not a preference.
+ *
+ * This is a crossfade, not an absence of motion. The earlier version set
+ * `transition: none`, which removes the fade as well as the movement and makes
+ * cards snap — the opposite of what the guardrail asks for. Opacity keeps
+ * transitioning; transform does not, and nothing animates. Critic cycle 1. */
 @media (prefers-reduced-motion: reduce) {
-  .drift-surface .drift-card,
+  .drift-surface .drift-card {
+    animation: none;
+    transition: opacity 0.3s var(--ease);
+    transform: none !important;
+  }
   .drift-surface .drift-gauge-mark {
     animation: none;
     transition: none;

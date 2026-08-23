@@ -7,7 +7,7 @@
 
 import { createAxisClient } from '/axes.js';
 import { lintAgainstPool, lintPoles } from './axis-lint.js';
-import { createWorkingSet } from './working-set.js';
+import { createSession, createWorkingSet, pinWord } from './working-set.js';
 import {
   SUPPLY_FLOOR, SUPPLY_RADIUS,
   freezeRange, initialPosition, localSupply, nextCard, stepPosition, toNormalized, widenRange,
@@ -59,20 +59,22 @@ els.seedForm.addEventListener('submit', async (e) => {
   const button = els.seedForm.querySelector('button');
   button.disabled = true;
   try {
-    const res = await fetch('/api/session', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ seed, dewpoint: 0.35, altitude: 0.25, drizzle: 0.5 }),
-    });
-    if (!res.ok) throw new Error(`session create failed: ${res.status}`);
-    const session = await res.json();
+    const session = await createSession(seed, { dewpoint: 0.35, altitude: 0.25, drizzle: 0.5 });
     state.sessionId = session.id;
     state.axisClient = createAxisClient(session.id);
     state.set = createWorkingSet(session.id);
     // A flush means every held coord was scored against a different axis set.
     // The frozen range and the seen set are shaped for those coords too, so
     // they go with it.
-    state.set.onFlush(() => { state.range = null; state.seen = new Set(); });
+    // A flush means every held coord was scored against a different axis set —
+ // so the CARD ON SCREEN is stale too. Clearing range and seen while leaving it
+ // painted left the user looking at a position that no longer exists.
+    state.set.onFlush(() => {
+      state.range = null;
+      state.seen = new Set();
+      state.current = null;
+      if (els.card) els.card.textContent = '';
+    });
     location.hash = session.id;
     els.seedForm.hidden = true;
     els.axisForm.hidden = false;
@@ -106,12 +108,19 @@ async function createAxis(negTerm, posTerm) {
 const negTermOf = (a) => a.neg.term;
 const posTermOf = (a) => a.pos.term;
 
+/** Warnings raised during setup, kept so a later axis cannot silently overwrite
+ *  an earlier one's problem and so a degraded pole survives setup being hidden.
+ *  Critic cycle 1. */
+const axisNotes = [];
+
 function reportAxis(axis) {
   // A degraded pole means expandPole fell back to the bare term. The spike puts
   // a bare term at AUC 0.640 against 0.980 for a descriptive phrase, so this is
   // a quality cliff the user has to be able to see.
   if (axis.degraded) {
-    say(`"${negTermOf(axis)}" or "${posTermOf(axis)}" could not be expanded, so this axis will sort weakly. Try different words.`, 'degraded');
+    const note = `"${negTermOf(axis)}" or "${posTermOf(axis)}" could not be expanded, so this axis will sort weakly.`;
+    axisNotes.push({ axisId: axis.id, degraded: true, message: note });
+    say(axisNotes.map((n) => n.message).join('  '), 'degraded');
     return;
   }
   const report = lintPoles(negTermOf(axis), posTermOf(axis), axis.neg.phrase, axis.pos.phrase);
@@ -120,7 +129,11 @@ function reportAxis(axis) {
     // can never tell you an axis is meaningful, so it must not read as a
     // verdict — and workstream B found nothing cheap that catches a merely
     // WEAK axis at all.
-    say(report.warnings[0].message, 'warn');
+    //
+    // ALL warnings accumulate. Showing only the newest let a second axis erase
+    // the first's problem before the user had read it.
+    for (const w of report.warnings) axisNotes.push({ axisId: axis.id, degraded: false, message: w.message });
+    say(axisNotes.map((n) => n.message).join('  '), 'warn');
   }
 }
 
@@ -153,11 +166,17 @@ els.axisForm.addEventListener('submit', async (e) => {
       created.push(axis);
       reportAxis(axis);
     } catch (err) {
-      // 409 (cap) and 422 (degenerate poles) both carry `error` plus the
+      // 409 (cap) and 422 (degenerate poles) both carry `error` PLUS the
       // current `axes`, specifically so this can explain and repaint without a
-      // follow-up GET.
+      // follow-up GET. Adopt them: the refusal does not mean the session has no
+      // axes, and dropping the payload threw away the only copy we were given.
       const detail = err?.payload?.error ?? 'could not create that axis';
-      say(`"${negTerm}" ↔ "${posTerm}": ${detail}`, 'warn');
+      const serverAxes = err?.payload?.axes;
+      if (Array.isArray(serverAxes) && serverAxes.length > 0) {
+        state.axes = serverAxes.filter((a) => a.ready !== false).slice(0, 2);
+      }
+      axisNotes.push({ axisId: null, degraded: false, message: `"${negTerm}" ↔ "${posTerm}": ${detail}` });
+      say(axisNotes.map((n) => n.message).join('  '), 'warn');
     }
   }
   if (created.length === 0) {
@@ -192,7 +211,14 @@ async function enterStage() {
   const deadline = Date.now() + PRIME_TIMEOUT_MS;
   while (true) {
     await state.set.prime();
-    if (state.set.size() > 0) break;
+    if (state.set.size() > 0) {
+      // Some buckets may still have errored. Keep filling them in the
+      // background rather than running the whole session on a partial pool.
+      if (state.set.failedBuckets().length > 0) {
+        state.set.topUp().catch((err) => console.error('drift background refill failed', err));
+      }
+      break;
+    }
     if (Date.now() >= deadline) {
       say('still nothing condensing. the field may be busy — reload to try again.', 'warn');
       els.axisForm.querySelector('button').disabled = false;
@@ -219,6 +245,44 @@ async function enterStage() {
 // renderGauges, advance, onSwipe and the condensate handlers are Task 6 and 7.
 export { enterStage };
 
+// ── resume ──────────────────────────────────────────────────────────────────
+
+/** The URL hash IS the session, so a reload must resume rather than dump you on
+ *  an empty seed form. The working SET does not survive — drawPool is
+ *  destructive, so those candidates are gone — but the session, its axes and
+ *  its pins all live server-side, and the pool refills. Critic cycle 1: the
+ *  spec claimed the session survives a reload while the client silently started
+ *  over. Either the claim goes or the behaviour does; the behaviour was cheaper
+ *  and better. */
+async function resumeFromHash() {
+  const id = location.hash.slice(1);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
+  try {
+    state.sessionId = id;
+    state.axisClient = createAxisClient(id);
+    const axes = await state.axisClient.list();
+    const ready = (Array.isArray(axes) ? axes : axes?.axes ?? []).filter((a) => a.ready !== false);
+    if (ready.length === 0) return false;
+    state.axes = ready.slice(0, 2);
+    state.set = createWorkingSet(id);
+    state.set.onFlush(() => {
+      state.range = null;
+      state.seen = new Set();
+      state.current = null;
+      if (els.card) els.card.textContent = '';
+    });
+    els.seedForm.hidden = true;
+    els.axisForm.hidden = true;
+    await enterStage();
+    return true;
+  } catch (err) {
+    console.error('drift resume failed', err);
+    return false;
+  }
+}
+
+resumeFromHash();
+
 // ── the card loop ───────────────────────────────────────────────────────────
 
 const AXIS_KEYS = [
@@ -239,6 +303,12 @@ function renderGauges() {
   state.axes.forEach((axis, i) => {
     const row = document.createElement('div');
     row.className = 'drift-gauge';
+    // A degraded pole is a permanent property of the axis, not a setup-time
+    // toast. It rides the gauge so it survives setup being hidden.
+    if (axis.degraded) {
+      row.dataset.degraded = 'true';
+      row.title = 'this axis could not be expanded and sorts weakly';
+    }
     const lo = document.createElement('span');
     // textContent, never innerHTML: these are user-typed terms, and the card
     // below is model output. Both are untrusted.
@@ -321,6 +391,10 @@ function maybeTopUp() {
 // ── input ───────────────────────────────────────────────────────────────────
 
 let touchStart = null;
+/** Minimum travel before a touch counts as a swipe rather than a tap.
+ *  UNMEASURED — 40px is roughly a thumb's incidental drift on a 390px screen,
+ *  chosen so a deliberate swipe and a resting tap separate cleanly. Should be
+ *  checked against real thumbs; it is a judgement call, not a tuned value. */
 const SWIPE_MIN_PX = 40;
 
 els.card.addEventListener('touchstart', (e) => {
@@ -368,12 +442,7 @@ async function pinCurrent() {
   state.pinned.push(card.text);
   paintCondensate();
   try {
-    const res = await fetch(`/api/session/${state.sessionId}/pin`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: card.text, tier: card.tier }),
-    });
-    if (!res.ok) throw new Error(`pin failed: ${res.status}`);
+    await pinWord(state.sessionId, card.text, card.tier);
   } catch (err) {
     console.error(err);
     // Roll the optimistic paint back rather than showing a pin the server does

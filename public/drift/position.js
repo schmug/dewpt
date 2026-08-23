@@ -19,6 +19,23 @@ export const STEP = 0.1;
 export const SUPPLY_RADIUS = 0.15;
 export const SUPPLY_FLOOR = 8;
 
+/** How far a card may sit from your position and still be shown. Beyond this,
+ *  there is nothing here and the surface must say so rather than teleport you
+ *  to the nearest thing anywhere in the pool.
+ *
+ *  Without a bound, `nextCard` returns the globally nearest unseen candidate,
+ *  so `localSupply` can report zero supply while a card renders anyway — the
+ *  surface then claims a position it is not actually showing you. That is the
+ *  edge failing to exist, which is worse than an edge in the wrong place.
+ *
+ *  Set to three swipes. A swipe steps STEP, so a candidate further than
+ *  3 x STEP is one you could not have reached from here in the moves you just
+ *  made; presenting it as "here" is a lie about position. Must stay strictly
+ *  greater than SUPPLY_RADIUS, or you would reach the edge before a top-up is
+ *  ever triggered. REASONED, NOT MEASURED — the ratio to STEP is the argument,
+ *  and it should be checked against a real session. */
+export const MAX_REACH = 3 * STEP;
+
 function usable(v) {
   return typeof v === 'number' && Number.isFinite(v);
 }
@@ -115,13 +132,16 @@ export function distanceTo(candidate, position, range) {
  *  rather than an error. Ties break toward the freshest arrival: the measured
  *  axis middle is a dense pile of near-ties (midShare 0.29-0.45), and fresh-first
  *  is what makes that pile a deep well rather than a fixed one. */
-export function nextCard(candidates, position, range, seen) {
+export function nextCard(candidates, position, range, seen, maxReach = MAX_REACH) {
   let best = null;
   let bestD = Infinity;
   for (const c of candidates) {
     if (seen.has(c.text)) continue;
     const d = distanceTo(c, position, range);
     if (!Number.isFinite(d)) continue;
+    // LOCAL, not global. A candidate outside the reach is not "here", and
+    // showing it would misreport where you are standing.
+    if (d > maxReach) continue;
     if (d < bestD || (d === bestD && best !== null && c.arrivedAt > best.arrivedAt)) {
       best = c;
       bestD = d;

@@ -130,9 +130,19 @@ export function lintPoles(negTerm, posTerm, negPhrase, posPhrase) {
 // (docs/measurements/2026-08-22-workstream-b-null-result.md). Shipping either
 // would be shipping a check that reports noise.
 
-/** Ports from the axis-measurement doc unchanged. */
+/** The axis-measurement doc's threshold, measured there against a 16-PAIR
+ *  harness over a different corpus. It has never been evaluated against a real
+ *  dewpt pool, so its power and false-positive rate here are unknown.
+ *
+ *  UNMEASURED IN THIS CODEBASE. The number is retained so the diagnostic can be
+ *  reported and so a future harness has something to falsify, but nothing warns
+ *  on it — see lintAgainstPool. Shipping a warning on an unvalidated threshold
+ *  is exactly the "number someone made up" this project refuses. */
 export const BOW_OVERLAP_MAX = 0.375;
 
+/** Pole-end sample size for the overlap comparison. UNMEASURED — chosen so a
+ *  ~180-candidate prime yields a meaningfully sized top-k without the two ends
+ *  approaching each other. */
 const TOP_K = 8;
 
 function topKBy(items, score, k) {
@@ -179,12 +189,15 @@ export function lintAgainstPool(negPhrase, posPhrase, candidates, coordsAxis) {
   const shared = embedded.filter((i) => lexical.has(i)).length;
   const overlap = shared / k;
 
-  if (overlap < BOW_OVERLAP_MAX) return { overlap, warning: null };
-  return {
-    overlap,
-    warning: {
-      check: 'bowOverlap',
-      message: 'this direction is sorting by a word rather than a meaning. Try re-expanding the poles, or pick different words.',
-    },
-  };
+  // NO WARNING IS EMITTED, DELIBERATELY. The overlap number is returned so it
+  // can be logged and so a future harness can measure whether it separates
+  // anything on a real dewpt pool. Until such a measurement exists, warning on
+  // it would be shipping a check whose power is unknown — and workstream B is
+  // the standing reminder of how that goes: two statistics that looked strong
+  // in one run reversed sign in the next.
+  //
+  // To turn this on: measure it in a committed harness, write a dated entry in
+  // docs/measurements/, then return a warning here and say which run licenses
+  // the threshold.
+  return { overlap, warning: null };
 }
