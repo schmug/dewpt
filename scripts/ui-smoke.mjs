@@ -50,6 +50,27 @@ const check = (name, ok, detail = "") => {
   else { fail++; console.log(`  FAIL  ${name}${detail ? `  — ${detail}` : ""}`); }
 };
 
+// Audits run at EVERY state, not once after setup is hidden. Cycle 1's critic
+// found a 442px-wide axis step in a 390px viewport that this file missed
+// entirely, because the only overflow check ran after that step was gone.
+async function auditViewport(page, label) {
+  const o = await page.evaluate(() => ({
+    scrollW: document.documentElement.scrollWidth, inner: window.innerWidth,
+  }));
+  check(`no horizontal overflow — ${label}`, o.scrollW <= o.inner,
+        `scrollW=${o.scrollW} inner=${o.inner}`);
+  // Include ROLE-based controls. The card is a div[role=button] and was
+  // excluded from the old button/a/input query while being the primary control.
+  const small = await page.evaluate(() =>
+    [...document.querySelectorAll('button, a, input, [role="button"], [tabindex]')]
+      .filter((e) => e.getClientRects().length > 0)
+      .map((e) => ({ t: (e.id || e.textContent || e.getAttribute("placeholder") || e.tagName).trim().slice(0, 24),
+                     h: Math.round(e.getBoundingClientRect().height),
+                     w: Math.round(e.getBoundingClientRect().width) }))
+      .filter((x) => x.h < 44 || x.w < 44));
+  check(`no tap target under 44px — ${label}`, small.length === 0, JSON.stringify(small));
+}
+
 console.log(`# UI smoke against ${BASE}/drift/  (390x844, mobile)\n`);
 
 // Loopback forwarder — see the header note on why this exists.
@@ -118,6 +139,7 @@ page.on("pageerror", (e) => consoleErrors.push(`pageerror: ${e.message}`));
 try {
   await page.goto(`${ORIGIN}/drift/`, { waitUntil: "domcontentloaded", timeout: 45000 });
   check("the surface loads", await page.title() === "dewpt · drift", await page.title());
+  await auditViewport(page, "seed step");
   await page.screenshot({ path: `${OUT}/01-setup.png`, fullPage: true });
 
   console.log("\n## setup flow");
@@ -132,6 +154,7 @@ try {
   await page.fill("#drift-axis-a-pos", "playful");
   await page.fill("#drift-axis-b-neg", "concrete");
   await page.fill("#drift-axis-b-pos", "abstract");
+  await auditViewport(page, "axis step");
   await page.screenshot({ path: `${OUT}/02-axes.png`, fullPage: true });
   await page.click("#drift-axis-form button[type=submit]");
 
@@ -180,6 +203,43 @@ try {
         (await page.locator(".drift-gauge").first().textContent() ?? "").includes("solemn"));
   await page.screenshot({ path: `${OUT}/04-after-swipe.png`, fullPage: true });
 
+  console.log("\n## a swipe must not also keep");
+  {
+    const before = await page.locator("#drift-condensate-count").textContent();
+    const bb = await page.locator("#drift-card").boundingBox();
+    const sx = bb.x + bb.width / 2, sy = bb.y + bb.height / 2;
+    const c2 = await page.context().newCDPSession(page);
+    await c2.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: sx, y: sy }] });
+    await c2.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: sx - 150, y: sy }] });
+    await c2.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await page.waitForTimeout(900);
+    check("swiping does not pin the card",
+          (await page.locator("#drift-condensate-count").textContent()) === before,
+          `${before} -> ${await page.locator("#drift-condensate-count").textContent()}`);
+  }
+
+  console.log("\n## the edge is local");
+  {
+    // Walk hard to one corner. Past the reach bound the surface must SAY there
+    // is nothing here rather than teleport to the nearest thing anywhere in the
+    // pool. This is cycle 1's mechanic blocker, pinned in the browser.
+    await page.locator("#drift-card").focus();
+    for (let i = 0; i < 14; i++) { await page.keyboard.press("ArrowLeft"); await page.waitForTimeout(90); }
+    for (let i = 0; i < 14; i++) { await page.keyboard.press("ArrowUp"); await page.waitForTimeout(90); }
+    await page.waitForTimeout(800);
+    const st = await page.evaluate(() => ({
+      edgeShown: !document.querySelector("#drift-edge").hidden,
+      card: document.querySelector("#drift-card").textContent.trim(),
+    }));
+    check("a corner either shows a card or declares the edge — never blank silence",
+          st.edgeShown || st.card.length > 0, JSON.stringify(st));
+    await page.screenshot({ path: `${OUT}/07-edge.png`, fullPage: true });
+    // Walk back so the pin check below has a card.
+    for (let i = 0; i < 7; i++) { await page.keyboard.press("ArrowRight"); await page.waitForTimeout(90); }
+    for (let i = 0; i < 7; i++) { await page.keyboard.press("ArrowDown"); await page.waitForTimeout(90); }
+    await page.waitForTimeout(700);
+  }
+
   console.log("\n## tap to keep");
   // A real tap — touchscreen, not mouse. The touchend handler sees a sub-threshold
   // delta and defers to the click the browser synthesises, which is the pin.
@@ -199,18 +259,7 @@ try {
         (await page.locator("#drift-condensate-panel").boundingBox()) === null);
 
   console.log("\n## mobile floor");
-  const overflow = await page.evaluate(() => ({
-    scrollW: document.documentElement.scrollWidth, inner: window.innerWidth,
-  }));
-  check("no horizontal overflow at 390px", overflow.scrollW <= overflow.inner,
-        `scrollW=${overflow.scrollW} inner=${overflow.inner}`);
-  const small = await page.evaluate(() =>
-    [...document.querySelectorAll("button, a, input")]
-      .filter((e) => e.getClientRects().length > 0)
-      .map((e) => ({ t: (e.textContent || e.getAttribute("placeholder") || e.tagName).trim().slice(0, 20),
-                     h: Math.round(e.getBoundingClientRect().height) }))
-      .filter((x) => x.h < 44));
-  check("no visible tap target under 44px", small.length === 0, JSON.stringify(small));
+  await auditViewport(page, "card stage");
   const usesDvh = await page.evaluate(() => getComputedStyle(document.body).minHeight !== "0px");
   check("body has a viewport-relative min-height", usesDvh);
 
@@ -223,13 +272,33 @@ try {
   const rmPage = await rmCtx.newPage();
   await blockOffOrigin(rmPage);
   await rmPage.goto(`${ORIGIN}/drift/`, { waitUntil: "domcontentloaded", timeout: 45000 });
+  // Drive it to the CARD STAGE. Screenshotting the untouched seed screen proved
+  // nothing about how a card behaves under reduced motion. Critic cycle 1.
+  await rmPage.fill("#drift-seed-input", "smoketest-reduced motion");
+  await rmPage.click("#drift-seed-form button[type=submit]");
+  await rmPage.waitForSelector("#drift-axis-form:not([hidden])", { timeout: 60000 });
+  await rmPage.fill("#drift-axis-a-neg", "solemn");
+  await rmPage.fill("#drift-axis-a-pos", "playful");
+  await rmPage.fill("#drift-axis-b-neg", "concrete");
+  await rmPage.fill("#drift-axis-b-pos", "abstract");
+  await rmPage.click("#drift-axis-form button[type=submit]");
+  await rmPage.waitForSelector("#drift-stage:not([hidden])", { timeout: 120000 });
+  await rmPage.waitForFunction(() => {
+    const t = document.querySelector("#drift-card")?.textContent ?? "";
+    return t.trim().length > 0 && t.trim() !== "…";
+  }, { timeout: 120000 });
+
   const t = await rmPage.evaluate(() => {
-    const el = document.querySelector("#drift-card");
-    const cs = getComputedStyle(el);
-    return { transition: cs.transitionDuration, animation: cs.animationName };
+    const cs = getComputedStyle(document.querySelector("#drift-card"));
+    return { transition: cs.transitionProperty, duration: cs.transitionDuration,
+             animation: cs.animationName, transform: cs.transform };
   });
-  check("card transition is disabled under prefers-reduced-motion",
-        /^0s(,\s*0s)*$/.test(t.transition), JSON.stringify(t));
+  // It must CROSSFADE: opacity still transitions, transform does not move.
+  check("reduced motion keeps the opacity fade", /opacity/.test(t.transition), JSON.stringify(t));
+  check("reduced motion suppresses transform motion",
+        t.transform === "none" || t.transform === "matrix(1, 0, 0, 1, 0, 0)", JSON.stringify(t));
+  check("reduced motion runs no animation", t.animation === "none", JSON.stringify(t));
+  await auditViewport(rmPage, "reduced-motion card stage");
   await rmPage.screenshot({ path: `${OUT}/06-reduced-motion.png`, fullPage: true });
   await rmCtx.close();
 

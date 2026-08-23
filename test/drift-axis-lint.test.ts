@@ -101,7 +101,11 @@ describe("stage 2 — BoW versus embedding", () => {
     ];
     const r = stage2.lintAgainstPool("solemn ceremony", "playful activity", cands, 0);
     expect(r.overlap).toBeGreaterThanOrEqual(stage2.BOW_OVERLAP_MAX);
-    expect(r.warning).not.toBeNull();
+    // The overlap is COMPUTED but must not warn: BOW_OVERLAP_MAX has never been
+    // evaluated against a real dewpt pool, only against the doc's 16-pair
+    // harness on another corpus. Reported for a future measurement to falsify;
+    // not shipped as a check. Critic cycle 1 blocker.
+    expect(r.warning).toBeNull();
   });
 
   it("stays quiet when the embedding ranking is not lexical", () => {
