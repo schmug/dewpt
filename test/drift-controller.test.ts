@@ -154,17 +154,17 @@ describe("the card actually crossfades", () => {
 
 describe("the edge is announced, not left blank", () => {
   it("declares the edge when nothing tethered is in reach", async () => {
-    // A dense tethered cluster in the middle, plus two UNTETHERED outliers that
-    // stretch the range to the corners without ever being showable. So the
-    // centre has cards, the corners genuinely have none, and walking out must
-    // announce the edge rather than teleport back to the cluster.
+    // A dense cluster in the middle plus two outliers on the LEADING DIAGONAL,
+    // which stretch the range without occupying the off-diagonal corners. So
+    // the centre has cards, the top-left corner genuinely has none, and walking
+    // there must announce the edge rather than teleport back to the cluster.
     const cluster = Array.from({ length: 12 }, (_, i) =>
       served(`middle ${i}`, [(i % 4) * 0.01, Math.floor(i / 4) * 0.01], 0.35));
-    const outliers = [served("far lo", [-1, -1], 0.9), served("far hi", [1, 1], 0.9)];
-    const { mod } = await toCardStage([...cluster, ...outliers]);
+    const diagonal = [served("far lo", [-1, -1], 0.35), served("far hi", [1, 1], 0.35)];
+    const { mod } = await toCardStage([...cluster, ...diagonal]);
     const swipe = (mod as { onSwipe(a: number, d: number): unknown }).onSwipe;
-    for (let i = 0; i < 12; i++) swipe(0, -1);
-    for (let i = 0; i < 12; i++) swipe(1, -1);
+    for (let i = 0; i < 14; i++) swipe(0, -1);   // hard left
+    for (let i = 0; i < 14; i++) swipe(1, 1);    // hard up — the empty corner
     await vi.waitFor(() => {
       const edge = document.getElementById("drift-edge")!;
       expect(edge.hidden).toBe(false);
@@ -173,23 +173,17 @@ describe("the edge is announced, not left blank", () => {
   });
 });
 
-describe("an untethered pool cannot surface a card", () => {
-  it("shows the edge rather than a candidate below the anisotropy floor", async () => {
-    // seedDist 0.8 -> cosine 0.2, well under the 0.414 unrelated-phrase
-    // baseline. These are not about the seed and must never be shown.
-    const untethered = Array.from({ length: 20 }, (_, i) => served(`noise ${i}`, [0, 0], 0.8));
-    const { mod } = await boot(untethered);
-    (document.getElementById("drift-seed-input") as HTMLInputElement).value = "a seed";
-    document.getElementById("drift-seed-form")!.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-    await vi.waitFor(() => expect(document.getElementById("drift-axis-form")!.hidden).toBe(false));
-    for (const [id, v] of [["drift-axis-a-neg", "solemn"], ["drift-axis-a-pos", "playful"],
-                           ["drift-axis-b-neg", "concrete"], ["drift-axis-b-pos", "abstract"]] as const) {
-      (document.getElementById(id) as HTMLInputElement).value = v;
-    }
-    document.getElementById("drift-axis-form")!.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-    await vi.waitFor(() => expect(document.getElementById("drift-stage")!.hidden).toBe(false), { timeout: 5000 });
-    expect(document.getElementById("drift-card")!.textContent).toBe("");
-    expect(document.getElementById("drift-edge")!.hidden).toBe(false);
-    void mod;
+describe("a weakly-related pool still renders (the tether-floor retraction)", () => {
+  it("shows cards whose cosine to the seed is low", async () => {
+    // A SEED_TETHER_MIN of 0.414 shipped briefly and rendered DEV_FAKE_AI=1 —
+    // the documented offline dev path — permanently empty, because
+    // dev-fake-ai's pseudo-embeddings score -0.19 to 0.20 against a seed. This
+    // fixture uses those real fake-AI-shaped values, so the regression cannot
+    // come back without failing here.
+    const fakeAiShaped = Array.from({ length: 20 }, (_, i) =>
+      served(`local word ${i}`, [(i % 5) * 0.02 - 0.04, Math.floor(i / 5) * 0.02 - 0.04], 0.9));
+    await toCardStage(fakeAiShaped);
+    expect(document.getElementById("drift-card")!.textContent).toMatch(/^local word \d+$/);
+    expect(document.getElementById("drift-edge")!.hidden).toBe(true);
   });
 });
