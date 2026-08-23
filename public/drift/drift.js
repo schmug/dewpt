@@ -124,16 +124,36 @@ function renderPills() {
   }
 }
 
-/** Fills the first row that is empty, or the first row if both are full, so a
- *  second tap replaces rather than doing nothing. Typing over either row is
- *  always allowed; the pills are a shortcut, not a mode. */
+/** Fills the first empty row; once both are full, taps cycle through the rows
+ *  instead of always overwriting the first. Typing over either row is always
+ *  allowed — the pills are a shortcut, not a mode.
+ *
+ *  Two rules that came out of using it: tapping a pair already in play REMOVES
+ *  it rather than duplicating it, and a pair can never land in both rows. Two
+ *  identical axes give the compass one real direction while looking like two,
+ *  and every card then ranks against a degenerate second dimension. */
+let nextRow = 0;
 function applyPill(pair) {
   const rows = [[els.aNeg, els.aPos], [els.bNeg, els.bPos]];
-  const target = rows.find(([n, p]) => !n.value.trim() && !p.value.trim()) ?? rows[0];
-  target[0].value = pair.neg;
-  target[1].value = pair.pos;
+  const key = (r) => `${r[0].value.trim()}|${r[1].value.trim()}`;
+  const wanted = `${pair.neg}|${pair.pos}`;
+
+  const already = rows.findIndex((r) => key(r) === wanted);
+  if (already !== -1) {
+    rows[already][0].value = '';
+    rows[already][1].value = '';
+    nextRow = already;
+    markUsedPills();
+    return;
+  }
+
+  const empty = rows.findIndex((r) => !r[0].value.trim() && !r[1].value.trim());
+  const target = empty !== -1 ? empty : nextRow % rows.length;
+  rows[target][0].value = pair.neg;
+  rows[target][1].value = pair.pos;
+  nextRow = (target + 1) % rows.length;
   markUsedPills();
-  target[1].focus();
+  rows[target][1].focus();
 }
 
 /** Dims a pill whose pair is already in play, so the set reads as a palette
@@ -209,10 +229,24 @@ function reportAxis(axis) {
 
 els.axisForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const pairs = [
+  const entered = [
     [els.aNeg.value.trim(), els.aPos.value.trim()],
     [els.bNeg.value.trim(), els.bPos.value.trim()],
   ].filter(([n, p]) => n && p);
+  // Two identical axes look like two directions and behave like one, so the
+  // second is dropped rather than sent. Typing can produce this even when the
+  // pills cannot.
+  const seenPairs = new Set();
+  const pairs = entered.filter(([n, p]) => {
+    const k = `${n.toLowerCase()}|${p.toLowerCase()}`;
+    if (seenPairs.has(k)) return false;
+    seenPairs.add(k);
+    return true;
+  });
+  if (pairs.length < entered.length) {
+    axisNotes.push({ axisId: null, degraded: false, message: 'both rows named the same direction, so only one was used.' });
+    say(axisNotes.map((n) => n.message).join('  '), 'warn');
+  }
   if (pairs.length === 0) {
     say('name at least one direction — two gives you all four swipes.', 'warn');
     return;
