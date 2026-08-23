@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { DEPTH_OPACITY } from "../public/depth.js";
 
 const css = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+const driftCss = readFileSync(new URL("../public/drift/styles.css", import.meta.url), "utf8");
 
 // (?<![\w-]) anchors the start of the name so e.g. "--ink" cannot match inside
 // a longer custom property like "--press-ink" — CSS custom-property names are
@@ -77,5 +78,54 @@ describe("dewpt palette contrast", () => {
       const coarse = contrast(over(token(name), token("--ink"), DEPTH_OPACITY.coarse.floor), ground());
       expect(coarse).toBeGreaterThan(fine);
     }
+  });
+});
+
+// drift binds the same --t0/--t1/--t2/--pin contract to the night-walk palette
+// rather than to Press, so it is a DIFFERENT set of colours on a different
+// ground and was covered by nothing. Every tier the card can take has to be
+// legible on the surface it is drawn on.
+describe("the drift surface meets contrast on every tier", () => {
+  function driftToken(name: string): string {
+    const m = driftCss.match(new RegExp(`(?<![\\w-])${name}\\s*:\\s*(#[0-9a-fA-F]{6})`));
+    if (!m) throw new Error(`token ${name} not found in public/drift/styles.css`);
+    return m[1];
+  }
+
+  const ground = channels(driftToken("--ink"));
+
+  // The card is display-sized (clamp 30-54px), so WCAG large-text 3:1 is the
+  // floor that applies. Holding the tiers to 4.5:1 anyway — a word alone on a
+  // dark field is the entire interface, and 3:1 is a minimum for text that has
+  // context to lean on.
+  for (const [name, role] of [["--t0", "tier 0, the nearest words"],
+                              ["--t1", "tier 1"],
+                              ["--t2", "tier 2, the far-field words"],
+                              ["--pin", "a kept word"]] as const) {
+    it(`${role} (${name}) clears 4.5:1 on the ground`, () => {
+      expect(contrast(channels(driftToken(name)), ground)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+
+  // The quiet token carries the mono labels — gauge poles, the hint, the edge
+  // message. Small text, so 4.5:1 is the real WCAG floor and not a courtesy.
+  it("gauge pole labels and the hint (--label) clear 4.5:1 on the ground", () => {
+    expect(contrast(channels(driftToken("--label")), ground)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("--faint is never used for text on this surface", () => {
+    // It measures 2.69:1 and cannot carry text at any size. It is a decorative
+    // token — hairlines and the inert arrow glyph — and the hint line was drawn
+    // in it, which made the surface's only instruction its least readable
+    // element. Guarding the misuse rather than the value: the token is correct
+    // for what it is for.
+    expect(contrast(channels(driftToken("--faint")), ground)).toBeLessThan(4.5);
+    const textRules = driftCss
+      .split("}")
+      .filter((block) => /var\(--faint\)/.test(block) && /\bcolor\s*:/.test(block))
+      .map((block) => block.split("{")[0]!.trim());
+    // The arrow is an aria-hidden glyph, not text a reader must resolve.
+    const offenders = textRules.filter((sel) => !/drift-arrow/.test(sel));
+    expect(offenders, `--faint used for text in: ${offenders.join(", ")}`).toEqual([]);
   });
 });

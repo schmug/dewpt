@@ -368,13 +368,20 @@
   color: var(--t2);
   margin: 0;
 }
+/* The hint is the ONLY thing that teaches the gesture, and it was drawn in
+ * --faint, which measures 2.69:1 against the ground — far under the 4.5:1 floor
+ * for text this size. --faint is a decorative token in the night-walk palette
+ * (hairlines, the inert arrow glyph); using it for the surface's only
+ * instruction was a misuse of it, not a problem with it. --label measures
+ * 6.88:1. Pinned by test/contrast.test.ts, which did not cover this surface at
+ * all until now. */
 .drift-surface .drift-hint {
   text-align: center;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--label);
   margin: 0;
 }
 
