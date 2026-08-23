@@ -25,6 +25,7 @@ const MARKUP = `
     <form id="drift-axis-form" hidden>
       <input id="drift-axis-a-neg" /><input id="drift-axis-a-pos" />
       <input id="drift-axis-b-neg" /><input id="drift-axis-b-pos" />
+      <div id="drift-pills"></div>
       <button type="submit">set</button>
       <p id="drift-axis-status"></p>
     </form>
@@ -33,7 +34,11 @@ const MARKUP = `
     <div id="drift-gauges"></div>
     <button id="drift-condensate" aria-expanded="false"><span id="drift-condensate-count">0</span></button>
     <div id="drift-condensate-panel" hidden></div>
-    <div id="drift-card" tabindex="0" role="button"></div>
+    <div id="drift-deck">
+      <i class="drift-ghost drift-ghost-2"></i>
+      <i class="drift-ghost drift-ghost-1"></i>
+      <div id="drift-card" tabindex="0" role="button"></div>
+    </div>
     <p id="drift-edge" hidden></p>
     <p id="drift-hint"></p>
   </main>`;

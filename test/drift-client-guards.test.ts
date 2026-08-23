@@ -143,3 +143,48 @@ describe("drift styles cannot collide with the other surfaces", () => {
     expect(links.filter((h) => /^\/styles\.css$/.test(h)), "loads the field's styles.css").toEqual([]);
   });
 });
+
+describe("the compass recommends measured pairs, and the gesture plane is real", () => {
+  const drift = scripts.find((s) => s.name === "drift.js")!;
+
+  it("suggests only pairs that cleared the lexical ceiling", () => {
+    // npm run axis-power ranked nine pairs by judge AUC across three seeds
+    // against an X / more X control at 0.713. These four cleared it or carry a
+    // stronger prior; the rest must not be offered.
+    for (const pair of ["natural", "calm", "practical", "concrete"]) {
+      expect(drift.source, `${pair} is not suggested`).toMatch(new RegExp(`neg: '${pair}'`));
+    }
+  });
+
+  it("does not suggest solemn/playful, which ranked last", () => {
+    // 0.597 against a 0.713 ceiling, consistent across every run. It was this
+    // surface's placeholder example everywhere, which is exactly why it needs
+    // a guard rather than a memory.
+    expect(drift.source).not.toMatch(/neg: 'solemn'/);
+    expect(html, "solemn is still a placeholder in the markup").not.toMatch(/placeholder="solemn"/);
+  });
+
+  it("claims the gesture plane so vertical swipes are not eaten by the browser", () => {
+    // Up and down did nothing on a phone: both touch listeners were passive, so
+    // preventDefault was impossible and the browser took every vertical gesture
+    // as scroll or pull-to-refresh. All three parts are load-bearing.
+    expect(css, "no touch-action on the deck").toMatch(/\.drift-deck[^}]*touch-action:\s*none/s);
+    expect(css, "no overscroll-behavior guard").toMatch(/overscroll-behavior:\s*none/);
+    // Scoped to the touchmove registration itself rather than a character
+    // window, which would silently pass or fail on how long the comment is.
+    const start = drift.source.indexOf("addEventListener('touchmove'");
+    expect(start, "no touchmove listener at all").toBeGreaterThan(-1);
+    const block = drift.source.slice(start, drift.source.indexOf("});", start) + 3);
+    expect(block, "touchmove is passive, so it cannot preventDefault")
+      .toMatch(/passive:\s*false/);
+    expect(block, "touchmove never prevents the default").toMatch(/preventDefault/);
+  });
+
+  it("draws a stack, and the stack drifts", () => {
+    expect(html, "no ghost cards behind the top card").toMatch(/drift-ghost/);
+    expect(css, "nothing in this surface actually drifts").toMatch(/@keyframes drift-wander/);
+    const idx = css.indexOf("@media (prefers-reduced-motion: reduce)");
+    expect(css.slice(idx), "the ghosts keep animating under reduced motion")
+      .toMatch(/drift-ghost-1\s*\{[^}]*animation:\s*none/s);
+  });
+});
