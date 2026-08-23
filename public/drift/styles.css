@@ -338,7 +338,10 @@
   /* The card IS the primary control — tap keeps, swipe moves — so it carries a
    * real hit box. It is a div[role=button] rather than a <button>, which is
    * exactly why the earlier audit missed it. */
-  min-height: 44px;
+  /* No min-height here: the card already declares 34dvh above, and a second
+     min-height later in the same rule silently won and collapsed it to a 44px
+     band shorter than the ghosts it was meant to sit on. min-width stays —
+     it is not duplicated. */
   min-width: 44px;
   padding: 20px 18px;
   transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
