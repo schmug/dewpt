@@ -74,17 +74,24 @@
       <!-- The deck owns the gesture, not the card: the ghosts must not create
            dead zones where a swipe does nothing. Two ghosts are enough to read
            as a stack; more just muddies the top card. -->
-      <div id="drift-deck" class="drift-deck">
-        <i class="drift-ghost drift-ghost-2" aria-hidden="true"></i>
-        <i class="drift-ghost drift-ghost-1" aria-hidden="true"></i>
-        <!-- The bearing sits on the card BELOW, revealed as the top card is
-             thrown clear. It names the pole you are sending this toward, so the
-             gesture says where it is going while you are still deciding.
-             aria-hidden: it is a transient echo of the gauges, and announcing
-             it on every drag frame would be noise. -->
-        <p id="drift-bearing" class="drift-bearing" aria-hidden="true"></p>
-        <div id="drift-card" class="drift-card" tabindex="0" role="button"
-             aria-describedby="drift-hint"></div>
+      <!-- The y-axis gauge stands BESIDE the deck, vertical, because the swipe
+           that drives it is vertical. A horizontal row for an up/down axis has
+           no spatial relationship to the gesture and has to be read; a column
+           beside the card is read at a glance. -->
+      <div class="drift-arena">
+        <div id="drift-gauge-y" class="drift-gauge-column"></div>
+        <div id="drift-deck" class="drift-deck">
+          <i class="drift-ghost drift-ghost-2" aria-hidden="true"></i>
+          <i class="drift-ghost drift-ghost-1" aria-hidden="true"></i>
+          <!-- The bearing sits on the card BELOW, revealed as the top card is
+               thrown clear. It names the pole you are sending this toward, so the
+               gesture says where it is going while you are still deciding.
+               aria-hidden: it is a transient echo of the gauges, and announcing
+               it on every drag frame would be noise. -->
+          <p id="drift-bearing" class="drift-bearing" aria-hidden="true"></p>
+          <div id="drift-card" class="drift-card" tabindex="0" role="button"
+               aria-describedby="drift-hint"></div>
+        </div>
       </div>
       <p id="drift-edge" class="drift-edge" role="status" aria-live="polite" hidden></p>
       <p id="drift-hint" class="drift-hint">swipe to move · tap to keep</p>

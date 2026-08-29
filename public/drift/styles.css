@@ -245,7 +245,45 @@
 .drift-surface .drift-gauge-mark {
   position: absolute; top: -3px; width: 7px; height: 7px; border-radius: 50%;
   background: var(--pin); transform: translateX(-50%);
-  transition: left 0.3s var(--ease);
+  transition: left 0.3s var(--ease), top 0.3s var(--ease);
+}
+
+/* THE GAUGE MATCHES THE GESTURE. The x-axis is driven by a left/right swipe and
+ * reads as a horizontal row; the y-axis is driven by an up/down swipe and so
+ * stands as a column beside the deck. A horizontal row for a vertical axis has
+ * no spatial relationship to the thing that moves it and has to be decoded. */
+.drift-surface .drift-arena {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: stretch;
+  min-height: 0;
+}
+.drift-surface .drift-gauge-column { display: grid; }
+.drift-surface .drift-gauge-column[hidden] { display: none; }
+
+.drift-surface .drift-gauge--y {
+  grid-template-columns: none;
+  grid-template-rows: auto 1fr auto;
+  justify-items: center;
+  gap: 12px;
+}
+/* Rotated rather than stacked: a column of horizontal words would need far more
+   width than a 390px screen can spare next to the card. */
+.drift-surface .drift-gauge--y > span {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+}
+.drift-surface .drift-gauge--y .drift-gauge-track {
+  width: 1px;
+  height: auto;
+  align-self: stretch;
+}
+/* Top is the NEGATIVE pole because swiping DOWN moves toward the positive one —
+   the label order follows the gesture, not the convention that up means more. */
+.drift-surface .drift-gauge--y .drift-gauge-mark {
+  left: 0;
+  transform: translate(-3px, -50%);
 }
 
 /* THE DECK. Two ghosts behind the card so the surface reads as a stack you can
