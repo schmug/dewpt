@@ -1,7 +1,7 @@
 # drift: a swipe-card navigator over dewpt's latent space
 
 **Date:** 2026-08-22
-**Status:** approved, not yet implemented
+**Status:** implemented and live at https://dewpt.cory7593.workers.dev/drift/ (2026-08-23). Independent-critic loop stopped at cycle 3 of 12 without meeting the ship bar — see [critic-reports/README.md](../../../critic-reports/README.md) for the trajectory and why, and #104-#110 for the open findings.
 **Scope:** A fourth surface at `/drift/` — a mobile-first card stack where each
 swipe moves your position along a user-named semantic axis and the card is a
 re-ranked candidate from the session pool. Implements
