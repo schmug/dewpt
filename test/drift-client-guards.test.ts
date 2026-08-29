@@ -280,3 +280,43 @@ describe("the stylesheet does not shadow itself", () => {
     expect([...new Set(dupes)], "selector declared twice at base state").toEqual([]);
   });
 });
+
+describe("each gauge is oriented like the gesture that drives it", () => {
+  const drift = scripts.find((s) => s.name === "drift.js")!;
+
+  it("the y-axis gauge stands beside the deck, not above it", () => {
+    expect(html, "no vertical gauge column").toMatch(/id="drift-gauge-y"/);
+    expect(html, "the deck is not in the arena beside the column")
+      .toMatch(/drift-arena[\s\S]{0,400}id="drift-deck"/);
+  });
+
+  it("the vertical gauge is laid out in rows, not columns", () => {
+    const rule = css.slice(css.indexOf(".drift-surface .drift-gauge--y {"));
+    const decl = rule.slice(0, rule.indexOf("}"));
+    expect(decl, "the y gauge is still a horizontal row").toMatch(/grid-template-rows:/);
+    expect(decl, "the y gauge still declares columns").toMatch(/grid-template-columns:\s*none/);
+  });
+
+  it("paintGauges positions the vertical mark on top, not left", () => {
+    // Setting only `left` would freeze the vertical mark at its starting point
+    // while its axis moved — the gauge would lie about position.
+    const fn = drift.source.slice(drift.source.indexOf("function paintGauges"));
+    const body = fn.slice(0, fn.indexOf("\n}"));
+    expect(body, "the vertical mark is never positioned vertically").toMatch(/style\.top\s*=/);
+    expect(body, "orientation is not consulted").toMatch(/dataset\.orient/);
+  });
+
+  it("paintGauges queries both gauge containers", () => {
+    // It used to query els.gauges only. With the y gauge moved out of that
+    // container, that would silently stop painting it.
+    const fn = drift.source.slice(drift.source.indexOf("function paintGauges"));
+    expect(fn.slice(0, fn.indexOf("\n}")), "only one container is queried")
+      .not.toMatch(/els\.gauges\.querySelectorAll/);
+  });
+
+  it("the mark transitions on both axes", () => {
+    const rule = css.slice(css.indexOf(".drift-surface .drift-gauge-mark {"));
+    expect(rule.slice(0, rule.indexOf("}")), "top is not transitioned, so the y mark jumps")
+      .toMatch(/transition:[^;]*top/);
+  });
+});

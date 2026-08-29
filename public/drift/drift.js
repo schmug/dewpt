@@ -29,6 +29,7 @@ const els = {
   deck: document.getElementById('drift-deck'),
   bearing: document.getElementById('drift-bearing'),
   gauges: document.getElementById('drift-gauges'),
+  gaugeY: document.getElementById('drift-gauge-y'),
   condensate: document.getElementById('drift-condensate'),
   condensateCount: document.getElementById('drift-condensate-count'),
   condensatePanel: document.getElementById('drift-condensate-panel'),
@@ -478,8 +479,12 @@ function renderGauges() {
   document.getElementById('drift-hint').textContent =
     state.axes.length >= 2 ? 'swipe to move · tap to keep' : 'swipe left and right to move · tap to keep';
   state.axes.forEach((axis, i) => {
+    // Axis 1 is the up/down axis, so its gauge stands vertically beside the
+    // deck. Same element structure either way — only the orientation differs,
+    // so there is one gauge builder rather than two that can drift apart.
+    const vertical = i === 1;
     const row = document.createElement('div');
-    row.className = 'drift-gauge';
+    row.className = vertical ? 'drift-gauge drift-gauge--y' : 'drift-gauge';
     // A degraded pole is a permanent property of the axis, not a setup-time
     // toast. It rides the gauge so it survives setup being hidden.
     if (axis.degraded) {
@@ -495,19 +500,29 @@ function renderGauges() {
     const mark = document.createElement('i');
     mark.className = 'drift-gauge-mark';
     mark.dataset.axis = String(i);
+    mark.dataset.orient = vertical ? 'y' : 'x';
     track.appendChild(mark);
     const hi = document.createElement('span');
     hi.textContent = posTermOf(axis);
     row.append(lo, track, hi);
-    els.gauges.appendChild(row);
+    (vertical ? els.gaugeY : els.gauges).appendChild(row);
   });
+  // With one axis there is no vertical gauge to show, and an empty column would
+  // still take its grid track and shove the deck sideways.
+  els.gaugeY.hidden = state.axes.length < 2;
   paintGauges();
 }
 
 function paintGauges() {
-  for (const mark of els.gauges.querySelectorAll('.drift-gauge-mark')) {
+  // Both containers, not just els.gauges — the y-axis gauge lives beside the
+  // deck now, and querying only the horizontal container would leave the
+  // vertical mark frozen at its starting position while the axis moved.
+  for (const mark of document.querySelectorAll('.drift-gauge-mark')) {
     const a = Number(mark.dataset.axis);
-    mark.style.left = `${toNormalized(state.position[a], state.range, a) * 100}%`;
+    if (!Number.isInteger(a) || !state.range) continue;
+    const pct = `${toNormalized(state.position[a], state.range, a) * 100}%`;
+    if (mark.dataset.orient === 'y') { mark.style.top = pct; mark.style.left = ''; }
+    else { mark.style.left = pct; mark.style.top = ''; }
   }
 }
 

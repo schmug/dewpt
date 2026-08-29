@@ -17,34 +17,20 @@
 // This drives drift.js against jsdom with fetch stubbed, so the assertions are
 // about what the surface DOES.
 
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const MARKUP = `
-  <section id="drift-setup">
-    <form id="drift-seed-form"><input id="drift-seed-input" /><button type="submit">go</button></form>
-    <form id="drift-axis-form" hidden>
-      <input id="drift-axis-a-neg" /><input id="drift-axis-a-pos" />
-      <input id="drift-axis-b-neg" /><input id="drift-axis-b-pos" />
-      <div id="drift-pills"></div>
-      <button type="submit">set</button>
-      <p id="drift-axis-status"></p>
-    </form>
-  </section>
-  <main id="drift-stage" hidden>
-    <div class="drift-stage-head">
-      <div id="drift-gauges"></div>
-      <button id="drift-condensate" aria-expanded="false"><span id="drift-condensate-count">0</span></button>
-    </div>
-    <div id="drift-condensate-panel" hidden></div>
-    <div id="drift-deck">
-      <i class="drift-ghost drift-ghost-2"></i>
-      <i class="drift-ghost drift-ghost-1"></i>
-      <p id="drift-bearing"></p>
-      <div id="drift-card" tabindex="0" role="button"></div>
-    </div>
-    <p id="drift-edge" hidden></p>
-    <p id="drift-hint"></p>
-  </main>`;
+// THE REAL MARKUP, read off disk. This was a hand-copied fixture and it went
+// stale the moment the DOM changed — every controller test failed at once for a
+// reason that had nothing to do with the controller. Reading public/drift/index.html
+// means the tests exercise the page that actually ships, and a markup change
+// that breaks the controller fails HERE rather than in production.
+// Path relative to the repo root, not import.meta.url: under the jsdom
+// environment import.meta.url is the vite-served URL, not a file: one, and
+// readFileSync rejects it.
+const MARKUP = readFileSync("public/drift/index.html", "utf8")
+  .replace(/[\s\S]*<body[^>]*>/, "")
+  .replace(/<script[\s\S]*/, "");
 
 function served(text: string, coords: number[], seedDist = 0.4) {
   return { text, tier: 1, alt: 0, seedDist, coords };
