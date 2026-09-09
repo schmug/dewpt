@@ -28,7 +28,7 @@
     "playwright": "^1.62.1",
     "tsx": "^4",
     "typescript": "^5",
-    "vitest": "^3",
+    "vitest": "^4",
     "wrangler": "^4"
   }
 }
