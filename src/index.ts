@@ -6,6 +6,7 @@ import { aiMode, selectBudgetedAiRunner } from "./ai-runner";
 import { type AdmissionKind, type AdmissionResult } from "./abuse-control";
 import { AiBudgetExceededError } from "./ai-budget";
 import { parsePoleTerms } from "./axis-core";
+import { parseBridgeBody, parseGroundOp, parseProspectBody } from "./ground-core";
 import { BUCKET_KEYS, MAX_AXES, MAX_POLE_TERM_CHARS, type BucketKey, type DewptParams, type Tier } from "./types";
 import { isBeltSpeed, type BeltSpeed } from "./board/types";
 
@@ -367,6 +368,56 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
       );
     }
     return json({ error: `at most ${MAX_AXES} axes`, axes: result.axes }, 409);
+  }
+
+  // ── the ground (/ground/) ─────────────────────────────────────────────────
+  // Every ground response goes through assertNoEmbeddings: the ground ranks by
+  // embedding server-side, and nothing of that may reach the wire.
+  const groundJson = (data: unknown, status = 200) => {
+    assertNoEmbeddings(data, "ground response");
+    return json(data, status);
+  };
+
+  if (rest === "/ground" && method === "GET") {
+    const view = await stub.groundView();
+    return view ? groundJson(view) : json({ error: "no such session" }, 404);
+  }
+
+  if (rest === "/ground/op" && method === "POST") {
+    const op = parseGroundOp(await readBody(request));
+    if (!op) return badRequest("expected {op: move, text, x, y} or {op: thread|unthread, a, b}");
+    const result = await stub.groundOp(op);
+    if (!result) return json({ error: "no such session" }, 404);
+    if (!result.ok) return groundJson({ error: result.reason, ...result.view }, 409);
+    return groundJson(result.view);
+  }
+
+  if (rest === "/ground/prospect" && method === "POST") {
+    const body = parseProspectBody(await readBody(request));
+    if (!body) return badRequest("expected {x, y} as finite numbers");
+    const drawn = await stub.groundProspect(body.x, body.y, body.visible);
+    return drawn ? groundJson(drawn) : json({ error: "no such session" }, 404);
+  }
+
+  if (rest === "/ground/bridge" && method === "POST") {
+    const body = parseBridgeBody(await readBody(request));
+    if (!body) return badRequest("expected {a, b}: two different words on the ground");
+    const drawn = await stub.groundBridge(body.a, body.b, body.visible);
+    if (drawn === null) return json({ error: "no such session" }, 404);
+    if (drawn === "no-thread") return json({ error: "no thread between those words" }, 409);
+    return groundJson(drawn);
+  }
+
+  if (rest === "/ground.excalidraw" && method === "GET") {
+    const file = await stub.groundExport();
+    if (!file) return json({ error: "no such session" }, 404);
+    assertNoEmbeddings(file, "ground export");
+    return new Response(JSON.stringify(file, null, 2), {
+      headers: {
+        "content-type": "application/json",
+        "content-disposition": `attachment; filename="dewpt-ground-${id.slice(0, 8)}.excalidraw"`,
+      },
+    });
   }
 
   const axisMatch = rest.match(/^\/axes\/([^/]+)$/);

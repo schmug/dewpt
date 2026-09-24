@@ -7,6 +7,21 @@ import { DurableObject } from "cloudflare:workers";
 import { axisFromRow, axisToRow, isDegeneratePole } from "./axis-core";
 import { selectBudgetedAiRunner } from "./ai-runner";
 import { embedTexts, expandPole, generateCandidates, type AiRunner } from "./generation";
+import {
+  applyGroundOp,
+  decodeScene,
+  groundKey,
+  planBridge,
+  planProspect,
+  planScore,
+  pruneToAnchors,
+  toExcalidrawScene,
+  BRIDGE_COUNT,
+  PROSPECT_COUNT,
+  type DrawPlan,
+  type GroundOp,
+  type GroundScene,
+} from "./ground-core";
 import { PoolCore } from "./pool-core";
 import {
   ALT_ABSTRACTION,
@@ -202,6 +217,88 @@ export class SessionDO extends DurableObject<Env> {
     const result = this.core.restore(text);
     this.persistEvaporated();
     return result;
+  }
+
+  // ---- ground -------------------------------------------------------------
+  // The surface under the weather (src/ground-core.ts). Stored as one JSON blob
+  // in `meta` — a scene is a few dozen words, and meta already exists, so the
+  // ground needs no schema change. Every read and write goes through
+  // pruneToAnchors: the ground can only ever hold what `anchors` holds.
+
+  async groundView(): Promise<GroundView | null> {
+    if (!this.meta) return null;
+    return this.groundViewOf(this.groundScene());
+  }
+
+  async groundOp(op: GroundOp): Promise<{ ok: boolean; reason?: string; view: GroundView } | null> {
+    if (!this.meta) return null;
+    const result = applyGroundOp(this.groundScene(), op);
+    if (result.ok) this.putMeta("ground", JSON.stringify(result.scene));
+    return { ok: result.ok, reason: result.reason, view: this.groundViewOf(result.scene) };
+  }
+
+  /** Prospect on the ground at (x, y). Served by RE-RANKING the pool — no AI
+   *  call on this path, so it answers as fast as a draw. The pump tops up behind
+   *  it exactly as it does after a field draw. */
+  async groundProspect(x: number, y: number, visible: string[]): Promise<GroundDraw | null> {
+    if (!this.meta) return null;
+    const scene = this.groundScene();
+    return this.serveGroundPlan(planProspect(scene, this.core.anchors(), x, y), PROSPECT_COUNT, visible);
+  }
+
+  /** Condense along a thread: words that sit near BOTH ends. Null plan means
+   *  there is no such thread (the route answers 409). */
+  async groundBridge(a: string, b: string, visible: string[]): Promise<GroundDraw | "no-thread" | null> {
+    if (!this.meta) return null;
+    const plan = planBridge(this.groundScene(), this.core.anchors(), a, b);
+    if (!plan) return "no-thread";
+    return this.serveGroundPlan(plan, BRIDGE_COUNT, visible);
+  }
+
+  async groundExport(): Promise<Record<string, unknown> | null> {
+    if (!this.meta) return null;
+    return toExcalidrawScene(this.groundScene(), this.meta.seed, Date.now());
+  }
+
+  private groundScene(): GroundScene {
+    const row = this.ctx.storage.sql
+      .exec<{ value: string }>("SELECT value FROM meta WHERE key = 'ground'")
+      .toArray()[0];
+    return pruneToAnchors(decodeScene(row?.value), this.core.anchors());
+  }
+
+  private groundViewOf(scene: GroundScene): GroundView {
+    return {
+      seed: this.meta!.seed,
+      scene,
+      evaporated: this.core.evaporated().map((e) => ({ text: e.text, tier: e.tier })),
+    };
+  }
+
+  private async serveGroundPlan(plan: DrawPlan, count: number, visible: string[]): Promise<GroundDraw> {
+    const skip = new Set(visible.map(groundKey));
+    const served = this.core.drawRanked(planScore(plan, Math.random), count, Date.now(), skip);
+    this.consumeServed(served.map((s) => s.text));
+    if (this.core.genPlan(Date.now())) await this.ensurePump(0);
+    return {
+      mode: plan.mode,
+      basis: plan.basis,
+      condensed: served.map((s) => ({ text: s.text, tier: s.tier })),
+    };
+  }
+
+  /** The storage half of a draw, for the ground's ranked draws. Mirrors the SQL
+   *  in drawPool, which is left untouched so the field's path cannot change. */
+  private consumeServed(texts: string[]): void {
+    if (texts.length === 0) return;
+    this.ctx.storage.sql.exec(`DELETE FROM pool WHERE text IN (${texts.map(() => "?").join(",")})`, ...texts);
+    const now = Date.now();
+    for (const text of texts) {
+      this.ctx.storage.sql.exec("INSERT OR REPLACE INTO exclude (text, served_at) VALUES (?, ?)", text, now);
+    }
+    this.ctx.storage.sql.exec(
+      "DELETE FROM exclude WHERE text NOT IN (SELECT text FROM exclude ORDER BY served_at DESC, rowid DESC LIMIT 300)",
+    );
   }
 
   /** Create an axis from two pole terms. Expands each term to a descriptive
@@ -627,4 +724,18 @@ export class SessionDO extends DurableObject<Env> {
       depths: this.core.depths(),
     };
   }
+}
+
+export interface GroundView {
+  seed: string;
+  scene: GroundScene;
+  evaporated: { text: string; tier: Tier }[];
+}
+
+export interface GroundDraw {
+  mode: DrawPlan["mode"];
+  /** The pinned words the draw was conditioned on — shown to the user, so the
+   *  ground says what it listened to. */
+  basis: string[];
+  condensed: { text: string; tier: Tier }[];
 }

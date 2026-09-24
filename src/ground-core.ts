@@ -28,7 +28,7 @@ import type { Tier } from "./types";
 /** Ground coordinate space. The client scales it to whatever rectangle it has,
  *  so positions survive a resize and mean the same thing on every device. */
 export const GROUND_W = 1200;
-export const GROUND_H = 560;
+export const GROUND_H = 420;
 
 /** UNMEASURED — a judgement call, not a result. How far (ground units) a pinned
  *  word reaches when a prospect lands near it. ~1/5 of the ground width: close
@@ -284,11 +284,11 @@ export function topK<T>(items: readonly T[], score: (item: T) => number, k: numb
 
 // ── export (M5): the ground as an Excalidraw scene ──────────────────────────
 
-/** Scene colours. Mirrors the tier/pinned palette in public/press.css so an
+/** Scene colours. Mirrors the palette in public/styles.css so an
  *  exported ground reads as dewpt when opened in Excalidraw. */
 const EXPORT_BG = "#0d0c14";
-const EXPORT_GOLD = "#e8c170";
-const EXPORT_THREAD = "#8f89b8";
+const EXPORT_GOLD = "#f0d98c"; // --pin in public/styles.css
+const EXPORT_THREAD = "#9a97b0"; // --label
 /** Excalidraw's FONT_FAMILY enum: 5 = Excalifont, 6 = Nunito. Its font set is
  *  closed (no custom families), so Fraunces cannot travel with the file;
  *  Nunito is the calmest of the eight. */
@@ -305,6 +305,16 @@ function seedFor(text: string): number {
   let h = 5381;
   for (let i = 0; i < text.length; i++) h = (Math.imul(h, 33) ^ text.charCodeAt(i)) >>> 0;
   return h % 2147483647 || 1;
+}
+
+/** Where the ray from `from` toward `to` leaves a box of half-size (hw, hh)
+ *  centred on `from`. */
+export function edgePoint(from: { x: number; y: number }, to: { x: number; y: number }, hw: number, hh: number): { x: number; y: number } {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (dx === 0 && dy === 0) return { ...from };
+  const t = Math.min(dx === 0 ? Infinity : hw / Math.abs(dx), dy === 0 ? Infinity : hh / Math.abs(dy));
+  return { x: from.x + dx * Math.min(1, t), y: from.y + dy * Math.min(1, t) };
 }
 
 /** An `.excalidraw` file (schema version 2) for the ground: one text element per
@@ -365,8 +375,12 @@ export function toExcalidrawScene(scene: GroundScene, seed: string, now = 0): Re
     const a = byKey.get(groundKey(t.a))!;
     const b = byKey.get(groundKey(t.b))!;
     const sa = size(a), sb = size(b);
-    const x0 = a.x + sa.width / 2, y0 = a.y + sa.height / 2;
-    const x1 = b.x + sb.width / 2, y1 = b.y + sb.height / 2;
+    // Centre to centre, then pulled back to each box's edge so the thread
+    // meets the word rather than striking through it.
+    const ca = { x: a.x + sa.width / 2, y: a.y + sa.height / 2 };
+    const cb = { x: b.x + sb.width / 2, y: b.y + sb.height / 2 };
+    const { x: x0, y: y0 } = edgePoint(ca, cb, sa.width / 2 + 6, sa.height / 2 + 6);
+    const { x: x1, y: y1 } = edgePoint(cb, ca, sb.width / 2 + 6, sb.height / 2 + 6);
     return {
       ...base,
       id: threadIds[i]!,
@@ -400,4 +414,91 @@ export function toExcalidrawScene(scene: GroundScene, seed: string, now = 0): Re
     appState: { viewBackgroundColor: EXPORT_BG, gridSize: null },
     files: {},
   };
+}
+
+// ── plans: what the DO should draw for a gesture ────────────────────────────
+// The DO executes these; deciding lives here so it is tested without a DO.
+
+export interface AnchorWithEmbedding extends AnchorLike {
+  embedding: number[] | null;
+}
+
+export type DrawPlan =
+  /** Rank the pool by closeness to the query built from these pinned words. */
+  | { mode: "near"; query: number[]; basis: string[] }
+  /** Rank by min affinity to both ends of a thread. */
+  | { mode: "bridge"; a: number[]; b: number[]; basis: [string, string] }
+  /** Nothing pinned nearby (or not embedded yet): condense from open sky,
+   *  slightly stranger than the ambient rate, as the field's prospect does. */
+  | { mode: "open"; basis: string[] };
+
+function embeddingOf(anchors: readonly AnchorWithEmbedding[], text: string): number[] | null {
+  const a = anchors.find((x) => groundKey(x.text) === groundKey(text));
+  return a?.embedding && a.embedding.length > 0 ? a.embedding : null;
+}
+
+export function planProspect(scene: GroundScene, anchors: readonly AnchorWithEmbedding[], x: number, y: number): DrawPlan {
+  const near = neighborhood(scene, x, y);
+  const query = queryVector(near.map((n) => ({ embedding: embeddingOf(anchors, n.text), weight: n.weight })));
+  if (!query) return { mode: "open", basis: [] };
+  return { mode: "near", query, basis: near.filter((n) => embeddingOf(anchors, n.text)).map((n) => n.text) };
+}
+
+export function planBridge(scene: GroundScene, anchors: readonly AnchorWithEmbedding[], a: string, b: string): DrawPlan | null {
+  const threaded = scene.threads.some(
+    (t) =>
+      (groundKey(t.a) === groundKey(a) && groundKey(t.b) === groundKey(b)) ||
+      (groundKey(t.a) === groundKey(b) && groundKey(t.b) === groundKey(a)),
+  );
+  if (!threaded) return null;
+  const ea = embeddingOf(anchors, a);
+  const eb = embeddingOf(anchors, b);
+  if (!ea || !eb) return { mode: "open", basis: [] };
+  return { mode: "bridge", a: ea, b: eb, basis: [a, b] };
+}
+
+/** Open-sky score: stranger first (higher seed distance), with a little
+ *  jitter so two open prospects do not condense the same five words. */
+export function openScore(rand: () => number): (seedDist: number) => number {
+  return (seedDist) => seedDist + rand() * 0.15;
+}
+
+export function planScore(plan: DrawPlan, rand: () => number): (c: { embedding: number[]; seedDist: number }) => number {
+  if (plan.mode === "near") {
+    const s = nearScore(plan.query);
+    return (c) => s(c.embedding);
+  }
+  if (plan.mode === "bridge") {
+    const s = bridgeScore(plan.a, plan.b);
+    return (c) => s(c.embedding);
+  }
+  const s = openScore(rand);
+  return (c) => s(c.seedDist);
+}
+
+// ── request bodies (untrusted) ──────────────────────────────────────────────
+
+const MAX_VISIBLE = 40;
+
+function parseVisible(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((t): t is string => typeof t === "string" && t.length <= MAX_OP_TEXT).slice(0, MAX_VISIBLE);
+}
+
+/** `{x, y, visible?}` — visible is what the client already shows, so the
+ *  draw does not condense a duplicate beside its twin. */
+export function parseProspectBody(raw: unknown): { x: number; y: number; visible: string[] } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.x !== "number" || typeof r.y !== "number" || !Number.isFinite(r.x) || !Number.isFinite(r.y)) return null;
+  const p = clampPoint(r.x, r.y);
+  return { ...p, visible: parseVisible(r.visible) };
+}
+
+export function parseBridgeBody(raw: unknown): { a: string; b: string; visible: string[] } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const op = parseGroundOp({ op: "thread", a: r.a, b: r.b });
+  if (!op || op.op !== "thread") return null;
+  return { a: op.a, b: op.b, visible: parseVisible(r.visible) };
 }

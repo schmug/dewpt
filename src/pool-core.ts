@@ -135,6 +135,42 @@ export class PoolCore {
     }));
   }
 
+  /** Serve the `count` best candidates across EVERY bucket by `score`, highest
+   *  first, skipping any whose normalised text is in `skip`. Same contract as
+   *  draw(): never blocks, never generates, consumes what it serves and notes it
+   *  in the exclude LRU. Freshness is ignored on purpose — a stale candidate is
+   *  still a real word, and the ground ranks by meaning, not by age. Ties keep
+   *  pool order so a ranking is reproducible. Added for the ground
+   *  (src/ground-core.ts); draw() is untouched. */
+  drawRanked(score: (c: Candidate) => number, count: number, now: number, skip: ReadonlySet<string> = new Set()): Served[] {
+    const all: { c: Candidate; s: number; i: number }[] = [];
+    let i = 0;
+    for (const bucket of BUCKET_KEYS) {
+      for (const c of this.buckets.get(bucket)!) {
+        const idx = i++;
+        if (skip.has(norm(c.text))) continue;
+        const s = score(c);
+        if (Number.isFinite(s)) all.push({ c, s, i: idx });
+      }
+    }
+    all.sort((p, q) => q.s - p.s || p.i - q.i);
+    const picked = all.slice(0, Math.max(0, count)).map((p) => p.c);
+    const pickedSet = new Set(picked);
+    for (const bucket of BUCKET_KEYS) {
+      const pool = this.buckets.get(bucket)!;
+      if (pool.some((c) => pickedSet.has(c))) this.buckets.set(bucket, pool.filter((c) => !pickedSet.has(c)));
+    }
+    for (const c of picked) this.noteServed(c.text, now);
+    const axisVecs = this.readyAxisVectors();
+    return picked.map((c) => ({
+      text: c.text,
+      tier: bucketTier(c.bucket),
+      alt: bucketAlt(c.bucket),
+      seedDist: c.seedDist,
+      coords: coordsFor(c.embedding, axisVecs),
+    }));
+  }
+
   depths(): Record<BucketKey, { total: number; fresh: number }> {
     const out = {} as Record<BucketKey, { total: number; fresh: number }>;
     for (const key of BUCKET_KEYS) {

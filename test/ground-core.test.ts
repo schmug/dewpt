@@ -232,3 +232,62 @@ describe("toExcalidrawScene — M5 export", () => {
     expect(groundKey(t.text as string)).toBe("</script><b>x</b>");
   });
 });
+
+import { edgePoint, openScore, parseBridgeBody, parseProspectBody, planBridge, planProspect, planScore } from "../src/ground-core";
+
+describe("planProspect / planBridge", () => {
+  const s = scene([["night bus", 100, 100], ["last train", 160, 110], ["fare capping", 900, 400]], [["night bus", "fare capping"]]);
+  const emb = (text: string, embedding: number[] | null) => ({ text, tier: 1 as const, embedding });
+  const anchorsE = [emb("night bus", [1, 0, 0]), emb("last train", [0.8, 0.2, 0]), emb("fare capping", [0, 0, 1])];
+
+  it("near a cluster, the query is built from that cluster only", () => {
+    const plan = planProspect(s, anchorsE, 120, 100);
+    expect(plan.mode).toBe("near");
+    if (plan.mode !== "near") return;
+    expect(plan.basis).toEqual(["night bus", "last train"]);
+    expect(plan.query[2]).toBeCloseTo(0);
+  });
+
+  it("on open ground, or when nearby anchors are not embedded yet, falls back to open sky", () => {
+    expect(planProspect(s, anchorsE, 600, 20).mode).toBe("open");
+    expect(planProspect(s, [emb("night bus", null), emb("last train", null)], 120, 100).mode).toBe("open");
+  });
+
+  it("a bridge needs an existing thread", () => {
+    expect(planBridge(s, anchorsE, "night bus", "last train")).toBeNull();
+    const plan = planBridge(s, anchorsE, "Fare Capping", "night bus");
+    expect(plan?.mode).toBe("bridge");
+  });
+
+  it("planScore routes each mode to its score", () => {
+    const near = planScore({ mode: "near", query: [1, 0], basis: [] }, () => 0);
+    expect(near({ embedding: [1, 0], seedDist: 0 })).toBeCloseTo(1);
+    const bridge = planScore({ mode: "bridge", a: [1, 0], b: [0, 1], basis: ["a", "b"] }, () => 0);
+    expect(bridge({ embedding: [1, 1], seedDist: 0 })).toBeGreaterThan(bridge({ embedding: [1, 0], seedDist: 0 }));
+    const open = planScore({ mode: "open", basis: [] }, () => 0);
+    expect(open({ embedding: [], seedDist: 0.7 })).toBeCloseTo(0.7);
+    expect(openScore(() => 1)(0.5)).toBeCloseTo(0.65);
+  });
+});
+
+describe("request bodies", () => {
+  it("prospect clamps and caps visible", () => {
+    const b = parseProspectBody({ x: -5, y: 1e9, visible: [...Array(60)].map((_, i) => `w${i}`).concat([7 as never]) });
+    expect(b).toMatchObject({ x: 0, y: GROUND_H });
+    expect(b!.visible).toHaveLength(40);
+    expect(parseProspectBody({ x: NaN, y: 1 })).toBeNull();
+    expect(parseProspectBody(null)).toBeNull();
+  });
+  it("bridge needs two different words", () => {
+    expect(parseBridgeBody({ a: "x", b: "y" })).toEqual({ a: "x", b: "y", visible: [] });
+    expect(parseBridgeBody({ a: "x", b: "X" })).toBeNull();
+  });
+});
+
+describe("edgePoint", () => {
+  it("leaves a box through its side for a horizontal ray and its top for a vertical one", () => {
+    expect(edgePoint({ x: 0, y: 0 }, { x: 100, y: 0 }, 20, 10)).toEqual({ x: 20, y: 0 });
+    expect(edgePoint({ x: 0, y: 0 }, { x: 0, y: -100 }, 20, 10)).toEqual({ x: 0, y: -10 });
+    expect(edgePoint({ x: 5, y: 5 }, { x: 5, y: 5 }, 20, 10)).toEqual({ x: 5, y: 5 });
+  });
+});

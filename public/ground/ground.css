@@ -1,0 +1,332 @@
+/* ground — weather above, ground below.
+ *
+ * Same palette, faces and tier language as the field (public/styles.css), in
+ * Press's grammar: a printed ground, hairline architecture, marks where rules
+ * cross, square corners, one hoarded accent. The accent is gold and it means
+ * one thing everywhere on this page: pinned. The ground is the only place gold
+ * accumulates. */
+
+:root {
+  --night: #0d0c14;          /* sky; --press-ground in styles.css */
+  --soil: #12111c;           /* ground: a half-step warmer and lighter than the sky */
+  --paper: #dcdeea;
+  --label: #9a97b0;
+  --hair: rgb(232 233 240 / 0.14);
+  --hair-strong: rgb(232 233 240 / 0.28);
+  --t0: #dcdeea;             /* pale slate  — obvious */
+  --t1: #cdc7dd;             /* lilac       — adjacent */
+  --t2: #e0c8bc;             /* warm ember  — far field */
+  --pin: #f0d98c;            /* gold        — pinned, and nothing else */
+  --display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --text: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --gutter: clamp(16px, 4vw, 48px);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--night); color-scheme: dark; }
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--night);
+  color: var(--paper);
+  font-family: var(--text);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow-x: hidden;
+}
+
+.label {
+  font-family: var(--text);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+a.label { text-decoration: none; }
+a.label:hover, a.label:focus-visible { color: var(--paper); }
+:focus-visible { outline: 2px solid var(--pin); outline-offset: 3px; }
+
+/* ── header ─────────────────────────────────────────────────────────────── */
+.bar {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  padding: 22px var(--gutter) 14px;
+  flex-wrap: wrap;
+}
+.mark { font-family: var(--display); font-size: 24px; color: var(--paper); text-decoration: none; letter-spacing: -0.01em; }
+.mark i { font-style: italic; }
+.seed b { font-weight: 400; color: var(--paper); border-bottom: 1px dotted var(--label); }
+.doors { margin-left: auto; display: flex; gap: 22px; flex-wrap: wrap; }
+#exportLink { color: var(--pin); }
+
+/* ── stage ──────────────────────────────────────────────────────────────── */
+.stage {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(200px, 38fr) auto minmax(300px, 62fr);
+  margin: 0 var(--gutter);
+  border-left: 1px solid var(--hair);
+  border-right: 1px solid var(--hair);
+  min-height: 0;
+}
+
+.sky {
+  position: relative;
+  overflow: hidden;
+  min-height: 200px;
+}
+
+/* the horizon: a hairline with a cross at each end, and — before a seed — the
+   seed input sitting on it */
+.horizon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 48px;
+  padding: 0 18px;
+  border-top: 1px solid var(--hair-strong);
+}
+.cross {
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  width: 9px;
+  height: 9px;
+}
+.cross.right { left: auto; right: -5px; }
+.cross::before, .cross::after {
+  content: "";
+  position: absolute;
+  background: var(--paper);
+  opacity: 0.7;
+}
+.cross::before { left: 4px; top: 0; width: 1px; height: 9px; }
+.cross::after { top: 4px; left: 0; height: 1px; width: 9px; }
+.dewline { margin-left: auto; }
+
+.seed-form { display: flex; align-items: baseline; gap: 14px; width: 100%; padding: 12px 0; }
+.seed-form input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--hair-strong);
+  color: var(--paper);
+  font-family: var(--display);
+  font-size: clamp(20px, 2.4vw, 30px);
+  font-style: italic;
+  padding: 4px 0 6px;
+}
+.seed-form input::placeholder { color: #5f5c78; }
+.seed-form input:focus-visible { outline: none; border-bottom-color: var(--pin); }
+.seed-form button {
+  background: transparent;
+  border: 1px solid var(--hair-strong);
+  color: var(--paper);
+  padding: 10px 16px;
+  min-height: 44px;
+  cursor: pointer;
+  border-radius: 0;
+}
+.seed-form button:hover { border-color: var(--paper); }
+
+/* ── ground ─────────────────────────────────────────────────────────────── */
+.ground-wrap {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--soil);
+  border-top: 1px solid var(--hair);
+  border-bottom: 1px solid var(--hair);
+}
+.ground {
+  position: relative;
+  /* sparse printed dots: the ground is a surface, the sky is not */
+  background-image: radial-gradient(circle at 1px 1px, rgb(232 233 240 / 0.07) 1px, transparent 1.4px);
+  background-size: 28px 28px;
+  cursor: crosshair;
+  touch-action: pan-x;
+}
+.ground:focus-visible { outline-offset: -3px; }
+.ground-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 18px;
+  color: #6c6987;
+  pointer-events: none;
+}
+
+.threads { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.threads line { stroke: var(--label); stroke-width: 1; stroke-dasharray: 3 5; opacity: 0.8; }
+.threads line.pending { stroke: var(--pin); opacity: 0.6; }
+
+/* the bridge mark: Press's four-pointed cross, at a thread's midpoint. It is
+   the button that asks "what connects these two?" */
+.bridge {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.bridge::before, .bridge::after { content: ""; position: absolute; background: var(--paper); opacity: 0.75; transition: background 0.3s var(--ease), transform 0.3s var(--ease); }
+.bridge::before { left: 13px; top: 4px; width: 1px; height: 20px; }
+.bridge::after { top: 13px; left: 4px; height: 1px; width: 20px; }
+.bridge:hover::before, .bridge:hover::after, .bridge:focus-visible::before, .bridge:focus-visible::after { background: var(--pin); opacity: 1; }
+
+/* pinned words: gold, upright, the dotted underline the field uses for pins */
+.gword {
+  position: absolute;
+  font-family: var(--display);
+  font-size: 19px;
+  line-height: 1.2;
+  color: var(--pin);
+  white-space: nowrap;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  padding: 4px 6px 3px;
+  margin: -4px -6px;
+  /* the field's dotted pin underline, drawn as a border so it stays inside the
+     box and moves with it (a text-decoration underline offset below the box
+     left paint trails behind a drag) */
+  border: 1px solid transparent;
+  border-bottom: 1px dotted rgb(240 217 140 / 0.6);
+  background: transparent;
+  transition: border-color 0.3s var(--ease);
+}
+.gword.dragging { cursor: grabbing; }
+.gword.selected { border-color: rgb(240 217 140 / 0.45); border-bottom-style: solid; }
+.gword.thread-source { border-color: var(--pin); }
+.gword.landing { animation: land 0.8s var(--ease); }
+@keyframes land { from { opacity: 0; transform: translateY(-18px); } to { opacity: 1; transform: none; } }
+
+/* ephemeral words — sky and dew share the tier colours */
+.vapor {
+  position: absolute;
+  font-family: var(--display);
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 1.5s ease, transform 9s linear, filter 0.3s;
+  user-select: none;
+}
+.vapor.t0 { color: var(--t0); }
+.vapor.t1 { color: var(--t1); font-style: italic; }
+.vapor.t2 { color: var(--t2); font-style: italic; }
+.vapor:hover { filter: none !important; }
+.vapor.leaving { opacity: 0 !important; transition: opacity 1.2s ease; }
+
+/* dew: condensed on the ground by a gesture. Smaller, closer, a hairline tick
+   beneath it like a bead on a surface. */
+.dew { font-size: 17px; padding: 2px 0 5px; }
+.dew::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.25;
+}
+
+/* the falling word: sky → ground on pin */
+.falling { transition: transform 0.9s var(--ease), opacity 0.9s var(--ease) !important; z-index: 3; }
+
+/* prospect pulse — a ring on the ground, square-cornered sibling of the field's */
+.pulse {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 1px solid var(--paper);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: pulse 1.1s var(--ease) forwards;
+}
+@keyframes pulse { from { transform: scale(0.4); opacity: 0.8; } to { transform: scale(7); opacity: 0; } }
+
+/* "what the ground listened to", printed next to the gesture */
+.basis {
+  position: absolute;
+  font-family: var(--text);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--label);
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 1.2s ease;
+}
+
+/* the selected-word menu: two text buttons on a hairline, no card, no shadow */
+.menu {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  gap: 0;
+  border-top: 1px solid var(--pin);
+  background: var(--soil);
+}
+.menu[hidden] { display: none; }
+.menu button {
+  background: transparent;
+  border: 0;
+  padding: 10px 12px;
+  min-height: 44px;
+  cursor: pointer;
+  color: var(--paper);
+  border-radius: 0;
+}
+.menu button:hover { color: var(--pin); }
+
+/* ── footer ─────────────────────────────────────────────────────────────── */
+.foot { padding: 12px var(--gutter) 22px; display: grid; gap: 10px; }
+.hint { margin: 0; font-size: 13px; color: var(--label); min-height: 1.4em; }
+.hint b { color: var(--paper); font-weight: 400; }
+.evaporated { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.evaporated ul { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; }
+.evaporated button {
+  background: transparent;
+  border: 0;
+  padding: 6px 0;
+  min-height: 32px;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 15px;
+  color: #8d8aa6;
+  cursor: pointer;
+}
+.evaporated button:hover { color: var(--paper); }
+
+/* ── small screens: the ground is wider than a phone; swipe it ──────────── */
+@media (max-width: 720px) {
+  .bar { gap: 10px 14px; padding-top: 16px; }
+  .doors { margin-left: 0; width: 100%; gap: 16px; }
+  .stage { grid-template-rows: minmax(180px, 32dvh) auto minmax(320px, 1fr); }
+  .gword { font-size: 17px; }
+  .seed-form { flex-wrap: wrap; }
+  .seed-form label { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vapor { transition: opacity 1.5s ease; }
+  .gword.landing { animation: fade 0.6s ease; }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  .pulse { animation: fade-out 0.8s ease forwards; }
+  @keyframes fade-out { from { opacity: 0.8; } to { opacity: 0; } }
+  .falling { transition: opacity 0.6s ease !important; }
+}

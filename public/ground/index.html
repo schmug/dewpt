@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>dewpt — ground</title>
+<meta name="description" content="Weather above, ground below. Words condense and evaporate in the sky; what you pin lands on the ground, where you arrange it, and where you stand on the ground is what condenses next.">
+<meta name="theme-color" content="#0d0c14">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Space+Grotesk:wght@300..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/ground/ground.css">
+</head>
+<body>
+<header class="bar">
+  <a class="mark" href="/">dew<i>pt</i></a>
+  <span class="label place">ground</span>
+  <span class="label seed" id="seedLabel" hidden>seed <b id="seedText"></b></span>
+  <nav class="doors" aria-label="other surfaces">
+    <a class="label" href="/">night walk</a>
+    <a class="label" id="fieldDoor" href="/app/">the field</a>
+    <a class="label" href="/drift/">drift</a>
+    <a class="label" id="exportLink" href="#" download hidden>export .excalidraw</a>
+  </nav>
+</header>
+
+<main class="stage" id="stage">
+  <section class="sky" id="sky" aria-label="sky — words condense and evaporate here; click one to pin it to the ground"></section>
+
+  <div class="horizon" id="horizon">
+    <span class="cross" aria-hidden="true"></span>
+    <form class="seed-form" id="seedForm" autocomplete="off">
+      <label class="label" for="seedInput">seed the weather</label>
+      <input id="seedInput" name="seed" maxlength="200" placeholder="a topic, a question, a half-thought" required>
+      <button type="submit" class="label">condense</button>
+    </form>
+    <span class="label dewline" id="dewline" hidden>dew line</span>
+    <span class="cross right" aria-hidden="true"></span>
+  </div>
+
+  <section class="ground-wrap" id="groundWrap">
+    <div class="ground" id="ground" role="application" aria-label="ground — your pinned words. Drag to arrange. Click open ground beside them to condense dew from what is nearby." tabindex="0">
+      <svg class="threads" id="threads" aria-hidden="true"></svg>
+      <p class="ground-empty" id="groundEmpty">the ground keeps only what you pin.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <p class="hint" id="hint" aria-live="polite"></p>
+  <div class="evaporated">
+    <span class="label">evaporated</span>
+    <ul id="evaporated" aria-label="evaporated words — click one to condense it again"></ul>
+  </div>
+</footer>
+
+<div class="menu" id="menu" role="menu" hidden>
+  <button type="button" class="label" role="menuitem" data-act="thread">thread to…</button>
+  <button type="button" class="label" role="menuitem" data-act="release">release</button>
+</div>
+
+<script type="module" src="/ground/ground.js"></script>
+</body>
+</html>
