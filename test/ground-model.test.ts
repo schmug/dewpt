@@ -9,8 +9,10 @@ type Pt = { x: number; y: number };
 type Box = Pt & { w: number; h: number };
 const {
   CAP, GROUND_H, GROUND_W, bucketOrder, dewSpots, wordWidth, groundScale, landingSpot, normKey, room, skyToRetire,
-  tierWeights, toGround, toScreen, ttl,
+  tierWeights, toGround, toScreen, ttl, makeRoom, edgePoint,
 } = groundModelUntyped as {
+  makeRoom: (n: { skyLive: number; dewLive: number; fading: number }, incoming: number) => { accept: number; retireSky: number; retireDew: number };
+  edgePoint: (from: Pt, to: Pt, hw: number, hh: number) => Pt;
   CAP: number;
   GROUND_H: number;
   GROUND_W: number;
@@ -46,6 +48,38 @@ describe("CAP is shared by sky and dew", () => {
   it("dew retires just enough sky words to fit", () => {
     expect(skyToRetire(12, 0, 5)).toBe(3);
     expect(skyToRetire(4, 2, 5)).toBe(0);
+  });
+});
+
+describe("makeRoom — the whole CAP budget for a burst of dew", () => {
+  it("never lets sky + dew + fading + accepted exceed CAP, for any mix", () => {
+    for (let skyLive = 0; skyLive <= CAP; skyLive++)
+      for (let dewLive = 0; dewLive <= CAP - skyLive; dewLive++)
+        for (let fading = 0; fading <= CAP - skyLive - dewLive; fading++)
+          for (const incoming of [0, 1, 3, 5, 20]) {
+            const r = makeRoom({ skyLive, dewLive, fading }, incoming);
+            expect(skyLive - r.retireSky + dewLive - r.retireDew + fading + r.accept).toBeLessThanOrEqual(CAP);
+            expect(r.retireSky).toBeLessThanOrEqual(skyLive);
+            expect(r.retireDew).toBeLessThanOrEqual(dewLive);
+            expect(r.accept).toBeLessThanOrEqual(incoming);
+          }
+  });
+  it("retires sky before dew, and accepts the whole burst when it can", () => {
+    expect(makeRoom({ skyLive: 10, dewLive: 4, fading: 0 }, 5)).toEqual({ accept: 5, retireSky: 5, retireDew: 0 });
+    expect(makeRoom({ skyLive: 0, dewLive: 14, fading: 0 }, 5)).toEqual({ accept: 5, retireSky: 0, retireDew: 5 });
+  });
+  it("words still fading shrink what can be accepted — they are still on screen", () => {
+    expect(makeRoom({ skyLive: 0, dewLive: 0, fading: 12 }, 5).accept).toBe(2);
+    expect(makeRoom({ skyLive: 0, dewLive: 0, fading: 14 }, 5).accept).toBe(0);
+  });
+});
+
+describe("edgePoint mirrors the server", () => {
+  it("matches src/ground-core.ts edgePoint", async () => {
+    const { edgePoint: serverEdge } = await import("../src/ground-core");
+    for (const [a, b] of [[{ x: 0, y: 0 }, { x: 100, y: 7 }], [{ x: 5, y: 5 }, { x: -40, y: 90 }]] as [Pt, Pt][]) {
+      expect(edgePoint(a, b, 30, 12)).toEqual(serverEdge(a, b, 30, 12));
+    }
   });
 });
 

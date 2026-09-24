@@ -125,31 +125,52 @@ export function meanJaccard(sets: readonly (readonly number[])[]): number {
 }
 
 // ── pre-registered verdict ──────────────────────────────────────────────────
-// Fixed BEFORE the first real run (2026-09-24). Do not tune after seeing data;
-// change them only in a commit that says so and why.
+// Fixed BEFORE the first real run. First registered 2026-09-24 (cc3b7f6);
+// REVISED the same day, still before any real run, after a fresh-context
+// review found (1) the random-words control could not fail by construction and
+// (2) the bridge trial had no arm that would expose a generic hub word. Do not
+// tune after seeing data; change these only in a commit that says so and why.
 
 export const PASS = {
-  /** Attribution: correct group for >= 11 of 18 steered trials. Chance is 1/3;
-   *  P(X >= 11 | n=18, p=1/3) ~ 0.012. */
+  /** Attribution: correct group for >= 11 of 18 steered trials, three groups
+   *  shown. P(X >= 11 | n=18, p=1/3) = 0.0144. */
   attributeMin: 11,
   attributeN: 18,
-  /** Bridge: the bridge-ranked phrase chosen in >= 10 of 18 three-way trials.
-   *  Chance is 1/3; P(X >= 10 | n=18) ~ 0.033. */
-  bridgeMin: 10,
+  /** Bridge: four options (bridge, hub, near-X, near-Y); the bridge must be
+   *  chosen in >= 9 of 18 trials — P(X >= 9 | n=18, p=1/4) = 0.0193 — AND
+   *  strictly more often than the hub, so a pass cannot be a generic central
+   *  word winning because min-cosine favours central words. */
+  bridgeMin: 9,
   bridgeN: 18,
-  /** Hubness: mean top-10 Jaccard between clusters of one seed <= 0.25. Above
-   *  that, different clusters pull substantially the same words and the ground
-   *  cannot be felt no matter what the judge says. */
+  /** Hubness: mean top-10 Jaccard between groups of one seed <= 0.25. Above
+   *  that, different clusters pull substantially the same words. */
   jaccardMax: 0.25,
+  /** Instrument validity, not a pass bar. Option order is shuffled per trial,
+   *  so chance is analytic; but a judge that answers by POSITION is not reading
+   *  the content, and its verdict means nothing either way. If any single
+   *  displayed position takes >= 12 of 18 attribution answers (p ~ 0.012 per
+   *  position under a content-blind uniform judge) or >= 10 of 18 bridge
+   *  answers (p ~ 0.005), the run is INVALID, not FAIL. */
+  positionMaxAttribute: 12,
+  positionMaxBridge: 10,
 } as const;
 
 export interface SpikeTallies {
-  attribute: { correct: number; judged: number };
-  bridge: { chosen: number; judged: number };
+  attribute: { correct: number; judged: number; byPosition: number[] };
+  bridge: { chosen: number; hub: number; judged: number; byPosition: number[] };
   jaccard: number;
 }
 
-export function verdict(t: SpikeTallies): { pass: boolean; reasons: string[] } {
+export type Verdict = { outcome: "PASS" | "FAIL" | "INVALID"; reasons: string[] };
+
+export function verdict(t: SpikeTallies): Verdict {
+  const invalid: string[] = [];
+  const maxA = Math.max(0, ...t.attribute.byPosition);
+  const maxB = Math.max(0, ...t.bridge.byPosition);
+  if (maxA >= PASS.positionMaxAttribute) invalid.push(`judge answered one attribution position ${maxA}/${PASS.attributeN} times — position-driven, not content-driven`);
+  if (maxB >= PASS.positionMaxBridge) invalid.push(`judge answered one bridge position ${maxB}/${PASS.bridgeN} times — position-driven, not content-driven`);
+  if (invalid.length) return { outcome: "INVALID", reasons: invalid };
+
   const reasons: string[] = [];
   // An unjudged trial (malformed answer twice) counts as a miss, never as a
   // pass and never dropped from the denominator — dropping it would let a
@@ -160,6 +181,17 @@ export function verdict(t: SpikeTallies): { pass: boolean; reasons: string[] } {
   if (t.bridge.chosen < PASS.bridgeMin) {
     reasons.push(`bridge ${t.bridge.chosen}/${PASS.bridgeN} < ${PASS.bridgeMin} (${PASS.bridgeN - t.bridge.judged} unjudged)`);
   }
+  if (!(t.bridge.chosen > t.bridge.hub)) reasons.push(`bridge ${t.bridge.chosen} not above hub ${t.bridge.hub}`);
   if (!(t.jaccard <= PASS.jaccardMax)) reasons.push(`top-10 jaccard ${t.jaccard.toFixed(3)} > ${PASS.jaccardMax}`);
-  return { pass: reasons.length === 0, reasons };
+  return { outcome: reasons.length === 0 ? "PASS" : "FAIL", reasons };
+}
+
+/** Mean cosine of each item to every other item — "how central is this word
+ *  in the pool". The hub arm of the bridge trial picks from the top of this. */
+export function centrality(embs: readonly number[][], cos: (a: number[], b: number[]) => number): number[] {
+  return embs.map((e, i) => {
+    let s = 0;
+    for (let j = 0; j < embs.length; j++) if (j !== i) s += cos(e, embs[j]!);
+    return embs.length > 1 ? s / (embs.length - 1) : 0;
+  });
 }

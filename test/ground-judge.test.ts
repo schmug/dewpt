@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  PASS, attributeMessages, binomTail, bridgeMessages, distinctPicks, meanJaccard, mulberry32, parsePick, shuffle, verdict,
+  PASS, attributeMessages, binomTail, bridgeMessages, centrality, distinctPicks, meanJaccard, mulberry32, parsePick, shuffle, verdict,
 } from "../scripts/ground-judge";
 
 describe("parsePick", () => {
@@ -26,8 +26,9 @@ describe("parsePick", () => {
 
 describe("binomTail", () => {
   it("matches the pre-registered p-values", () => {
-    expect(binomTail(PASS.attributeMin, PASS.attributeN, 1 / 3)).toBeLessThan(0.02);
-    expect(binomTail(PASS.bridgeMin, PASS.bridgeN, 1 / 3)).toBeLessThan(0.05);
+    // The exact values the docs quote — a doc number that drifts from these is wrong.
+    expect(binomTail(PASS.attributeMin, PASS.attributeN, 1 / 3)).toBeCloseTo(0.0144, 4);
+    expect(binomTail(PASS.bridgeMin, PASS.bridgeN, 1 / 4)).toBeCloseTo(0.0193, 4);
     expect(binomTail(0, 10, 0.5)).toBe(1);
     expect(binomTail(11, 10, 0.5)).toBe(0);
     expect(binomTail(10, 10, 0.5)).toBeCloseTo(1 / 1024, 10);
@@ -70,15 +71,36 @@ describe("shuffle", () => {
 });
 
 describe("verdict", () => {
+  const good = {
+    attribute: { correct: 11, judged: 18, byPosition: [6, 6, 6] },
+    bridge: { chosen: 9, hub: 3, judged: 18, byPosition: [5, 5, 4, 4] },
+    jaccard: 0.2,
+  };
   it("passes only when every pre-registered bar is met", () => {
-    const good = { attribute: { correct: 11, judged: 18 }, bridge: { chosen: 10, judged: 18 }, jaccard: 0.2 };
-    expect(verdict(good).pass).toBe(true);
-    expect(verdict({ ...good, jaccard: 0.26 }).pass).toBe(false);
-    expect(verdict({ ...good, bridge: { chosen: 9, judged: 18 } }).pass).toBe(false);
+    expect(verdict(good).outcome).toBe("PASS");
+    expect(verdict({ ...good, jaccard: 0.26 }).outcome).toBe("FAIL");
+    expect(verdict({ ...good, bridge: { ...good.bridge, chosen: 8 } }).outcome).toBe("FAIL");
+  });
+  it("fails a bridge that does not beat the hub, however often it is chosen", () => {
+    expect(verdict({ ...good, bridge: { ...good.bridge, chosen: 9, hub: 9 } }).outcome).toBe("FAIL");
   });
   it("counts unjudged trials as misses, never shrinking n", () => {
-    const r = verdict({ attribute: { correct: 10, judged: 12 }, bridge: { chosen: 10, judged: 18 }, jaccard: 0.1 });
-    expect(r.pass).toBe(false);
+    const r = verdict({ ...good, attribute: { correct: 10, judged: 12, byPosition: [4, 4, 4] } });
+    expect(r.outcome).toBe("FAIL");
     expect(r.reasons[0]).toContain("6 unjudged");
+  });
+  it("calls a position-driven judge INVALID rather than PASS or FAIL — it can fail", () => {
+    expect(verdict({ ...good, attribute: { ...good.attribute, byPosition: [12, 3, 3] } }).outcome).toBe("INVALID");
+    expect(verdict({ ...good, bridge: { ...good.bridge, byPosition: [10, 4, 2, 2] } }).outcome).toBe("INVALID");
+    expect(verdict({ ...good, attribute: { ...good.attribute, byPosition: [11, 4, 3] } }).outcome).toBe("PASS");
+  });
+});
+
+describe("centrality", () => {
+  it("ranks the word nearest everything highest", () => {
+    const cos = (a: number[], b: number[]) => a[0]! * b[0]! + a[1]! * b[1]!;
+    const c = centrality([[1, 0], [0, 1], [Math.SQRT1_2, Math.SQRT1_2]], cos);
+    expect(c[2]).toBeGreaterThan(c[0]!);
+    expect(c[2]).toBeGreaterThan(c[1]!);
   });
 });

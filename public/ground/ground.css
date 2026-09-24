@@ -229,6 +229,7 @@ a.label:hover, a.label:focus-visible { color: var(--paper); }
 .vapor.t2 { color: var(--t2); font-style: italic; }
 .vapor:hover { filter: none !important; }
 .vapor.leaving { opacity: 0 !important; transition: opacity 1.2s ease; }
+.vapor.leaving.fast { transition: opacity 0.25s ease; pointer-events: none; }
 
 /* dew: condensed on the ground by a gesture. Smaller, closer, a hairline tick
    beneath it like a bead on a surface. */
@@ -313,6 +314,26 @@ a.label:hover, a.label:focus-visible { color: var(--paper); }
 }
 .evaporated button:hover { color: var(--paper); }
 
+.ground-more {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  pointer-events: none;
+  color: var(--paper);
+}
+
+/* touch: reach the 44 px floor without making words look bigger — the padding
+   is invisible, the margin gives it back */
+@media (pointer: coarse) {
+  .gword { padding: 11px 8px 10px; margin: -11px -8px; }
+  .vapor { padding: 9px 6px; margin: -9px -6px; }
+  .doors a.label { padding: 14px 0; }
+  .evaporated button { min-height: 44px; }
+  .bridge { width: 44px; height: 44px; margin: -22px 0 0 -22px; }
+  .bridge::before { left: 21px; top: 12px; }
+  .bridge::after { top: 21px; left: 12px; }
+}
+
 /* ── small screens: the ground is wider than a phone; swipe it ──────────── */
 @media (max-width: 720px) {
   .bar { gap: 10px 14px; padding-top: 16px; }
@@ -321,6 +342,8 @@ a.label:hover, a.label:focus-visible { color: var(--paper); }
   .gword { font-size: 17px; }
   .seed-form { flex-wrap: wrap; }
   .seed-form label { width: 100%; }
+  /* the ground scrolls sideways, so centring puts the line off-screen */
+  .ground-empty { place-items: start; padding: 48px 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

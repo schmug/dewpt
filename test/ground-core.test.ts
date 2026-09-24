@@ -22,10 +22,10 @@ import {
 } from "../src/ground-core";
 
 const scene = (words: [string, number, number][], threads: [string, string][] = []): GroundScene => ({
-  words: words.map(([text, x, y]) => ({ text, tier: 1, x, y })),
+  words: words.map(([text, x, y]) => ({ text, tier: 1, x, y, pinnedAt: 1 })),
   threads: threads.map(([a, b]) => ({ a, b })),
 });
-const anchors = (...texts: string[]) => texts.map((text) => ({ text, tier: 2 as const }));
+const anchors = (...texts: string[]) => texts.map((text) => ({ text, tier: 2 as const, pinnedAt: 1 }));
 
 describe("pruneToAnchors — the ephemerality guard", () => {
   it("drops a word that is no longer an anchor, and every thread touching it", () => {
@@ -59,6 +59,22 @@ describe("pruneToAnchors — the ephemerality guard", () => {
   it("is idempotent — a second read agrees with the first", () => {
     const once = pruneToAnchors(scene([]), anchors("a", "b", "c", "d"));
     expect(pruneToAnchors(once, anchors("a", "b", "c", "d"))).toEqual(once);
+  });
+
+  it("a word unpinned and pinned again comes back fresh — no old position, no old threads", () => {
+    const s = scene([["a", 10, 10], ["b", 700, 300]], [["a", "b"]]);
+    const repinned = [{ text: "a", tier: 2 as const, pinnedAt: 1 }, { text: "b", tier: 2 as const, pinnedAt: 99 }];
+    const out = pruneToAnchors(s, repinned);
+    expect(out.threads).toEqual([]);
+    const b = out.words.find((w) => w.text === "b")!;
+    expect(b.pinnedAt).toBe(99);
+    expect([b.x, b.y]).not.toEqual([700, 300]);
+  });
+
+  it("drops a duplicate persisted entry for one anchor", () => {
+    const out = pruneToAnchors(scene([["a", 10, 10], ["A", 500, 10]]), anchors("a"));
+    expect(out.words).toHaveLength(1);
+    expect(out.words[0]!.x).toBe(10);
   });
 
   it("drops a self-thread even if one was persisted", () => {
@@ -136,7 +152,7 @@ describe("decodeScene", () => {
   it("survives corrupt or hostile persisted JSON", () => {
     expect(decodeScene(undefined)).toEqual({ words: [], threads: [] });
     expect(decodeScene("{not json")).toEqual({ words: [], threads: [] });
-    expect(decodeScene(JSON.stringify({ words: [{ text: "a", x: "1", y: 1, tier: 1 }, { text: "b", x: 1, y: 1, tier: 7 }] })).words).toEqual([]);
+    expect(decodeScene(JSON.stringify({ words: [{ text: "a", x: "1", y: 1, tier: 1, pinnedAt: 1 }, { text: "b", x: 1, y: 1, tier: 7, pinnedAt: 1 }, { text: "c", x: 1, y: 1, tier: 1 }] })).words).toEqual([]);
   });
 });
 
@@ -237,7 +253,7 @@ import { edgePoint, openScore, parseBridgeBody, parseProspectBody, planBridge, p
 
 describe("planProspect / planBridge", () => {
   const s = scene([["night bus", 100, 100], ["last train", 160, 110], ["fare capping", 900, 400]], [["night bus", "fare capping"]]);
-  const emb = (text: string, embedding: number[] | null) => ({ text, tier: 1 as const, embedding });
+  const emb = (text: string, embedding: number[] | null) => ({ text, tier: 1 as const, pinnedAt: 1, embedding });
   const anchorsE = [emb("night bus", [1, 0, 0]), emb("last train", [0.8, 0.2, 0]), emb("fare capping", [0, 0, 1])];
 
   it("near a cluster, the query is built from that cluster only", () => {

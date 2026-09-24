@@ -15,6 +15,7 @@ import {
   planProspect,
   planScore,
   pruneToAnchors,
+  sameScene,
   toExcalidrawScene,
   BRIDGE_COUNT,
   PROSPECT_COUNT,
@@ -264,7 +265,12 @@ export class SessionDO extends DurableObject<Env> {
     const row = this.ctx.storage.sql
       .exec<{ value: string }>("SELECT value FROM meta WHERE key = 'ground'")
       .toArray()[0];
-    return pruneToAnchors(decodeScene(row?.value), this.core.anchors());
+    const stored = decodeScene(row?.value);
+    const scene = pruneToAnchors(stored, this.core.anchors());
+    // Write the prune back: an unpinned word's text, position and threads must
+    // not linger in storage, where a later re-pin could resurrect them.
+    if (row && !sameScene(stored, scene)) this.putMeta("ground", JSON.stringify(scene));
+    return scene;
   }
 
   private groundViewOf(scene: GroundScene): GroundView {

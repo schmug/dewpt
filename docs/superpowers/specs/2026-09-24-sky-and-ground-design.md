@@ -1,6 +1,6 @@
 # Sky and ground — design
 
-**Status:** slice built at `/ground/` on branch `ideation-ground`. The spike is written, and its plumbing passes offline. The **real run is pending**: this sandbox cannot reach Workers AI, so it is waiting on Cory (see [the measurement](../../measurements/2026-09-24-sky-and-ground-spike.md)). · **Date:** 2026-09-24
+**Status:** slice built at `/ground/` on branch `ideation-ground` and fresh-context reviewed; every merge-blocking review finding is fixed (Appendix A). The spike is written, and its plumbing passes offline. The **real run is pending**: this sandbox cannot reach Workers AI, so it is waiting on Cory (see [the measurement](../../measurements/2026-09-24-sky-and-ground-spike.md)). **Do not merge before it passes.** · **Date:** 2026-09-24
 **Plan:** [2026-09-24-sky-and-ground.md](../plans/2026-09-24-sky-and-ground.md)
 **Screens:** [assets/2026-09-24-sky-and-ground/](assets/2026-09-24-sky-and-ground/)
 
@@ -105,7 +105,7 @@ Cory asked for this to be taken seriously. These are the facts, checked in this 
 | v0.18.x | **true** — `latest` is 0.18.1 | `npm view … dist-tags` |
 | needs a build step | **true** — ships ESM + CSS; our client is unbundled | esbuild probe |
 
-Measured by bundling a minimal page with esbuild (`--minify --splitting`):
+Measured by bundling a minimal page with esbuild (`--minify --splitting`). The probe is committed at [scripts/excalidraw-probe/](../../../scripts/excalidraw-probe/), with its recorded output:
 - 179 JS chunks;
 - 8.4 MB raw / **2.59 MB gzip** in total, lazily split;
 - **entry chunk 251 KB gzip**;
@@ -148,18 +148,26 @@ Choosing B makes this *smaller*. Ground ops are three verbs (`move`, `thread`, `
 | --- | --- | --- |
 | click a sky word | `POST /pin`, then `POST /ground/op {move}` to where it lands | none (the pump embeds the anchor afterwards, as today) |
 | drag a ground word | `POST /ground/op {move}` | none |
-| click open ground at *(x, y)* | `planProspect`: pinned words within `NEIGHBOR_RADIUS`, Gaussian-weighted → query vector → `PoolCore.drawRanked` by cosine, top `PROSPECT_COUNT` | **none** — a re-rank |
+| click open ground at *(x, y)*, or **condense beside** from a word's menu (the keyboard route) | `planProspect`: pinned words within `NEIGHBOR_RADIUS`, Gaussian-weighted → query vector → `PoolCore.drawRanked` by cosine, top `PROSPECT_COUNT` | **none** — a re-rank |
 | thread A—B, press its mark | `planBridge` → rank by `min(cos(c,A), cos(c,B))`, top `BRIDGE_COUNT` | **none** |
-| open ground, or anchors not yet embedded | `mode: "open"` → stranger-first draw, the field's prospect semantics | none |
+| open ground, or anchors not yet embedded | `mode: "open"` → stranger-first: the highest seed-distance candidates in the pool, jittered. This is stronger than the field's prospect, which only bumps tier odds; open ground is where you go for the far field | none |
 | export | `toExcalidrawScene` | none |
 
 **The ground says what it listened to.** Every ground draw returns its `basis` (the pinned words it was conditioned on). The page prints it beside the gesture ("beside night bus · last train", "between X · Y", "open ground — from the sky"). The user can see why these words condensed. The system does not ask to be trusted blindly.
 
 **Wire:** no embeddings. Every ground response goes through `assertNoEmbeddings` (the board's structural guard, reused).
 
-**Constants:** each is labelled UNMEASURED at its definition, except `PROSPECT_COUNT`, which inherits the field's 4–5 word burst. `NEIGHBOR_RADIUS`, `NEIGHBOR_SIGMA`, `BRIDGE_COUNT` and `MAX_THREADS` are judgement calls, and say so.
+**Constants:** every behavioural or layout constant is labelled UNMEASURED at its definition, except two that inherit a measured or specced value: `PROSPECT_COUNT` (the field's 4–5 word burst) and the sky's 5–10 s lifetime (field.js). The labelled ones are:
+- in `src/ground-core.ts`: `NEIGHBOR_RADIUS`, `NEIGHBOR_SIGMA`, `BRIDGE_COUNT`, `MAX_THREADS`, the open-ground jitter, and the `autoPlace` spiral;
+- in `public/ground/ground-model.js` and `ground.js`: the dew lifetime, `landingSpot` and `dewSpots` geometry, and `DRIZZLE_MS`.
 
-**Legibility:** sky words and dew share `CAP = 14`. Dew answers a gesture, so arriving dew retires the oldest sky words early rather than overprinting (`skyToRetire`).
+**Legibility:** sky words and dew share `CAP = 14`, and words already fading still count. When dew arrives it answers a gesture, so it gets priority:
+- `makeRoom` retires the oldest sky words first, then the oldest dew, on a 0.25 s fade.
+- It accepts only as much of a burst as fits.
+- A property test covers every combination of live, fading and incoming counts.
+- One gesture is in flight at a time.
+
+Verified in the browser: ten rapid prospects peaked at 14 words on screen, never 15 (Appendix A).
 
 **Reduced motion:** words don't fall and don't drift; they fade. The landing becomes a fade, and the pulse becomes a fade-out.
 
@@ -175,9 +183,16 @@ The ground passes that test by construction, not by convention:
 2. **Pinned words were already permanent.** The anchors table has always persisted pins. The ground adds *positions* for things the product already kept, and nothing else.
 3. **Dew is weather.** Words condensed by a ground gesture are drawn from the pool, live 7–12 s, and evaporate into the same evaporated trail, where the one mercy still applies. They are never written to the scene. Pinning one keeps it *where it condensed*, because that place is why it condensed.
 4. **Release is evaporation.** Unpinning from the ground (`release`) sends the word into the evaporated trail. It is not deleted, so it stays recoverable, exactly like a word that timed out.
-5. **Unpinning anywhere empties the ground.** Unpin a word in the field and it leaves the ground on the next read, because the ground has no independent list.
+5. **Unpinning anywhere empties the ground, including its storage.** The ground *does* keep its own record: positions and threads, stored as one JSON value in the session's `meta` table. That record is keyed to each anchor's `(text, pinnedAt)`.
+   - A word counts only while an anchor with that same text *and* pin time exists.
+   - Every read prunes the record, and the pruned scene is **written back**. An unpinned word's text, position and threads therefore do not linger in storage.
+   - Re-pinning the same text creates a new anchor with a new `pinnedAt`. It lands fresh: no old position, no old threads.
+
+   Tests: `test/ground-core.test.ts` › *a word unpinned and pinned again comes back fresh*. Also verified in the browser, through the API (Appendix A).
 
 **What would break it:** a "save this dew" that does not go through `pin`; a ground verb that places arbitrary text; persisting dew positions for "next time". Any of those makes the ground remember words the user did not keep. The guard test is written to fail if the first two appear.
+
+**The client keeps its half too.** A pin that fails, whether with a 500, a 429 or a dropped connection, puts the word back on its evaporation clock. If the word was mid-fade when clicked, it finishes evaporating. No failed request can leave a word in the sky for good. The reviewer reproduced that bug, and it is fixed and re-verified (Appendix A).
 
 ---
 
@@ -190,6 +205,8 @@ The drift critic loop stopped at cycle 3 without converging, and workstream B re
 - **No cheap statistic stands in for the judge.** The spike's embedding numbers (top-10 Jaccard, echo rate) are printed as *diagnostics*. The pass/fail decision rests on a blind, forced-choice judge, with thresholds registered before the first run.
 - **The clusters in the spike are hand-written**, three per seed, and deliberately distinct. Real clusters may be subtler, so a pass bounds the easy case. If the real run passes, a "near-cluster" variant is the next measurement.
 - **The judge is llama-3.3-70b**, the same model family as the generator. A pass means *a model can tell*, which is a proxy for *a person can tell*. It is not the same claim.
+- **A bridge pass must beat a hub.** `min(cos)` favours central words, so the bridge trial includes the pool's most central word as an arm. The bridge must be chosen more often than that hub, as well as clearing its bar.
+- **A position-driven judge voids the run.** The result is INVALID, not a FAIL and not a PASS.
 - **Axis quality is not addressed.** The ground has no axes. That is deliberate: it sidesteps the seed-dependent axis legibility that workstream B could not resolve.
 
 ---
@@ -212,3 +229,24 @@ No existing surface is touched on this branch. These are recommendations for Cor
 3. **Freehand loops as explicit clusters.** Proximity is the only cluster signal today. A drawn loop is a clearer one, and it is where perfect-freehand would earn its place.
 4. **Pan/zoom (M3).** The ground is a fixed 1200 × 420 plane. That is fine for dozens of words. At hundreds it needs pan and zoom, and zoom-as-altitude from SPEC M3 is the obvious binding.
 5. **Push (M4).** §3 has the shape. It is not built.
+
+---
+
+## Appendix A — fresh-context review, and what was done
+
+A subagent with no build context reviewed the slice. It read the code, used the capture bundle (the screenshots, the run log, and `gates.txt`), and drove the running server itself. It followed the house critic rubric (`scripts/critic-prompt.md`), adapted to this surface. It scored **mechanic 6, guardrails 3, evidence 5, UX 5, code quality 6**, and failed the slice.
+
+For each finding: what it was, what was done, and how the fix was verified.
+
+| # | finding (severity) | blocks merge? | action | verified by |
+| --- | --- | --- | --- | --- |
+| 1 | **CAP = 14 was not enforced for dew.** Overlapping prospects reached 40 on screen (blocker). | yes | `makeRoom` covers the whole budget: fading words count, and oldest sky then oldest dew are retired on a 0.25 s fade. One gesture is in flight at a time. Restore from the evaporated trail takes a slot like any sky word. | Property test over every live/fading/incoming mix. Browser: 10 rapid prospects peak at **14** (26 before the fast-retire fix, 40 in the review). |
+| 2 | **A failed pin made a word immortal** (major). | yes | `pinFailed` re-arms the evaporation clock, or finishes a fade already in progress, and says so in the hint line. Applies to both sky and dew. | Browser: with `/pin` forced to 500, the word was gone after 11.5 s and the hint explained why. |
+| 3 | **Unpinned words lingered in storage, and a re-pin resurrected their threads** (major). | yes | Scene words are keyed to the anchor's `pinnedAt`. The prune is written back on read, and a re-pin lands fresh. Spec §5 was corrected: the ground *does* keep a record, and the record is pruned. | Unit tests for re-pin, duplicate entries and write-back equality. API run: thread before 1, after re-pin 0, new position. |
+| 4 | **The spike's control could not fail** (major). | yes (before any real run) | Removed. Replaced with a position-bias **validity gate** that makes the run INVALID; it has tests, and the offline coin-judge run tripped it. The pass bars were re-registered before any real data existed. | `test/ground-judge.test.ts` › *calls a position-driven judge INVALID*. |
+| 5 | **The bridge trial could not tell a bridge from a hub** (major). | yes (before any real run) | Added a hub arm (the pool's most central word): four options, chance 1/4. A pass requires ≥ 9/18 **and** more choices than the hub. | Tests for `verdict` and `centrality`. |
+| 6 | **Keyboard: the menu was unreachable, and prospect only worked at the centre** (major). | yes | The menu takes focus when it opens, arrow keys cycle it, and Esc/Tab close it and return focus to the word. Added **condense beside**, a prospect beside the selected word, which is the keyboard's cluster gesture. | Browser: Enter puts focus on "condense beside", ArrowRight moves to "thread to…", Enter condenses 5 dew words. |
+| 7 | **Wrong p-values and overstated claims** (minor). | no | Exact tails (0.0144, 0.0193) are now asserted by tests. The spike now drives the shipped path (`planProspect`, `drawRanked`, `planBridge`, `planScore`). The Hugging Face claim is corrected (API reachable, CDN 403). The Excalidraw probe is committed. `TASKS.md` §1 records the spot-checks. The plan's N10 points here. | Re-read; `binomTail` test. |
+| 8 | **Unlabelled constants; the open-mode comment overstated** (minor). | no | Every layout and timing constant is labelled UNMEASURED at its definition. The open-mode comment now says "stranger-first, the far field". | Re-read. |
+| 9 | **Overlaps, clipping, small tap targets, wrong 409 hint** (minor). | no | Sky placement accounts for drift and skips a tick rather than overlap. Threads meet word edges on screen and in the export. The mobile empty state is left-aligned, with a "more ground →" cue. Coarse pointers get 44 px targets. The 409 hint now matches `thread-cap` or `unknown-word`. | Re-shoot (assets updated). |
+| 10 | **Client races; the DO shell and routes are untested** (minor). | no | Fixed: deferred refresh waits for in-flight scene requests; release checks its unpin; bridge marks persist across renders; network errors are caught. **Still open:** there are no route-level or DO-level tests. The repo's vitest has no Workers runtime, and adding one is its own decision. The write-back prune rule it would catch is covered at the pure level. | — |

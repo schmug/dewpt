@@ -24,6 +24,31 @@ export function skyToRetire(skyCount, dewCount, incoming) {
   return Math.max(0, skyCount + dewCount + incoming - CAP);
 }
 
+/** The whole CAP budget for a burst of dew. Words already fading still count —
+ *  they are still on screen — and cannot be retired again, so they shrink what
+ *  can be accepted. Oldest sky words go first, then oldest dew. Guarantees
+ *  (sky - retireSky) + (dew - retireDew) + fading + accept <= CAP. */
+export function makeRoom({ skyLive, dewLive, fading }, incoming) {
+  const capacity = Math.max(0, CAP - fading);
+  const accept = Math.min(Math.max(0, incoming), capacity);
+  let over = skyLive + dewLive + accept - capacity;
+  const retireSky = Math.min(skyLive, Math.max(0, over));
+  over -= retireSky;
+  const retireDew = Math.min(dewLive, Math.max(0, over));
+  return { accept, retireSky, retireDew };
+}
+
+/** Where the ray from `from` toward `to` leaves a box of half-size (hw, hh)
+ *  centred on `from`. Mirrors edgePoint in src/ground-core.ts, so a thread
+ *  meets its words on screen exactly as it does in the export. */
+export function edgePoint(from, to, hw, hh) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (dx === 0 && dy === 0) return { ...from };
+  const t = Math.min(dx === 0 ? Infinity : hw / Math.abs(dx), dy === 0 ? Infinity : hh / Math.abs(dy));
+  return { x: from.x + dx * Math.min(1, t), y: from.y + dy * Math.min(1, t) };
+}
+
 /** Tier weights from dewpoint alone — the field's curve (field.js tierWeights)
  *  without the pinned-tier bias, since the ground conditions by place instead. */
 export function tierWeights(dewpoint) {
@@ -72,6 +97,8 @@ export function toGround(p, scale) {
  *  every box in `boxes` ({x, y, w, h}, ground units). Callers pass words that
  *  are still falling too, so two quick pins cannot land on one spot. */
 export function landingSpot(boxes, groundX, width, lineH = 34) {
+  // UNMEASURED layout: three landing rows from y = 60, 1.6 lines apart, and a
+  // 24-unit sideways search step. Judgement calls for legibility.
   const rows = [60, 60 + lineH * 1.6, 60 + lineH * 3.2];
   const clear = (b) => !boxes.some((q) => overlaps(q, b));
   for (const y of rows) {
@@ -102,6 +129,8 @@ function overlaps(a, b) {
  *  box pushed outward until it clears every box in `occupied` ({x, y, w, h})
  *  and every dew box already placed. Deterministic given `rand`. */
 export function dewSpots(cx, cy, widths, occupied, rand, lineH = 30) {
+  // UNMEASURED layout: first ring at radius 46, +12 per retry, stretched 1.7x
+  // horizontally because words are wide and short.
   const out = [];
   const taken = [...occupied];
   const n = widths.length;
@@ -128,8 +157,10 @@ export function threadMid(a, b) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
-/** Lifetime of an ephemeral word, ms. Sky words keep the field's 5–10 s; dew
- *  lingers longer (7–12 s) because it answers a question you just asked. */
+/** Lifetime of an ephemeral word, ms. Sky words keep the field's 5–10 s
+ *  (field.js). Dew lingers 7–12 s because it answers a question you just
+ *  asked — UNMEASURED, a judgement call; it bears on ephemerality only in how
+ *  long a word waits before evaporating, never in whether it does. */
 export function ttl(kind, r) {
   return kind === 'dew' ? 7000 + r * 5000 : 5000 + r * 5000;
 }

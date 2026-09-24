@@ -13,8 +13,8 @@
 import { createPoolClient } from '/pool-client.js';
 import { blurBand, wordOpacity } from '/depth.js';
 import {
-  GROUND_H, GROUND_W, bucketOrder, dewSpots, wordWidth, groundScale, landingSpot, normKey, room, skyToRetire,
-  threadMid, toGround, toScreen, ttl,
+  GROUND_H, GROUND_W, bucketOrder, dewSpots, edgePoint, groundScale, landingSpot, makeRoom, normKey, room,
+  threadMid, toGround, toScreen, ttl, wordWidth,
 } from '/ground/ground-model.js';
 
 const $ = (id) => document.getElementById(id);
@@ -22,14 +22,14 @@ const els = {
   sky: $('sky'), ground: $('ground'), groundWrap: $('groundWrap'), threads: $('threads'),
   empty: $('groundEmpty'), seedForm: $('seedForm'), seedInput: $('seedInput'), seedLabel: $('seedLabel'),
   seedText: $('seedText'), dewline: $('dewline'), hint: $('hint'), evaporated: $('evaporated'),
-  exportLink: $('exportLink'), fieldDoor: $('fieldDoor'), menu: $('menu'),
+  exportLink: $('exportLink'), fieldDoor: $('fieldDoor'), menu: $('menu'), more: $('groundMore'),
 };
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const coarse = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
 const DEWPOINT = 0.35; // DEFAULT_PARAMS in src/types.ts — the ground has no sliders yet
 const ALTITUDE = 0.25;
-const DRIZZLE_MS = 850;
+const DRIZZLE_MS = 850; // UNMEASURED: one spawn attempt per 0.85 s, close to the field at mid drizzle
 
 const state = {
   id: null,
@@ -44,19 +44,31 @@ const state = {
   threadFrom: null,
   pool: null,
   busy: false,
+  gesture: false,  // a prospect or bridge request is in flight — one at a time
 };
 
 // ── api ─────────────────────────────────────────────────────────────────────
 
 async function api(path, method = 'GET', body) {
-  const res = await fetch(`/api/session/${state.id}${path}`, {
-    method,
-    headers: body ? { 'content-type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(`/api/session/${state.id}${path}`, {
+      method,
+      headers: body ? { 'content-type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
   let data = null;
   try { data = await res.json(); } catch { /* empty body */ }
   return { ok: res.ok, status: res.status, data };
+}
+
+function trouble(r, what) {
+  if (r.status === 429) hint(['Too many requests just now — give it a moment, then ', what, ' again.']);
+  else if (r.status === 404) hint(['This session is gone. Seed a new one.']);
+  else hint(['Could not ', what, ' — the connection faltered. Try again.']);
 }
 
 // Scene-changing requests can overlap (a pin's landing still in flight while
@@ -64,11 +76,22 @@ async function api(path, method = 'GET', body) {
 // request has been issued since, so a slow early answer cannot roll the
 // ground back under the user's hand.
 let sceneSeq = 0;
+let sceneInflight = 0;
+let refreshWanted = false;
 async function sceneRequest(path, method, body) {
   const seq = ++sceneSeq;
-  const r = await api(path, method, body);
-  const scene = r.data?.scene;
-  return { ...r, fresh: seq === sceneSeq && !!scene, scene };
+  sceneInflight++;
+  try {
+    const r = await api(path, method, body);
+    const scene = r.data?.scene;
+    return { ...r, fresh: seq === sceneSeq && !!scene, scene };
+  } finally {
+    sceneInflight--;
+    // A refresh asked for while other scene requests were in flight waits for
+    // them: issued earlier, it could overtake a drag's move at the DO and
+    // snap the word back.
+    if (sceneInflight === 0 && refreshWanted) { refreshWanted = false; refreshScene(); }
+  }
 }
 
 function hint(parts) {
@@ -158,7 +181,15 @@ function layoutGround() {
   els.ground.style.width = `${GROUND_W * state.scale}px`;
   els.ground.style.height = `${GROUND_H * state.scale}px`;
   els.ground.style.margin = w >= GROUND_W * state.scale ? '0 auto' : '0';
+  updateMore();
 }
+
+/** "more ground →" while part of the ground is off to the right. */
+function updateMore() {
+  const wrap = els.groundWrap;
+  els.more.hidden = !(wrap.scrollWidth > wrap.clientWidth + 4 && wrap.scrollLeft < wrap.scrollWidth - wrap.clientWidth - 4);
+}
+els.groundWrap.addEventListener('scroll', updateMore, { passive: true });
 
 function groundPoint(evt) {
   const r = els.ground.getBoundingClientRect();
@@ -215,29 +246,47 @@ function centerOf(key) {
   return { x: p.x + el.offsetWidth / 2, y: p.y + el.offsetHeight / 2 };
 }
 
+const bridgeMarks = new Map(); // thread key -> button, kept across renders so focus survives
+
+function threadKey(t) {
+  return [normKey(t.a), normKey(t.b)].sort().join('|');
+}
+
 function drawThreads() {
   const svg = els.threads;
   svg.replaceChildren();
-  for (const b of els.ground.querySelectorAll('.bridge')) b.remove();
+  const live = new Set();
   for (const t of state.scene.threads) {
-    const a = centerOf(normKey(t.a));
-    const b = centerOf(normKey(t.b));
+    const ka = normKey(t.a), kb = normKey(t.b);
+    const a = centerOf(ka);
+    const b = centerOf(kb);
     if (!a || !b) continue;
+    const ea = wordEls.get(ka), eb = wordEls.get(kb);
+    // Meet each word at its edge, never strike through it.
+    const p0 = edgePoint(a, b, ea.offsetWidth / 2 + 4, ea.offsetHeight / 2 + 2);
+    const p1 = edgePoint(b, a, eb.offsetWidth / 2 + 4, eb.offsetHeight / 2 + 2);
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
-    line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+    line.setAttribute('x1', p0.x); line.setAttribute('y1', p0.y);
+    line.setAttribute('x2', p1.x); line.setAttribute('y2', p1.y);
     svg.appendChild(line);
+    const key = threadKey(t);
+    live.add(key);
     const mid = threadMid(a, b);
-    const mark = document.createElement('button');
-    mark.type = 'button';
-    mark.className = 'bridge';
+    let mark = bridgeMarks.get(key);
+    if (!mark) {
+      mark = document.createElement('button');
+      mark.type = 'button';
+      mark.className = 'bridge';
+      mark.title = 'what connects these?';
+      els.ground.appendChild(mark);
+      bridgeMarks.set(key, mark);
+    }
     mark.style.left = `${mid.x}px`;
     mark.style.top = `${mid.y}px`;
     mark.setAttribute('aria-label', `what connects ${t.a} and ${t.b}?`);
-    mark.title = `what connects these?`;
-    mark.addEventListener('click', (e) => { e.stopPropagation(); bridge(t.a, t.b, toGround(mid, state.scale)); });
-    els.ground.appendChild(mark);
+    mark.onclick = (e) => { e.stopPropagation(); bridge(t.a, t.b, toGround(mid, state.scale)); };
   }
+  for (const [key, mark] of bridgeMarks) if (!live.has(key)) { mark.remove(); bridgeMarks.delete(key); }
 }
 
 // ── ground words: drag, select, thread, release ─────────────────────────────
@@ -319,7 +368,9 @@ async function clickWord(key) {
     if (a && b) {
       const r = await sceneRequest('/ground/op', 'POST', { op: 'thread', a: a.text, b: b.text });
       if (r.fresh) applyScene(r.scene);
-      if (r.status === 409) hint(['That is as many threads as the ground can hold legibly.']);
+      if (r.status === 409 && r.data?.error === 'thread-cap') hint(['That is as many threads as the ground can hold legibly.']);
+      else if (r.status === 409) hint(['One of those words has left the ground. Nothing was threaded.']);
+      else if (!r.ok) trouble(r, 'thread them');
     }
     return;
   }
@@ -335,17 +386,30 @@ function showMenu(key) {
   els.menu.hidden = false;
   // Beside the word, on its baseline — below it is where its neighbours are.
   // Flip to the left side when the right edge is too close.
-  const menuW = 190;
+  const menuW = els.menu.offsetWidth || 280;
   const right = r.right + 10 + menuW < document.documentElement.clientWidth;
   els.menu.style.left = `${(right ? r.right + 10 : Math.max(8, r.left - 10 - menuW)) + window.scrollX}px`;
   els.menu.style.top = `${r.top + window.scrollY - 8}px`;
   els.menu.classList.toggle('flipped', !right);
   els.menu.dataset.key = key;
+  els.menu.querySelector('button')?.focus({ preventScroll: true });
 }
 
-function hideMenu() {
+function hideMenu(refocus = false) {
+  if (els.menu.hidden) return;
+  const key = els.menu.dataset.key;
   els.menu.hidden = true;
+  if (refocus) wordEls.get(key)?.focus({ preventScroll: true });
 }
+
+els.menu.addEventListener('keydown', (e) => {
+  const items = [...els.menu.querySelectorAll('button')];
+  const i = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+  else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); state.selected = null; hideMenu(true); applyScene(state.scene); }
+  else if (e.key === 'Tab') { state.selected = null; hideMenu(true); applyScene(state.scene); }
+});
 
 function cancelThread() {
   state.threadFrom = null;
@@ -360,7 +424,15 @@ els.menu.addEventListener('click', async (e) => {
   const w = state.scene.words.find((x) => normKey(x.text) === key);
   hideMenu();
   if (!w) return;
-  if (act === 'thread') {
+  if (act === 'prospect') {
+    // Condense beside this word — the keyboard's way to prospect at a cluster.
+    state.selected = null;
+    applyScene(state.scene);
+    const el = wordEls.get(key);
+    const wpx = (el?.offsetWidth ?? 120) / state.scale;
+    prospect({ x: Math.min(GROUND_W, w.x + wpx / 2), y: Math.min(GROUND_H, w.y + 70) });
+    el?.focus({ preventScroll: true });
+  } else if (act === 'thread') {
     state.threadFrom = key;
     state.selected = null;
     applyScene(state.scene);
@@ -369,7 +441,8 @@ els.menu.addEventListener('click', async (e) => {
     // Release = let it go back to the weather: unpin, then it joins the
     // evaporated trail like any other word, where it is still recoverable.
     state.selected = null;
-    await api('/pin', 'DELETE', { text: w.text });
+    const un = await api('/pin', 'DELETE', { text: w.text });
+    if (!un.ok) { trouble(un, 'release it'); applyScene(state.scene); return; }
     const ev = await api('/evaporated', 'POST', { text: w.text, tier: w.tier });
     if (ev.data?.evaporated) { state.evaporated = ev.data.evaporated; renderEvaporated(); }
     const r = await sceneRequest('/ground', 'GET');
@@ -428,21 +501,30 @@ function printBasis(p, text) {
   setTimeout(() => tag.remove(), 4600);
 }
 
-async function prospect(p) {
+// One gesture at a time: overlapping answers would stack dew past CAP and
+// print two "what it listened to" labels over each other.
+async function gesture(p, path, body, label) {
+  if (state.gesture) return;
+  state.gesture = true;
   pulseAt(p);
-  const r = await api('/ground/prospect', 'POST', { x: p.x, y: p.y, visible: visibleTexts() });
-  if (!r.ok || !r.data) return;
-  const { mode, basis, condensed } = r.data;
-  printBasis(p, mode === 'near' ? `beside ${basis.slice(0, 3).join(' · ')}` : 'open ground — from the sky');
-  condenseDew(condensed, p);
+  try {
+    const r = await api(path, 'POST', { ...body, visible: visibleTexts() });
+    if (!r.ok || !r.data) return trouble(r, 'condense there');
+    printBasis(p, label(r.data));
+    condenseDew(r.data.condensed, p);
+  } finally {
+    state.gesture = false;
+  }
 }
 
-async function bridge(a, b, mid) {
-  pulseAt(mid);
-  const r = await api('/ground/bridge', 'POST', { a, b, visible: visibleTexts() });
-  if (!r.ok || !r.data) return;
-  printBasis(mid, r.data.mode === 'bridge' ? `between ${a} · ${b}` : 'not settled yet — from the sky');
-  condenseDew(r.data.condensed, mid);
+function prospect(p) {
+  return gesture(p, '/ground/prospect', { x: p.x, y: p.y }, (d) =>
+    d.mode === 'near' ? `beside ${d.basis.slice(0, 3).join(' · ')}` : 'open ground — the far field');
+}
+
+function bridge(a, b, mid) {
+  return gesture(mid, '/ground/bridge', { a, b }, (d) =>
+    d.mode === 'bridge' ? `between ${a} · ${b}` : 'not settled yet — the far field');
 }
 
 function condenseDew(words, at) {
@@ -450,12 +532,20 @@ function condenseDew(words, at) {
     hint(['The pool is thin right now — the sky is still condensing. Try again in a moment.']);
     return;
   }
-  // Dew answers a gesture, so it has priority under CAP: retire sky words early.
-  let retire = skyToRetire(state.sky.size, state.dew.size, words.length);
-  for (const [key, v] of [...state.sky].sort((x, y) => x[1].born - y[1].born)) {
-    if (retire-- <= 0) break;
-    evaporate(key, 'sky');
-  }
+  // Dew answers a gesture, so it has priority under CAP: retire the oldest sky
+  // words first, then the oldest dew. Words already fading still count.
+  // Words retired to make room leave FAST (0.25 s) and stop counting at once;
+  // otherwise a quick run of gestures piles up fading words past CAP.
+  const live = (m) => [...m].filter(([, v]) => !v.leaving && !v.pinning).sort((x, y) => x[1].born - y[1].born);
+  const skyLive = live(state.sky);
+  const dewLive = live(state.dew);
+  const onScreen = (m) => [...m.values()].filter((v) => !v.retiring).length;
+  const fading = onScreen(state.sky) + onScreen(state.dew) - skyLive.length - dewLive.length;
+  const plan = makeRoom({ skyLive: skyLive.length, dewLive: dewLive.length, fading }, words.length);
+  skyLive.slice(0, plan.retireSky).forEach(([key]) => evaporate(key, 'sky', true));
+  dewLive.slice(0, plan.retireDew).forEach(([key]) => evaporate(key, 'dew', true));
+  words = words.slice(0, plan.accept);
+  if (!words.length) return;
   const lineH = 30 / state.scale;
   const occupied = state.scene.words.map((w) => ({ x: w.x - 6, y: w.y - 4, w: wordWidth(w.text, 19, state.scale), h: lineH }));
   for (const v of state.dew.values()) occupied.push({ x: v.x, y: v.y, w: wordWidth(v.text, 17, state.scale), h: lineH });
@@ -478,7 +568,7 @@ function spawnDew(word, p) {
   el.style.left = `${s.x}px`;
   el.style.top = `${s.y}px`;
   els.ground.appendChild(el);
-  const entry = { el, text: word.text, tier: word.tier, x: p.x, y: p.y };
+  const entry = { el, text: word.text, tier: word.tier, x: p.x, y: p.y, born: Date.now() };
   state.dew.set(key, entry);
   requestAnimationFrame(() => { el.style.opacity = '0.82'; });
   const pin = (e) => { e.stopPropagation(); pinDew(key); };
@@ -493,7 +583,7 @@ async function pinDew(key) {
   v.pinning = true;
   clearTimeout(v.timer);
   const r = await api('/pin', 'POST', { text: v.text, tier: v.tier });
-  if (!r.ok) { v.pinning = false; return; }
+  if (!r.ok) return pinFailed(key, 'dew', r);
   state.dew.delete(key);
   v.el.remove();
   // It stays exactly where it condensed — that place is why it condensed.
@@ -511,7 +601,8 @@ async function refreshScene() {
 
 function drizzle() {
   if (!state.pool || document.hidden) return;
-  if (room(state.sky.size, state.dew.size) <= 0) return;
+  const count = (m) => [...m.values()].filter((v) => !v.retiring).length;
+  if (room(count(state.sky), count(state.dew)) <= 0) return;
   const order = bucketOrder(Math.random(), Math.random(), DEWPOINT, ALTITUDE);
   const taken = new Set([...state.sky.keys(), ...state.dew.keys(), ...wordEls.keys()]);
   for (const bucket of order) {
@@ -542,15 +633,18 @@ function spawnSky(pick) {
   const w = el.offsetWidth;
   const h = el.offsetHeight;
   const pad = 16;
+  // Inflate every box by the drift (±15 px) so two words cannot drift into
+  // each other; if nothing is clear, skip this tick — legibility beats density.
+  const DRIFT = 16;
   const others = [...state.sky.values()].map((v) => v.box).filter(Boolean);
   let box = null;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 30 && !box; i++) {
     const x = pad + Math.random() * Math.max(1, rect.width - w - pad * 2);
     const y = pad + Math.random() * Math.max(1, rect.height - h - pad * 2);
-    const cand = { x, y, w, h };
-    box = cand;
-    if (!others.some((o) => cand.x < o.x + o.w && o.x < cand.x + cand.w && cand.y < o.y + o.h && o.y < cand.y + cand.h)) break;
+    const hit = others.some((o) => x - DRIFT < o.x + o.w && o.x < x + w + DRIFT && y - DRIFT < o.y + o.h && o.y < y + h + DRIFT);
+    if (!hit) box = { x, y, w, h };
   }
+  if (!box) { el.remove(); return; }
   el.style.left = `${box.x}px`;
   el.style.top = `${box.y}px`;
   el.style.visibility = '';
@@ -572,7 +666,7 @@ async function pinFromSky(key) {
   v.pinning = true;
   clearTimeout(v.timer);
   const r = await api('/pin', 'POST', { text: v.text, tier: v.tier });
-  if (!r.ok) { v.pinning = false; return; }
+  if (!r.ok) return pinFailed(key, 'sky', r);
   // Precipitate: fall straight down onto the ground.
   const from = v.el.getBoundingClientRect();
   const g = els.ground.getBoundingClientRect();
@@ -600,30 +694,52 @@ async function pinFromSky(key) {
     state.sky.delete(key);
     state.landing.delete(key);
     v.el.remove();
-    // Re-check freshness after the fall: a drag during the animation wins.
+    // Re-check freshness after the fall: a drag during the animation wins,
+    // and the landed word arrives with the next fresh scene instead.
     if (moved.scene && seq === sceneSeq) applyScene(moved.scene);
-    else if (moved.scene) refreshScene();
+    else if (sceneInflight > 0) refreshWanted = true;
+    else refreshScene();
     wordEls.get(key)?.classList.add('landing');
   }, reduced ? 250 : 850);
 }
 
 // ── evaporation, and its one mercy ──────────────────────────────────────────
 
-function evaporate(key, plane) {
+function evaporate(key, plane, fast = false) {
   const map = plane === 'sky' ? state.sky : state.dew;
   const v = map.get(key);
-  if (!v || v.pinning) return;
+  if (!v || v.pinning || v.leaving) return;
+  v.leaving = true;
+  v.retiring = fast;
   clearTimeout(v.timer);
   v.el.classList.add('leaving');
-  setTimeout(async () => {
-    // Re-check after the fade: a word pinned mid-fade has crystallised and must
-    // never be removed or reported evaporated (CLAUDE.md).
-    if (v.pinning) return;
-    map.delete(key);
-    v.el.remove();
-    const r = await api('/evaporated', 'POST', { text: v.text, tier: v.tier });
-    if (r.data?.evaporated) { state.evaporated = r.data.evaporated; renderEvaporated(); }
-  }, 1200);
+  if (fast) v.el.classList.add('fast');
+  v.timer = setTimeout(() => finishEvaporating(key, plane), fast ? 260 : 1200);
+}
+
+async function finishEvaporating(key, plane) {
+  const map = plane === 'sky' ? state.sky : state.dew;
+  const v = map.get(key);
+  // Re-check after the fade: a word pinned mid-fade has crystallised and must
+  // never be removed or reported evaporated (CLAUDE.md).
+  if (!v || v.pinning) return;
+  map.delete(key);
+  v.el.remove();
+  const r = await api('/evaporated', 'POST', { text: v.text, tier: v.tier });
+  if (r.data?.evaporated) { state.evaporated = r.data.evaporated; renderEvaporated(); }
+}
+
+/** A pin that did not take must not leave the word immortal: its TTL was
+ *  cleared when the pin began. Put it back on the clock — or, if it was
+ *  already fading when it was clicked, let it finish evaporating now. */
+function pinFailed(key, plane, r) {
+  const map = plane === 'sky' ? state.sky : state.dew;
+  const v = map.get(key);
+  trouble(r, 'pin it');
+  if (!v) return;
+  v.pinning = false;
+  if (v.leaving) { finishEvaporating(key, plane); return; }
+  v.timer = setTimeout(() => evaporate(key, plane), 2500);
 }
 
 function renderEvaporated() {
@@ -636,7 +752,16 @@ function renderEvaporated() {
     b.addEventListener('click', async () => {
       const r = await api('/evaporated/restore', 'POST', { text: w.text });
       if (r.data?.evaporated) { state.evaporated = r.data.evaporated; renderEvaporated(); }
-      if (r.data?.restored) spawnSky({ text: r.data.restored.text, tier: r.data.restored.tier });
+      if (r.data?.restored) {
+        // Restoring is still weather: it takes a CAP slot like any sky word,
+        // retiring the oldest sky word if the sky is full.
+        if (room(state.sky.size, state.dew.size) <= 0) {
+          const oldest = [...state.sky].filter(([, v]) => !v.leaving && !v.pinning).sort((x, y) => x[1].born - y[1].born)[0];
+          if (oldest) evaporate(oldest[0], 'sky');
+          else return hint(['The sky is full — try again as it clears.']);
+        }
+        spawnSky({ text: r.data.restored.text, tier: r.data.restored.tier });
+      }
     });
     li.appendChild(b);
     return li;

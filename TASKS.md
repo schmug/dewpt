@@ -1,42 +1,58 @@
 # TASKS — dewpt as an ideation space
 
-Branch: `ideation-ground` · base `36626dd` · started 2026-09-24
+Branch: `ideation-ground` · base `36626dd` · 2026-09-24
 
-Baseline gates before any change: `npm run typecheck` clean · `npm test` **770 passing / 0 failing (35 files)**.
+Baseline before any change: `npm run typecheck` clean, `npm test` **770 passing / 0 failing (35 files)**.
 
 ## 0. Environment facts (checked, not assumed)
-- [x] `wrangler dev` dies at startup in this sandbox: `"ai": {"remote": true}` needs `CLOUDFLARE_API_TOKEN` for the remote-binding proxy, even with `DEV_FAKE_AI=1`. Workaround: an untracked `wrangler.offline.jsonc` with the `ai` block removed + `.dev.vars` `DEV_FAKE_AI=1`. `/api/debug/ai` → `{"ok":true,"mode":"fake"}`.
-- [x] `api.cloudflare.com` is **blocked by this sandbox's egress proxy** (CONNECT 403). No `CLOUDFLARE_*` creds in env either. Workers AI REST spikes cannot run from here.
-- [x] `api.github.com` is blocked for this repo (403, no `gh`). Issues #104–#110 could not be read directly; reconstructed from `critic-reports/cycle-03.md`.
-- [x] huggingface.co is reachable → `BAAI/bge-m3` (the same weights as `@cf/baai/bge-m3`) can run locally for embedding-only measurement at 0 Workers AI requests.
+- [x] `wrangler dev` dies at startup in a sandbox without a token. `"ai": {"remote": true}` starts the remote-binding proxy even when `DEV_FAKE_AI=1`. The workaround is an untracked `wrangler.offline.jsonc` without the `ai` block (recipe in the plan).
+- [x] `api.cloudflare.com` is blocked by this sandbox's egress proxy (CONNECT 403), and there are no `CLOUDFLARE_*` credentials. Workers AI cannot be reached from here.
+- [x] `huggingface.co`'s API answers, but its file CDN (`us.aws.cdn.hf.co`) returns 403, so the bge-m3 weights cannot be fetched. There is no local stand-in.
+- [x] `api.github.com` and `git push` are refused for this repo (not in the session's authorized sources). Issues #104–#110 were read via `critic-reports/cycle-03.md`, not GitHub. Work reaches Cory as a patch.
+- [x] Google Fonts is blocked here. Screenshots route Fraunces and Space Grotesk to local `@fontsource` files, so they render the real faces.
 
 ## 1. Audit (one subagent per surface)
-- [ ] landing `/`
-- [ ] field `/app/`
-- [ ] board `/board/`
-- [ ] drift `/drift/`
-- [ ] spot-check each report's evidence
+- [x] landing `/`
+- [x] field `/app/`
+- [x] board `/board/`
+- [x] drift `/drift/`
+- [x] Spot-check each report's evidence against code and screenshots before accepting it. Each item below was checked against the file or screenshot it cites:
+  - **landing:** `public/index.html` loads no `<script src>` and no stylesheet link, and is self-contained. The `pickText` fallback can return a word already on screen (`:588`). The burst pile-up shows in `05d`.
+  - **field:** `SessionDO.prospect(_buckets)` ignores its argument (`session-do.ts:143`). `pickWord` has no empty-bucket fallback (`field.js:48-51`). `hydratePinned` rebuilds only the tray (`field.js:203`). The pinned word and chip show in `04`.
+  - **board:** the belt is empty and the seed evaporated (`03`). The fake-AI comment on tether (`dev-fake-ai.ts:150`) is the one the audit showed to be false.
+  - **drift:** `onFlush` nulls `range` (`drift.js:76-81`), and `position.js:109` dereferences `range.lo`. The card is painted over the condensate panel (`13`).
 
 ## 2. Diverge
-- [ ] 3–5 reimaginings (≥1 Excalidraw, ≥1 without, ≥1 radical)
-- [ ] verify Excalidraw facts (version, size, peer deps, collab model)
+- [x] Five reimaginings (spec §2):
+  - A. Excalidraw ground
+  - B. native ground (**chosen**)
+  - C. rooms with windows
+  - D. flight: cloud and grove
+  - E. marginalia (the radical one)
+- [x] Excalidraw facts verified: version, size, peer deps, font enum, dark filter, bundle, round-trip. Spec §3; probe in `scripts/excalidraw-probe/`.
 
 ## 3. Converge
-- [ ] pick one, defend it
-- [ ] spike script in `scripts/` that prints a number; Workers AI budget 150 total
-- [ ] measurement doc
+- [x] Pick one and defend it (spec §2, "Why B").
+- [x] Spike `scripts/ground-spike.ts`, which prints a number. Plumbing verified offline. Pass bars pre-registered, then revised before any real run after review.
+- [ ] ⛔ **Real run — blocked on Cory.** Workers AI is unreachable from here. Expected cost: 63 requests, at most 99, hard cap 120.
+- [x] Measurement doc written. Its verdict is PENDING.
 
-## 4. Build (new route, existing surfaces untouched)
-- [ ] pure core in `src/*-core.ts` + vitest
-- [ ] thin DO shell + routes (new migration tag only)
-- [ ] client at new route
-- [ ] gates: typecheck + test counts
+## 4. Build (new route; existing surfaces untouched: `git diff 36626dd` shows 0 deletions in pre-existing files)
+- [x] Pure core `src/ground-core.ts`, plus `PoolCore.drawRanked`, with vitest.
+- [x] Thin DO shell (additive methods, scene in `meta`), so no migration and no `wrangler.jsonc` change.
+- [x] Client at `/ground/`.
+- [x] Gates: typecheck clean, tests green (counts in the final summary).
 
 ## 5. Review
-- [ ] fresh-context reviewer against screenshots
-- [ ] fix merge blockers, record each finding + action
+- [x] A fresh-context reviewer checked the slice against screenshots and the live server. It failed it: 6/3/5/5/6.
+- [x] Every merge-blocking finding fixed and re-verified in the browser. Findings and actions are in spec Appendix A.
+- [ ] Still open: route-level and DO-level tests. The repo's vitest has no Workers runtime, and adding one is its own decision.
 
 ## 6. Docs
-- [ ] spec `docs/superpowers/specs/2026-09-24-<name>-design.md`
-- [ ] plan `docs/superpowers/plans/2026-09-24-<name>.md`
-- [ ] measurement `docs/measurements/2026-09-24-<name>.md`
+- [x] spec `docs/superpowers/specs/2026-09-24-sky-and-ground-design.md`
+- [x] plan `docs/superpowers/plans/2026-09-24-sky-and-ground.md`
+- [x] measurement `docs/measurements/2026-09-24-sky-and-ground-spike.md` (verdict pending N9)
+
+## Before merge (Cory)
+- [ ] Run the spike. Paste its output into the measurement doc. PASS → merge; FAIL or INVALID → back to spec §2.
+- [ ] Decide whether `/ground/` becomes the night walk's door (spec §7).

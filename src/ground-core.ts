@@ -52,6 +52,10 @@ export interface GroundWord {
   /** The anchor's text, as the anchors table spells it. */
   text: string;
   tier: Tier;
+  /** The anchor's pinnedAt when this position was recorded. A word unpinned
+   *  and pinned again is a NEW anchor with a new pinnedAt, so its old position
+   *  and threads do not come back with it — see pruneToAnchors. */
+  pinnedAt: number;
   x: number;
   y: number;
 }
@@ -93,38 +97,62 @@ function sameThread(t: Thread, a: string, b: string): boolean {
 export interface AnchorLike {
   text: string;
   tier: Tier;
+  pinnedAt: number;
 }
 
-/** Reconcile the scene with the anchors table: drop words that are no longer
- *  anchors (and every thread touching them), and place anchors that have never
- *  been placed — a word pinned from /app or /drift lands here too, because
- *  it is one session. Placement is deterministic so two reads agree. */
+/** Reconcile the scene with the anchors table. A scene word survives only if
+ *  an anchor with the same text AND the same pinnedAt still exists; anything
+ *  else — unpinned, or unpinned and pinned again — is dropped together with
+ *  every thread that touched it. Anchors with no scene word are then placed
+ *  (a word pinned from /app or /drift lands here too, because it is one
+ *  session). Placement is deterministic so two reads agree.
+ *
+ *  The caller persists the result whenever it differs from what was stored
+ *  (SessionDO.groundScene), so an unpinned word's text and position do not
+ *  linger in storage either. */
 export function pruneToAnchors(scene: GroundScene, anchors: readonly AnchorLike[]): GroundScene {
   const live = new Map(anchors.map((a) => [groundKey(a.text), a]));
-  const words = scene.words
-    .filter((w) => live.has(groundKey(w.text)))
-    .map((w) => ({ ...w, text: live.get(groundKey(w.text))!.text }));
+  const dropped = new Set<string>();
+  const words: GroundWord[] = [];
+  for (const w of scene.words) {
+    const key = groundKey(w.text);
+    const a = live.get(key);
+    if (!a || a.pinnedAt !== w.pinnedAt || words.some((x) => groundKey(x.text) === key)) {
+      dropped.add(key);
+      continue;
+    }
+    words.push({ ...w, text: a.text, tier: a.tier });
+  }
   const placed = new Set(words.map((w) => groundKey(w.text)));
   for (const a of anchors) {
     const key = groundKey(a.text);
     if (placed.has(key)) continue;
     const at = autoPlace(words, a.text);
-    words.push({ text: a.text, tier: a.tier, ...at });
+    words.push({ text: a.text, tier: a.tier, pinnedAt: a.pinnedAt, ...at });
     placed.add(key);
   }
-  const threads = scene.threads.filter(
-    (t) => placed.has(groundKey(t.a)) && placed.has(groundKey(t.b)) && groundKey(t.a) !== groundKey(t.b),
-  );
+  const threads = scene.threads.filter((t) => {
+    const ka = groundKey(t.a);
+    const kb = groundKey(t.b);
+    return ka !== kb && placed.has(ka) && placed.has(kb) && !dropped.has(ka) && !dropped.has(kb);
+  });
   return { words, threads };
+}
+
+/** Structural equality for write-back decisions — cheap at ground sizes. */
+export function sameScene(a: GroundScene, b: GroundScene): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** A free spot for a word that arrived without a position. Walks a golden-angle
  *  spiral from a text-hashed start near the centre, taking the first point far
  *  enough from every placed word. Deterministic in (placed, text). */
-export function autoPlace(placed: readonly GroundWord[], text: string): { x: number; y: number } {
+export function autoPlace(placed: readonly { x: number; y: number }[], text: string): { x: number; y: number } {
   let h = 2166136261;
   for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
   const start = ((h >>> 0) % 360) * (Math.PI / 180);
+  // UNMEASURED layout constants: 90 units apart, spiral step 18, and a 1.8
+  // horizontal stretch because the ground is wider than it is tall.
   const minGap = 90;
   for (let i = 0; i < 400; i++) {
     const r = 18 * Math.sqrt(i);
@@ -201,7 +229,12 @@ export function decodeScene(raw: string | undefined): GroundScene {
     const words = Array.isArray(v.words)
       ? v.words.filter(
           (w): w is GroundWord =>
-            !!w && typeof w.text === "string" && Number.isFinite(w.x) && Number.isFinite(w.y) && [0, 1, 2].includes(w.tier as number),
+            !!w &&
+            typeof w.text === "string" &&
+            Number.isFinite(w.x) &&
+            Number.isFinite(w.y) &&
+            Number.isFinite(w.pinnedAt) &&
+            [0, 1, 2].includes(w.tier as number),
         )
       : [];
     const threads = Array.isArray(v.threads)
@@ -341,7 +374,9 @@ export function toExcalidrawScene(scene: GroundScene, seed: string, now = 0): Re
     link: null,
     locked: false,
   };
-  const size = (w: GroundWord) => ({ width: Math.ceil(w.text.length * EXPORT_SIZE * 0.55), height: Math.ceil(EXPORT_SIZE * 1.25) });
+  // Estimated metrics (Nunito averages ~0.5em per lowercase character); restore()
+  // recomputes text boxes on load, and threads keep a 10-unit gap either way.
+  const size = (w: GroundWord) => ({ width: Math.ceil(w.text.length * EXPORT_SIZE * 0.5), height: Math.ceil(EXPORT_SIZE * 1.25) });
   const texts = scene.words.map((w) => {
     const key = groundKey(w.text);
     const bound = scene.threads
@@ -379,8 +414,8 @@ export function toExcalidrawScene(scene: GroundScene, seed: string, now = 0): Re
     // meets the word rather than striking through it.
     const ca = { x: a.x + sa.width / 2, y: a.y + sa.height / 2 };
     const cb = { x: b.x + sb.width / 2, y: b.y + sb.height / 2 };
-    const { x: x0, y: y0 } = edgePoint(ca, cb, sa.width / 2 + 6, sa.height / 2 + 6);
-    const { x: x1, y: y1 } = edgePoint(cb, ca, sb.width / 2 + 6, sb.height / 2 + 6);
+    const { x: x0, y: y0 } = edgePoint(ca, cb, sa.width / 2 + 10, sa.height / 2 + 6);
+    const { x: x1, y: y1 } = edgePoint(cb, ca, sb.width / 2 + 10, sb.height / 2 + 6);
     return {
       ...base,
       id: threadIds[i]!,
@@ -429,7 +464,9 @@ export type DrawPlan =
   /** Rank by min affinity to both ends of a thread. */
   | { mode: "bridge"; a: number[]; b: number[]; basis: [string, string] }
   /** Nothing pinned nearby (or not embedded yet): condense from open sky,
-   *  slightly stranger than the ambient rate, as the field's prospect does. */
+   *  stranger-first — the highest seed-distance candidates in the whole pool,
+   *  jittered. Stronger than the field's prospect, which only bumps the tier
+   *  odds; open ground is where you go for the far field. */
   | { mode: "open"; basis: string[] };
 
 function embeddingOf(anchors: readonly AnchorWithEmbedding[], text: string): number[] | null {
@@ -457,8 +494,9 @@ export function planBridge(scene: GroundScene, anchors: readonly AnchorWithEmbed
   return { mode: "bridge", a: ea, b: eb, basis: [a, b] };
 }
 
-/** Open-sky score: stranger first (higher seed distance), with a little
- *  jitter so two open prospects do not condense the same five words. */
+/** Open-sky score: stranger first (higher seed distance), with jitter so two
+ *  open prospects do not condense the same five words. The 0.15 jitter is
+ *  UNMEASURED — about a third of the typical seed-distance spread. */
 export function openScore(rand: () => number): (seedDist: number) => number {
   return (seedDist) => seedDist + rand() * 0.15;
 }

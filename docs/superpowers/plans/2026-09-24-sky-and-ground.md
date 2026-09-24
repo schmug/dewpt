@@ -34,7 +34,7 @@ Three changes, each forced by a fact found in the repo rather than assumed:
 | **N7** | Client pure model: CAP sharing, bucket fallback, coordinates, landing, dew placement | **C** `public/ground/ground-model.js`, `test/ground-model.test.ts` | `npx vitest run test/ground-model.test.ts && npm run typecheck` | N1 (constants only) | built |
 | **N8** | Client shell: `index.html`, `ground.css`, `ground.js` | **C** `public/ground/*` | browser: `npm run dev`, then `/ground/` (see "Verifying in a browser") | N6, N7 | built |
 | **N9** ⛔ | Real spike run → measurement doc verdict | **M** `docs/measurements/2026-09-24-sky-and-ground-spike.md` | `CLOUDFLARE_ACCOUNT_ID=… CLOUDFLARE_API_TOKEN=… npm run ground-spike` → `VERDICT: PASS` | N2 | **blocked on Cory** |
-| **N10** | Fresh-context review against screenshots; fix blockers | whatever the review names | `npm run typecheck && npm test` + re-shoot | N8 | done (see spec appendix) |
+| **N10** | Fresh-context review against screenshots; fix blockers | whatever the review names | `npm run typecheck && npm test` + re-shoot | N8 | done: see spec Appendix A |
 
 **C** = creates · **M** = modifies
 
