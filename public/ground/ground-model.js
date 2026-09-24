@@ -68,18 +68,21 @@ export function toGround(p, scale) {
 }
 
 /** Where a word pinned in the sky lands: straight below where it was, in the
- *  top band of the ground, nudged sideways off any word already there. */
-export function landingSpot(words, groundX) {
-  const y = 70;
-  const minGap = 110;
-  let x = Math.min(GROUND_W - 60, Math.max(20, groundX));
-  for (let i = 0; i < 24; i++) {
-    const clash = words.find((w) => Math.abs(w.x - x) < minGap && Math.abs(w.y - y) < 40);
-    if (!clash) return { x, y };
-    const step = (Math.floor(i / 2) + 1) * minGap * (i % 2 === 0 ? 1 : -1);
-    x = Math.min(GROUND_W - 60, Math.max(20, groundX + step));
+ *  top rows of the ground, slid sideways (then down a row) until its box clears
+ *  every box in `boxes` ({x, y, w, h}, ground units). Callers pass words that
+ *  are still falling too, so two quick pins cannot land on one spot. */
+export function landingSpot(boxes, groundX, width, lineH = 34) {
+  const rows = [60, 60 + lineH * 1.6, 60 + lineH * 3.2];
+  const clear = (b) => !boxes.some((q) => overlaps(q, b));
+  for (const y of rows) {
+    for (let i = 0; i < 40; i++) {
+      const step = Math.ceil(i / 2) * 24 * (i % 2 === 0 ? 1 : -1);
+      const x = Math.min(GROUND_W - width, Math.max(0, groundX - width / 2 + step));
+      const box = { x, y, w: width, h: lineH };
+      if (clear(box)) return { x, y };
+    }
   }
-  return { x, y: y + 60 };
+  return { x: Math.min(GROUND_W - width, Math.max(0, groundX - width / 2)), y: rows[rows.length - 1] + lineH * 1.6 };
 }
 
 /** Rough width of a word in ground units at a given on-screen font size.

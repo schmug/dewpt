@@ -39,6 +39,8 @@ const state = {
   dew: new Map(),  // key -> { el, text, tier, x, y }
   evaporated: [],
   selected: null,  // key of the selected ground word
+  landing: new Map(), // key -> box of a word still falling, so the next pin lands clear of it
+  drag: null,      // { key, x, y } while a word is under the pointer — survives any re-render
   threadFrom: null,
   pool: null,
   busy: false,
@@ -98,6 +100,7 @@ async function boot() {
     if (r.ok) return enter(r.data);
     state.id = null;
   }
+  layoutGround();
   teach();
   els.seedInput.focus({ preventScroll: true });
 }
@@ -128,6 +131,7 @@ els.seedForm.addEventListener('submit', async (e) => {
 function enter(view) {
   els.seedForm.hidden = true;
   els.dewline.hidden = false;
+  document.getElementById('horizon').classList.add('seeded');
   els.seedLabel.hidden = false;
   els.seedText.textContent = view.seed;
   els.exportLink.hidden = false;
@@ -166,6 +170,14 @@ function groundPoint(evt) {
 const wordEls = new Map(); // key -> element
 
 function applyScene(scene) {
+  // A word in the user's hand stays in the user's hand: a scene arriving
+  // mid-drag (a pin landing elsewhere) must not snap it back.
+  if (state.drag) {
+    scene = {
+      ...scene,
+      words: scene.words.map((w) => (normKey(w.text) === state.drag.key ? { ...w, x: state.drag.x, y: state.drag.y } : w)),
+    };
+  }
   state.scene = scene;
   layoutGround();
   const live = new Set(scene.words.map((w) => normKey(w.text)));
@@ -249,6 +261,7 @@ function bindWord(el) {
     hideMenu();
     const g = els.ground.getBoundingClientRect();
     const p = toGround({ x: e.clientX - g.left - start.dx, y: e.clientY - g.top - start.dy }, state.scale);
+    state.drag = { key: el.dataset.key, x: p.x, y: p.y };
     const w = state.scene.words.find((x) => normKey(x.text) === el.dataset.key);
     if (w) { w.x = p.x; w.y = p.y; }
     const s = toScreen(p, state.scale);
@@ -263,14 +276,21 @@ function bindWord(el) {
     el.classList.remove('dragging');
     const key = el.dataset.key;
     const w = state.scene.words.find((x) => normKey(x.text) === key);
-    if (moved && w) {
-      const r = await sceneRequest('/ground/op', 'POST', { op: 'move', text: w.text, x: w.x, y: w.y });
+    const drop = state.drag;
+    state.drag = null;
+    if (moved && w && drop) {
+      const r = await sceneRequest('/ground/op', 'POST', { op: 'move', text: w.text, x: drop.x, y: drop.y });
       if (r.fresh) applyScene(r.scene);
       return;
     }
     clickWord(key);
   });
-  el.addEventListener('pointercancel', () => { start = null; el.classList.remove('dragging'); });
+  el.addEventListener('pointercancel', () => {
+    start = null;
+    state.drag = null;
+    el.classList.remove('dragging');
+    refreshScene();
+  });
   el.addEventListener('click', (e) => e.stopPropagation());
   el.addEventListener('keydown', async (e) => {
     const key = el.dataset.key;
@@ -313,8 +333,13 @@ function showMenu(key) {
   if (!el) return;
   const r = el.getBoundingClientRect();
   els.menu.hidden = false;
-  els.menu.style.left = `${r.left + window.scrollX}px`;
-  els.menu.style.top = `${r.bottom + window.scrollY + 6}px`;
+  // Beside the word, on its baseline — below it is where its neighbours are.
+  // Flip to the left side when the right edge is too close.
+  const menuW = 190;
+  const right = r.right + 10 + menuW < document.documentElement.clientWidth;
+  els.menu.style.left = `${(right ? r.right + 10 : Math.max(8, r.left - 10 - menuW)) + window.scrollX}px`;
+  els.menu.style.top = `${r.top + window.scrollY - 8}px`;
+  els.menu.classList.toggle('flipped', !right);
   els.menu.dataset.key = key;
 }
 
@@ -551,7 +576,15 @@ async function pinFromSky(key) {
   // Precipitate: fall straight down onto the ground.
   const from = v.el.getBoundingClientRect();
   const g = els.ground.getBoundingClientRect();
-  const land = landingSpot(state.scene.words, toGround({ x: from.left - g.left, y: 0 }, state.scale).x);
+  const lineH = 34 / state.scale;
+  const width = wordWidth(v.text, 19, state.scale);
+  const boxes = [
+    ...state.scene.words.map((w) => ({ x: w.x - 6, y: w.y - 4, w: wordWidth(w.text, 19, state.scale), h: lineH })),
+    ...state.landing.values(),
+  ];
+  const centre = toGround({ x: from.left - g.left + from.width / 2, y: 0 }, state.scale).x;
+  const land = landingSpot(boxes, centre, width, lineH);
+  state.landing.set(key, { x: land.x, y: land.y, w: width, h: lineH });
   const to = toScreen(land, state.scale);
   v.el.classList.add('falling');
   v.el.style.filter = 'none';
@@ -565,6 +598,7 @@ async function pinFromSky(key) {
   const moved = await sceneRequest('/ground/op', 'POST', { op: 'move', text: v.text, x: land.x, y: land.y });
   setTimeout(() => {
     state.sky.delete(key);
+    state.landing.delete(key);
     v.el.remove();
     // Re-check freshness after the fall: a drag during the animation wins.
     if (moved.scene && seq === sceneSeq) applyScene(moved.scene);
@@ -609,7 +643,7 @@ function renderEvaporated() {
   }));
 }
 
-window.addEventListener('resize', () => { if (state.id) applyScene(state.scene); });
+window.addEventListener('resize', () => { if (state.id) applyScene(state.scene); else layoutGround(); });
 window.addEventListener('hashchange', () => location.reload());
 
 boot();

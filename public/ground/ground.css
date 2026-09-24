@@ -107,6 +107,7 @@ a.label:hover, a.label:focus-visible { color: var(--paper); }
 .cross::before { left: 4px; top: 0; width: 1px; height: 9px; }
 .cross::after { top: 4px; left: 0; height: 1px; width: 9px; }
 .dewline { margin-left: auto; }
+.horizon.seeded { min-height: 30px; }
 
 .seed-form { display: flex; align-items: baseline; gap: 14px; width: 100%; padding: 12px 0; }
 .seed-form input {
@@ -278,10 +279,10 @@ a.label:hover, a.label:focus-visible { color: var(--paper); }
   z-index: 5;
   display: flex;
   gap: 0;
-  border-top: 1px solid var(--pin);
+  border-left: 1px solid var(--pin);
   background: var(--soil);
 }
-.menu[hidden] { display: none; }
+.menu.flipped { border-left: 0; border-right: 1px solid var(--pin); }
 .menu button {
   background: transparent;
   border: 0;

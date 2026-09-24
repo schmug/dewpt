@@ -18,7 +18,7 @@ const {
   dewSpots: (cx: number, cy: number, widths: number[], occupied: Box[], rand: () => number, lineH?: number) => Pt[];
   wordWidth: (text: string, fontPx: number, scale: number) => number;
   groundScale: (w: number, h: number) => number;
-  landingSpot: (words: Pt[], x: number) => Pt;
+  landingSpot: (boxes: Box[], x: number, width: number, lineH?: number) => Pt;
   normKey: (t: string) => string;
   room: (sky: number, dew: number) => number;
   skyToRetire: (sky: number, dew: number, incoming: number) => number;
@@ -75,10 +75,17 @@ describe("coordinates", () => {
 });
 
 describe("placement", () => {
-  it("landingSpot sidesteps a word already there", () => {
-    const a = landingSpot([], 400);
-    const b = landingSpot([{ x: a.x, y: a.y }], 400);
-    expect(Math.abs(b.x - a.x) >= 110 || b.y !== a.y).toBe(true);
+  it("landingSpot lands under the word, and clears boxes already there — including ones still falling", () => {
+    const a = landingSpot([], 400, 200, 34);
+    expect(a.x).toBe(300);
+    const taken = [{ ...a, w: 200, h: 34 }];
+    const b = landingSpot(taken, 400, 220, 34);
+    const hit = b.x < a.x + 200 && a.x < b.x + 220 && b.y < a.y + 34 && a.y < b.y + 34;
+    expect(hit).toBe(false);
+    const c = landingSpot([...taken, { ...b, w: 220, h: 34 }], 400, 180, 34);
+    for (const q of [...taken, { ...b, w: 220, h: 34 }]) {
+      expect(c.x < q.x + q.w && q.x < c.x + 180 && c.y < q.y + q.h && q.y < c.y + 34).toBe(false);
+    }
   });
   it("dewSpots stays on the ground and keeps word boxes apart", () => {
     let seed = 1;
