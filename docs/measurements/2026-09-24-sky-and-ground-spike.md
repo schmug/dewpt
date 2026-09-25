@@ -1,19 +1,20 @@
 # Sky and ground — the re-ranking spike
 
-**Date:** 2026-09-24 · **Tree:** `ideation-ground` · **Cost so far:** 0 Workers AI requests
+**Date:** 2026-09-24 · **Tree:** `ideation-ground` · **Cost so far:** 63 Workers AI requests (real run) + 1 connectivity probe
 **Script:** `npm run ground-spike` ([scripts/ground-spike.ts](../../scripts/ground-spike.ts)). Its pure parts, including the pre-registered `PASS`, are in [scripts/ground-judge.ts](../../scripts/ground-judge.ts), tested by `test/ground-judge.test.ts`.
 **Design:** [2026-09-24-sky-and-ground-design.md](../superpowers/specs/2026-09-24-sky-and-ground-design.md)
 
-## Verdict: **PENDING — not yet run against Workers AI**
+## Verdict: **INVALID** — the bridge judge answered by position
 
-This measurement has not been taken. Nothing in this repo should cite the ground mechanic as validated until the "Real run" section below is filled in.
+Real run 2026-09-24. The pre-registered validity gate fired: the bridge judge picked display position 2 in 10 of 18 trials, and the gate is ≥ 10. Under the rules below, INVALID is neither PASS nor FAIL.
 
-**Why it has not run:** the spike was written in a cloud sandbox with no route to Workers AI or to the bge-m3 weights:
-- The sandbox's egress proxy refuses `api.cloudflare.com` (CONNECT 403).
-- The sandbox held no `CLOUDFLARE_*` credentials.
-- `huggingface.co`'s API answered, but its file CDN (`us.aws.cdn.hf.co`) returned 403, so the bge-m3 weights could not be fetched for a local stand-in.
+Readings, recorded as information only. None of them overrides the verdict:
+- **Attribution:** 13/18 against a bar of ≥ 11, P(X ≥ 13 | chance) = 0.0009. The attribution judge's positions were 7/6/5, so this judge did not trip the gate.
+- **Bridge:** 3/18, with the hub chosen 5 times. This is below the ≥ 9 bar and not above the hub.
+- **Hubness:** mean top-10 Jaccard 0.149, within the ≤ 0.25 bar.
+- **Echo:** 0/90.
 
-The script is committed and ready to run. Cory is running it from Claude Code on his own machine.
+This run was made from Cory's Mac without the REST API token. It used `npm run ground-spike -- --binding`: wrangler's remote AI binding, authenticated by the wrangler OAuth login plus the exported Access service token, with WARP paused. Same models, same code path.
 
 ## The assumption under test
 
@@ -73,7 +74,81 @@ Changing the bars after seeing data requires a commit that says so.
 
 ## Real run (Workers AI)
 
-_Pending. Paste the unedited output of_ `CLOUDFLARE_ACCOUNT_ID=… CLOUDFLARE_API_TOKEN=… npm run ground-spike` _here, then write the verdict at the top._
+Command: `export CLOUDFLARE_ACCESS_CLIENT_ID CLOUDFLARE_ACCESS_CLIENT_SECRET; npm run ground-spike -- --binding` (WARP paused).
+
+The spike's output is below, unedited. Wrangler's stderr was stripped from it: the internal-Durable-Object binding warnings, and 36 `Error: internal error; reference = …` lines from the remote-proxy session. Those error lines came in 12 bursts of 3 that do not line up with the spike's calls. All 63 calls returned. The pools were near full (141/143/142 of 144 raw), and 36/36 judge calls parsed on the first attempt. The source of those error lines is unexplained.
+
+```
+ground spike  model @cf/meta/llama-3.3-70b-instruct-fp8-fast + @cf/baai/bge-m3 via remote AI binding
+bands 6x24  prospect k=5  windows 1-5, 6-10  rng 0x6d0d
+expected requests: 18 generation + ~9 embedding + 36 judge (up to 72 with retries); hard cap 120
+
+══════════════════════════════════════════════════════════════════════════════
+seed "public transit"
+  pool: 141 raw -> 138 kept at cosine > 0.92
+  prospect at group 1 [first burst]  judge=group 3 ✗  bus schedule · train station · forgotten train car hotels · real time arrival · train station performances
+  prospect at group 1 [second burst]  judge=group 1 ✓  dusk lantern streetcars · commuter rail · abandoned ticket mazes · time-traveling streetcars · routes of nostalgia
+  prospect at group 2 [first burst]  judge=group 2 ✓  transportation freedom · fare card · shared mobility · transit app rewards · transit app
+  prospect at group 2 [second burst]  judge=group 2 ✓  accessibility · convenience · transport democracy · elevator access · citizen mobility
+  prospect at group 3 [first burst]  judge=group 3 ✓  subway map · road signs · neon hieroglyphics signage · bike lane murals · traffic circle art
+  prospect at group 3 [second burst]  judge=group 3 ✓  traffic light · rails as rivers of steel · traffic circle · stairway to the subway · public space
+  top-10 overlap between groups (mean jaccard): 0.176
+  thread "last train home" — "fare capping" rank 1: judge=near Y  [bridge: route planner | hub: city bike tours | nearX: vehicles as voyaging homes | nearY: trip chaining]
+  thread "last train home" — "fare capping" rank 2: judge=near Y  [bridge: trip chaining | hub: city bike tours | nearX: train car gardens | nearY: ticket vending]
+  thread "last train home" — "subway map typography" rank 1: judge=hub  [bridge: commuter psyche | hub: route planner | nearX: vehicles as voyaging homes | nearY: subway musicians program]
+  thread "last train home" — "subway map typography" rank 2: judge=near Y  [bridge: streetcar historical tours | hub: city bike tours | nearX: train car gardens | nearY: route planner]
+  thread "fare capping" — "subway map typography" rank 1: judge=bridge  [bridge: route planner | hub: city bike tours | nearX: trip chaining | nearY: subway musicians program]
+  thread "fare capping" — "subway map typography" rank 2: judge=near Y  [bridge: transportation hub cafes | hub: city bike tours | nearX: ticket vending | nearY: route planner]
+
+══════════════════════════════════════════════════════════════════════════════
+seed "home cooking"
+  pool: 143 raw -> 142 kept at cosine > 0.92
+  prospect at group 1 [first burst]  judge=group 1 ✓  recipe cards · cooking class calendar · mixing bowls · recipe card library · dinner plate hieroglyphs
+  prospect at group 1 [second burst]  judge=group 1 ✓  ancestral cooking techniques · taste nostalgia · heirloom recipes as legacy · family recipe archive · food as love
+  prospect at group 2 [first burst]  judge=group 2 ✓  meal prep co-op · meal planning app · food processor · slow cooker · the kitchen as womb space
+  prospect at group 2 [second burst]  judge=group 1 ✗  kitchen utensil swap · cutting boards · home brew kit · meal rhythms · feeling through food
+  prospect at group 3 [first burst]  judge=group 3 ✓  kitchen knife sharpening · cast iron skillet · cast iron restoration · knife sharpener · wooden spoons
+  prospect at group 3 [second burst]  judge=group 1 ✗  savoring time · kitchen witchcraft · meat thermometer espionage · warmth · seasonal harmony
+  top-10 overlap between groups (mean jaccard): 0.160
+  thread "grandmother's recipe cards" — "meal prep containers" rank 1: judge=hub  [bridge: kitchen scale | hub: taste | nearX: recipes as inherited trauma | nearY: measuring cups]
+  thread "grandmother's recipe cards" — "meal prep containers" rank 2: judge=hub  [bridge: dinner party toolkit | hub: flavor | nearX: recipe book cryptograms | nearY: meal kit subscription]
+  thread "grandmother's recipe cards" — "knife skills" rank 1: judge=near Y  [bridge: kitchen scale | hub: taste | nearX: recipes as inherited trauma | nearY: canning workshop]
+  thread "grandmother's recipe cards" — "knife skills" rank 2: judge=bridge  [bridge: dinner party toolkit | hub: flavor | nearX: recipe book cryptograms | nearY: creativity]
+  thread "meal prep containers" — "knife skills" rank 1: judge=near Y  [bridge: canning workshop | hub: taste | nearX: measuring cups | nearY: creativity]
+  thread "meal prep containers" — "knife skills" rank 2: judge=near X  [bridge: silicone utensils | hub: flavor | nearX: meal kit subscription | nearY: creativity]
+
+══════════════════════════════════════════════════════════════════════════════
+seed "friendship"
+  pool: 142 raw -> 142 kept at cosine > 0.92
+  prospect at group 1 [first burst]  judge=group 1 ✓  friendship time capsule · time capsule correspondences · group chat · stranger intimacy · language exchange partners
+  prospect at group 1 [second burst]  judge=group 2 ✗  outing plans · shared journaling · roommate · camaraderie · dead letter postcards
+  prospect at group 2 [first burst]  judge=group 2 ✓  inside joke calendar · shared laughter · potluck dinner · neighborhood potluck · rituals
+  prospect at group 2 [second burst]  judge=group 2 ✓  game nights · monthly dinner club · intimacy · mystery meat potlucks · movie nights
+  prospect at group 3 [first burst]  judge=group 2 ✗  empathy · understanding · memories · secret handshake · familiarity
+  prospect at group 3 [second burst]  judge=group 3 ✓  caring · reciprocal haunting · companionship · beautiful misunderstandings · mirrored silences
+  top-10 overlap between groups (mean jaccard): 0.111
+  thread "long-distance calls" — "standing weekly dinner" rank 1: judge=near X  [bridge: suspended moments | hub: reciprocal support | nearX: connection | nearY: annual camping trip]
+  thread "long-distance calls" — "standing weekly dinner" rank 2: judge=near Y  [bridge: walks together | hub: mutual aid | nearX: cosmic proximity | nearY: suspended moments]
+  thread "long-distance calls" — "apologizing first" rank 1: judge=near X  [bridge: support system | hub: reciprocal support | nearX: connection | nearY: acceptance]
+  thread "long-distance calls" — "apologizing first" rank 2: judge=bridge  [bridge: reciprocal support | hub: mutual aid | nearX: cosmic proximity | nearY: acceptance]
+  thread "standing weekly dinner" — "apologizing first" rank 1: judge=hub  [bridge: walks together | hub: reciprocal support | nearX: annual camping trip | nearY: acceptance]
+  thread "standing weekly dinner" — "apologizing first" rank 2: judge=hub  [bridge: support system | hub: mutual aid | nearX: suspended moments | nearY: acceptance]
+
+══════════════════════════════════════════════════════════════════════════════
+RESULT
+  attribution   13/18 correct  (judged 18)  chance 1/3  P(X>=k)=0.0009   pass >= 11
+    first burst: 7/9
+    second burst: 6/9
+    judge answers by position: 7/6/5   (INVALID at >= 12)
+  bridge        3/18 chose the bridge  (judged 18)  chance 1/4  P(X>=k)=0.8647   pass >= 9 and > hub
+    judge chose: bridge 3 · hub 5 · near X 3 · near Y 7 · unjudged 0
+    judge answers by position: 3/10/3/2   (INVALID at >= 10)
+  hubness       mean top-10 jaccard 0.149 (per seed 0.176, 0.160, 0.111)   pass <= 0.25
+  echo          0/90 steered words are near-duplicates (cos > 0.92) of a note  [diagnostic]
+
+VERDICT: INVALID  — judge answered one bridge position 10/18 times — position-driven, not content-driven
+requests spent: 63
+```
 
 ## Offline plumbing run (`--fake`)
 

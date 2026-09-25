@@ -34,7 +34,7 @@ Baseline before any change: `npm run typecheck` clean, `npm test` **770 passing 
 ## 3. Converge
 - [x] Pick one and defend it (spec §2, "Why B").
 - [x] Spike `scripts/ground-spike.ts`, which prints a number. Plumbing verified offline. Pass bars pre-registered, then revised before any real run after review.
-- [ ] ⛔ **Real run — blocked on Cory.** Workers AI is unreachable from here. Expected cost: 63 requests, at most 99, hard cap 120.
+- [x] Real run 2026-09-24 via `--binding` (Access + OAuth, WARP paused), 63 requests. **VERDICT: INVALID**: the bridge judge picked position 2 in 10/18 trials.
 - [x] Measurement doc written. Its verdict is PENDING.
 
 ## 4. Build (new route; existing surfaces untouched: `git diff 36626dd` shows 0 deletions in pre-existing files)
@@ -54,5 +54,5 @@ Baseline before any change: `npm run typecheck` clean, `npm test` **770 passing 
 - [x] measurement `docs/measurements/2026-09-24-sky-and-ground-spike.md` (verdict pending N9)
 
 ## Before merge (Cory)
-- [ ] Run the spike. Paste its output into the measurement doc. PASS → merge; FAIL or INVALID → back to spec §2.
+- [x] Run the spike. Paste its output into the measurement doc. The result was INVALID, so under the rule above (PASS → merge; FAIL or INVALID → back to spec §2) the next step is Cory's call.
 - [ ] Decide whether `/ground/` becomes the night walk's door (spec §7).
