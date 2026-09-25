@@ -41,6 +41,8 @@
 // Pass/fail thresholds are pre-registered in scripts/ground-judge.ts (PASS).
 //
 //   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run ground-spike
+//   npm run ground-spike -- --binding       # no API token: wrangler's remote AI binding
+//                                           # (OAuth login + exported Access service token; pause WARP)
 //   npm run ground-spike -- --fake          # offline plumbing check, meaningless numbers
 //   options: --max-requests=120 (hard stop)
 
@@ -56,7 +58,7 @@ import {
   attributeMessages, binomTail, bridgeMessages, centrality, distinctPicks, meanJaccard, mulberry32, parsePick, PASS,
   shuffle, verdict, type SpikeTallies,
 } from "./ground-judge";
-import { cloudflareRunner, CF_EMBED_MODEL, CF_GEN_MODEL, numberFlag, parseArgs } from "./runner-lib";
+import { bindingRunner, cloudflareRunner, CF_EMBED_MODEL, CF_GEN_MODEL, numberFlag, parseArgs } from "./runner-lib";
 
 const BANDS = BUCKET_KEYS.map((bucket) => ({
   bucket,
@@ -104,6 +106,7 @@ const RNG_SEED = 0x6d0d;
 
 const { flags } = parseArgs(process.argv.slice(2));
 const FAKE = flags.has("fake");
+const BINDING = flags.has("binding");
 const MAX_REQUESTS = numberFlag(flags, "max-requests", 120);
 let requests = 0;
 
@@ -178,8 +181,11 @@ const f3 = (n: number) => (Number.isFinite(n) ? n.toFixed(3) : "  —  ");
 
 async function main(): Promise<void> {
   let base: AiRunner;
+  let dispose: (() => Promise<void>) | undefined;
   if (FAKE) {
     base = fakeAiRunner();
+  } else if (BINDING) {
+    ({ ai: base, dispose } = await bindingRunner());
   } else {
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
     const token = process.env.CLOUDFLARE_API_TOKEN;
@@ -193,7 +199,7 @@ async function main(): Promise<void> {
   const rand = mulberry32(RNG_SEED);
 
   const judgeCalls = GROUNDS.length * (3 * WINDOWS.length + 3 * BRIDGE_RANKS.length);
-  console.log(`ground spike  model ${FAKE ? "FAKE (dev-fake-ai + coin-flip judge — numbers are meaningless)" : `${CF_GEN_MODEL} + ${CF_EMBED_MODEL}`}`);
+  console.log(`ground spike  model ${FAKE ? "FAKE (dev-fake-ai + coin-flip judge — numbers are meaningless)" : `${CF_GEN_MODEL} + ${CF_EMBED_MODEL} via ${BINDING ? "remote AI binding" : "REST"}`}`);
   console.log(`bands ${BANDS.length}x${PER_BAND}  prospect k=${PROSPECT_COUNT}  windows ${WINDOWS.map((w) => `${w + 1}-${w + PROSPECT_COUNT}`).join(", ")}  rng 0x${RNG_SEED.toString(16)}`);
   console.log(`expected requests: ${GROUNDS.length * BANDS.length} generation + ~${GROUNDS.length * 3} embedding + ${judgeCalls} judge (up to ${judgeCalls * 2} with retries); hard cap ${MAX_REQUESTS}`);
 
@@ -318,6 +324,7 @@ async function main(): Promise<void> {
   const outcome = notNear ? "INVALID" : v.outcome;
   console.log(`\nVERDICT: ${outcome}${v.reasons.length ? `  — ${v.reasons.join("; ")}` : ""}`);
   console.log(`requests spent: ${requests}`);
+  await dispose?.();
 }
 
 main().catch((err) => {
