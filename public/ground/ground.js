@@ -4,8 +4,9 @@
 //         Click a word to pin it; it falls to the ground.
 // Ground — only pinned words (the server enforces it: src/ground-core.ts
 //         pruneToAnchors). Drag to arrange. Click open ground beside your
-//         words: dew condenses from what is nearby. Thread two words; the mark
-//         on the thread asks what connects them.
+//         words: dew condenses from what is nearby. Thread two words to show
+//         they belong together; threads are arrangement (and go out in the
+//         .excalidraw export) and condense nothing (spec Appendix B).
 // Dew and sky words are ephemeral and share the field's CAP = 14.
 //
 // All model output reaches the DOM through textContent. Never innerHTML.
@@ -14,7 +15,7 @@ import { createPoolClient } from '/pool-client.js';
 import { blurBand, wordOpacity } from '/depth.js';
 import {
   GROUND_H, GROUND_W, bucketOrder, dewSpots, edgePoint, groundScale, landingSpot, makeRoom, normKey, room,
-  threadMid, toGround, toScreen, ttl, wordWidth,
+  toGround, toScreen, ttl, wordWidth,
 } from '/ground/ground-model.js';
 
 const $ = (id) => document.getElementById(id);
@@ -44,7 +45,7 @@ const state = {
   threadFrom: null,
   pool: null,
   busy: false,
-  gesture: false,  // a prospect or bridge request is in flight — one at a time
+  gesture: false,  // a prospect request is in flight — one at a time
 };
 
 // ── api ─────────────────────────────────────────────────────────────────────
@@ -110,7 +111,7 @@ function teach() {
   if (n === 0) return hint(['Click a word in the sky to ', 'pin', ' it. It falls to the ground, and the ground keeps it.']);
   if (n === 1) return hint(['Drag it where it belongs. Then click ', 'open ground beside it', ' — dew condenses from what is nearby.']);
   if (state.scene.threads.length === 0) return hint(['Select a word to ', 'thread', ' it to another. Words you set close together condense together.']);
-  return hint(['The ', 'mark on a thread', ' asks what connects its two ends. Unpinned words still evaporate.']);
+  return hint(['A ', 'thread', ' is arrangement: it goes out with the export, not into the weather. Unpinned words still evaporate.']);
 }
 
 // ── session ─────────────────────────────────────────────────────────────────
@@ -246,16 +247,9 @@ function centerOf(key) {
   return { x: p.x + el.offsetWidth / 2, y: p.y + el.offsetHeight / 2 };
 }
 
-const bridgeMarks = new Map(); // thread key -> button, kept across renders so focus survives
-
-function threadKey(t) {
-  return [normKey(t.a), normKey(t.b)].sort().join('|');
-}
-
 function drawThreads() {
   const svg = els.threads;
   svg.replaceChildren();
-  const live = new Set();
   for (const t of state.scene.threads) {
     const ka = normKey(t.a), kb = normKey(t.b);
     const a = centerOf(ka);
@@ -269,24 +263,7 @@ function drawThreads() {
     line.setAttribute('x1', p0.x); line.setAttribute('y1', p0.y);
     line.setAttribute('x2', p1.x); line.setAttribute('y2', p1.y);
     svg.appendChild(line);
-    const key = threadKey(t);
-    live.add(key);
-    const mid = threadMid(a, b);
-    let mark = bridgeMarks.get(key);
-    if (!mark) {
-      mark = document.createElement('button');
-      mark.type = 'button';
-      mark.className = 'bridge';
-      mark.title = 'what connects these?';
-      els.ground.appendChild(mark);
-      bridgeMarks.set(key, mark);
-    }
-    mark.style.left = `${mid.x}px`;
-    mark.style.top = `${mid.y}px`;
-    mark.setAttribute('aria-label', `what connects ${t.a} and ${t.b}?`);
-    mark.onclick = (e) => { e.stopPropagation(); bridge(t.a, t.b, toGround(mid, state.scale)); };
   }
-  for (const [key, mark] of bridgeMarks) if (!live.has(key)) { mark.remove(); bridgeMarks.delete(key); }
 }
 
 // ── ground words: drag, select, thread, release ─────────────────────────────
@@ -462,7 +439,7 @@ document.addEventListener('pointerdown', (e) => {
 // ── prospecting on the ground ───────────────────────────────────────────────
 
 els.ground.addEventListener('click', (e) => {
-  if (!state.id || e.target.closest('.gword, .bridge, .vapor')) return;
+  if (!state.id || e.target.closest('.gword, .vapor')) return;
   if (state.threadFrom) return cancelThread();
   prospect(groundPoint(e));
 });
@@ -520,11 +497,6 @@ async function gesture(p, path, body, label) {
 function prospect(p) {
   return gesture(p, '/ground/prospect', { x: p.x, y: p.y }, (d) =>
     d.mode === 'near' ? `beside ${d.basis.slice(0, 3).join(' · ')}` : 'open ground — the far field');
-}
-
-function bridge(a, b, mid) {
-  return gesture(mid, '/ground/bridge', { a, b }, (d) =>
-    d.mode === 'bridge' ? `between ${a} · ${b}` : 'not settled yet — the far field');
 }
 
 function condenseDew(words, at) {

@@ -11,13 +11,11 @@ import {
   applyGroundOp,
   decodeScene,
   groundKey,
-  planBridge,
   planProspect,
   planScore,
   pruneToAnchors,
   sameScene,
   toExcalidrawScene,
-  BRIDGE_COUNT,
   PROSPECT_COUNT,
   type DrawPlan,
   type GroundOp,
@@ -245,15 +243,6 @@ export class SessionDO extends DurableObject<Env> {
     if (!this.meta) return null;
     const scene = this.groundScene();
     return this.serveGroundPlan(planProspect(scene, this.core.anchors(), x, y), PROSPECT_COUNT, visible);
-  }
-
-  /** Condense along a thread: words that sit near BOTH ends. Null plan means
-   *  there is no such thread (the route answers 409). */
-  async groundBridge(a: string, b: string, visible: string[]): Promise<GroundDraw | "no-thread" | null> {
-    if (!this.meta) return null;
-    const plan = planBridge(this.groundScene(), this.core.anchors(), a, b);
-    if (!plan) return "no-thread";
-    return this.serveGroundPlan(plan, BRIDGE_COUNT, visible);
   }
 
   async groundExport(): Promise<Record<string, unknown> | null> {

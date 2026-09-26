@@ -33,6 +33,8 @@
 // ground scene, prospects go through planProspect (neighbourhood + Gaussian
 // weights) and PoolCore.drawRanked (consuming, so the second window is what a
 // second prospect would really get), bridges through planBridge/planScore.
+// Since 2026-09-25 the app has no bridge (spec Appendix B): the bridge half
+// below is a frozen copy of the code this spike ran against (5bceb03).
 //
 // The pool is generated WITHOUT anchors — seed only — at production band and
 // dedupe parity. In the app, pinned words also condition generation, which can
@@ -49,7 +51,7 @@
 import { embedTexts, generateCandidates, type AiRunner } from "../src/generation";
 import { fakeAiRunner } from "../src/dev-fake-ai";
 import {
-  nearScore, planBridge, planProspect, planScore, topK, PROSPECT_COUNT,
+  groundKey, nearScore, planProspect, planScore, topK, PROSPECT_COUNT,
   type AnchorWithEmbedding, type GroundScene,
 } from "../src/ground-core";
 import { PoolCore, cosineSim } from "../src/pool-core";
@@ -101,6 +103,36 @@ const GROUNDS: { seed: string; groups: string[][] }[] = [
 const WINDOWS = [0, PROSPECT_COUNT]; // ranks 1-5, then 6-10: does steering survive a second prospect?
 const BRIDGE_RANKS = [0, 1];
 const RNG_SEED = 0x6d0d;
+
+// ── bridge path, frozen ─────────────────────────────────────────────────────
+// planBridge, bridgeScore and planScore's bridge arm left src/ground-core.ts on
+// 2026-09-25. Verbatim copies as of 5bceb03, so the instrument behind the
+// committed measurement (docs/measurements/2026-09-24-sky-and-ground-spike.md)
+// still runs the code it ran. Do not edit.
+
+type BridgePlan = { mode: "bridge"; a: number[]; b: number[]; basis: [string, string] } | { mode: "open"; basis: string[] };
+
+function bridgeScore(a: number[], b: number[]): (embedding: number[]) => number {
+  return (e) => Math.min(cosineSim(e, a), cosineSim(e, b));
+}
+
+function embeddingOf(anchors: readonly AnchorWithEmbedding[], text: string): number[] | null {
+  const a = anchors.find((x) => groundKey(x.text) === groundKey(text));
+  return a?.embedding && a.embedding.length > 0 ? a.embedding : null;
+}
+
+function planBridge(scene: GroundScene, anchors: readonly AnchorWithEmbedding[], a: string, b: string): BridgePlan | null {
+  const threaded = scene.threads.some(
+    (t) =>
+      (groundKey(t.a) === groundKey(a) && groundKey(t.b) === groundKey(b)) ||
+      (groundKey(t.a) === groundKey(b) && groundKey(t.b) === groundKey(a)),
+  );
+  if (!threaded) return null;
+  const ea = embeddingOf(anchors, a);
+  const eb = embeddingOf(anchors, b);
+  if (!ea || !eb) return { mode: "open", basis: [] };
+  return { mode: "bridge", a: ea, b: eb, basis: [a, b] };
+}
 
 // ── accounting ──────────────────────────────────────────────────────────────
 
@@ -280,7 +312,8 @@ async function main(): Promise<void> {
       const threaded: GroundScene = { words: scene.words, threads: [{ a: x, b: y }] };
       const plan = planBridge(threaded, anchors, x, y);
       if (!plan || plan.mode !== "bridge") { console.log(`  !! no bridge plan for "${x}" — "${y}"`); continue; }
-      const score = planScore(plan, rand);
+      const bs = bridgeScore(plan.a, plan.b); // planScore's bridge arm, frozen
+      const score = (c: { embedding: number[] }) => bs(c.embedding);
       const depth = 8;
       const lists = [
         topK(aliveIdx, (i) => score(candidates[i]!), depth),

@@ -170,23 +170,6 @@ a.label:hover, a.label:focus-visible { color: var(--paper); }
 .threads line { stroke: var(--label); stroke-width: 1; stroke-dasharray: 3 5; opacity: 0.8; }
 .threads line.pending { stroke: var(--pin); opacity: 0.6; }
 
-/* the bridge mark: Press's four-pointed cross, at a thread's midpoint. It is
-   the button that asks "what connects these two?" */
-.bridge {
-  position: absolute;
-  width: 28px;
-  height: 28px;
-  margin: -14px 0 0 -14px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-.bridge::before, .bridge::after { content: ""; position: absolute; background: var(--paper); opacity: 0.75; transition: background 0.3s var(--ease), transform 0.3s var(--ease); }
-.bridge::before { left: 13px; top: 4px; width: 1px; height: 20px; }
-.bridge::after { top: 13px; left: 4px; height: 1px; width: 20px; }
-.bridge:hover::before, .bridge:hover::after, .bridge:focus-visible::before, .bridge:focus-visible::after { background: var(--pin); opacity: 1; }
-
 /* pinned words: gold, upright, the dotted underline the field uses for pins */
 .gword {
   position: absolute;
@@ -329,9 +312,6 @@ a.label:hover, a.label:focus-visible { color: var(--paper); }
   .vapor { padding: 9px 6px; margin: -9px -6px; }
   .doors a.label { padding: 14px 0; }
   .evaporated button { min-height: 44px; }
-  .bridge { width: 44px; height: 44px; margin: -22px 0 0 -22px; }
-  .bridge::before { left: 21px; top: 12px; }
-  .bridge::after { top: 21px; left: 12px; }
 }
 
 /* ── small screens: the ground is wider than a phone; swipe it ──────────── */

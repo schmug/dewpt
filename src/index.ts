@@ -6,7 +6,7 @@ import { aiMode, selectBudgetedAiRunner } from "./ai-runner";
 import { type AdmissionKind, type AdmissionResult } from "./abuse-control";
 import { AiBudgetExceededError } from "./ai-budget";
 import { parsePoleTerms } from "./axis-core";
-import { parseBridgeBody, parseGroundOp, parseProspectBody } from "./ground-core";
+import { parseGroundOp, parseProspectBody } from "./ground-core";
 import { BUCKET_KEYS, MAX_AXES, MAX_POLE_TERM_CHARS, type BucketKey, type DewptParams, type Tier } from "./types";
 import { isBeltSpeed, type BeltSpeed } from "./board/types";
 
@@ -397,15 +397,6 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     if (!body) return badRequest("expected {x, y} as finite numbers");
     const drawn = await stub.groundProspect(body.x, body.y, body.visible);
     return drawn ? groundJson(drawn) : json({ error: "no such session" }, 404);
-  }
-
-  if (rest === "/ground/bridge" && method === "POST") {
-    const body = parseBridgeBody(await readBody(request));
-    if (!body) return badRequest("expected {a, b}: two different words on the ground");
-    const drawn = await stub.groundBridge(body.a, body.b, body.visible);
-    if (drawn === null) return json({ error: "no such session" }, 404);
-    if (drawn === "no-thread") return json({ error: "no thread between those words" }, 409);
-    return groundJson(drawn);
   }
 
   if (rest === "/ground.excalidraw" && method === "GET") {

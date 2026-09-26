@@ -152,11 +152,6 @@ export function dewSpots(cx, cy, widths, occupied, rand, lineH = 30) {
   return out;
 }
 
-/** Midpoint of a thread, where its bridge mark sits and bridge dew condenses. */
-export function threadMid(a, b) {
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-}
-
 /** Lifetime of an ephemeral word, ms. Sky words keep the field's 5–10 s
  *  (field.js). Dew lingers 7–12 s because it answers a question you just
  *  asked — UNMEASURED, a judgement call; it bears on ephemerality only in how

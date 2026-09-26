@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  BRIDGE_COUNT,
   GROUND_H,
   GROUND_W,
   MAX_THREADS,
@@ -8,7 +7,6 @@ import {
   PROSPECT_COUNT,
   applyGroundOp,
   autoPlace,
-  bridgeScore,
   decodeScene,
   groundKey,
   nearScore,
@@ -185,18 +183,12 @@ describe("queryVector", () => {
 
 describe("scores and ranking", () => {
   const X = [1, 0, 0];
-  const Y = [0, 1, 0];
   const pool = [
     [1, 0, 0], // synonym of X
     [0, 1, 0], // synonym of Y
     [1, 1, 0], // between
     [0, 0, 1], // unrelated
   ];
-
-  it("bridgeScore prefers the candidate near BOTH ends over a synonym of one", () => {
-    const ranked = topK(pool, bridgeScore(X, Y), 4);
-    expect(ranked[0]).toBe(2);
-  });
 
   it("nearScore ranks by closeness to the query", () => {
     expect(topK(pool, nearScore(X), 1)).toEqual([0]);
@@ -207,10 +199,9 @@ describe("scores and ranking", () => {
     expect(topK([5, 4, 3], (v) => v, 2, (v) => v === 5)).toEqual([1, 2]);
   });
 
-  it("condenses a field-sized burst and a smaller thread answer", () => {
+  it("condenses a field-sized burst", () => {
     expect(PROSPECT_COUNT).toBeGreaterThanOrEqual(4);
     expect(PROSPECT_COUNT).toBeLessThanOrEqual(5);
-    expect(BRIDGE_COUNT).toBeLessThan(PROSPECT_COUNT);
   });
 });
 
@@ -249,9 +240,9 @@ describe("toExcalidrawScene — M5 export", () => {
   });
 });
 
-import { edgePoint, openScore, parseBridgeBody, parseProspectBody, planBridge, planProspect, planScore } from "../src/ground-core";
+import { edgePoint, openScore, parseProspectBody, planProspect, planScore } from "../src/ground-core";
 
-describe("planProspect / planBridge", () => {
+describe("planProspect", () => {
   const s = scene([["night bus", 100, 100], ["last train", 160, 110], ["fare capping", 900, 400]], [["night bus", "fare capping"]]);
   const emb = (text: string, embedding: number[] | null) => ({ text, tier: 1 as const, pinnedAt: 1, embedding });
   const anchorsE = [emb("night bus", [1, 0, 0]), emb("last train", [0.8, 0.2, 0]), emb("fare capping", [0, 0, 1])];
@@ -269,17 +260,16 @@ describe("planProspect / planBridge", () => {
     expect(planProspect(s, [emb("night bus", null), emb("last train", null)], 120, 100).mode).toBe("open");
   });
 
-  it("a bridge needs an existing thread", () => {
-    expect(planBridge(s, anchorsE, "night bus", "last train")).toBeNull();
-    const plan = planBridge(s, anchorsE, "Fare Capping", "night bus");
-    expect(plan?.mode).toBe("bridge");
+  it("threads are arrangement only: they do not change what a prospect plans", () => {
+    const unthreaded = { ...s, threads: [] };
+    for (const [x, y] of [[120, 100], [900, 400], [520, 250]] as const) {
+      expect(planProspect(s, anchorsE, x, y)).toEqual(planProspect(unthreaded, anchorsE, x, y));
+    }
   });
 
   it("planScore routes each mode to its score", () => {
     const near = planScore({ mode: "near", query: [1, 0], basis: [] }, () => 0);
     expect(near({ embedding: [1, 0], seedDist: 0 })).toBeCloseTo(1);
-    const bridge = planScore({ mode: "bridge", a: [1, 0], b: [0, 1], basis: ["a", "b"] }, () => 0);
-    expect(bridge({ embedding: [1, 1], seedDist: 0 })).toBeGreaterThan(bridge({ embedding: [1, 0], seedDist: 0 }));
     const open = planScore({ mode: "open", basis: [] }, () => 0);
     expect(open({ embedding: [], seedDist: 0.7 })).toBeCloseTo(0.7);
     expect(openScore(() => 1)(0.5)).toBeCloseTo(0.65);
@@ -293,10 +283,6 @@ describe("request bodies", () => {
     expect(b!.visible).toHaveLength(40);
     expect(parseProspectBody({ x: NaN, y: 1 })).toBeNull();
     expect(parseProspectBody(null)).toBeNull();
-  });
-  it("bridge needs two different words", () => {
-    expect(parseBridgeBody({ a: "x", b: "y" })).toEqual({ a: "x", b: "y", visible: [] });
-    expect(parseBridgeBody({ a: "x", b: "X" })).toBeNull();
   });
 });
 

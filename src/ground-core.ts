@@ -9,16 +9,18 @@
 // That is the ephemerality guardrail (SPEC.md, CLAUDE.md), enforced in one
 // function with its own tests, rather than a convention.
 //
-// Spatial arrangement feeds back into the weather through two gestures, both
-// served by RE-RANKING the pool the DO already holds — never by an inline AI
-// call, so pool depth is untouched:
+// Spatial arrangement feeds back into the weather through one gesture, served
+// by RE-RANKING the pool the DO already holds — never by an inline AI call, so
+// pool depth is untouched:
 //   prospect at a point  → the pinned words near that point, weighted by
 //                          ground distance, form a query; the pool is ranked
 //                          by cosine to it.
-//   a thread A — B       → the pool is ranked by min(cos(c,A), cos(c,B)), the
-//                          candidates that sit near BOTH ends at once.
-// Whether that re-ranking is perceptible is the riskiest assumption of this
-// design; scripts/ground-spike.ts measures it with a blind judge.
+// Threads between two words are arrangement only: they are drawn and exported,
+// and condense nothing. The bridge gesture (rank by min affinity to both ends)
+// was dropped after the 2026-09-24 spike came back INVALID (spec Appendix B);
+// scripts/ground-spike.ts keeps a local copy of it as the historical
+// instrument. Whether prospect re-ranking is perceptible is measured by
+// scripts/ground-prospect-spike.ts with a blind judge.
 
 import { cosineSim } from "./pool-core";
 import type { Tier } from "./types";
@@ -40,10 +42,6 @@ export const NEIGHBOR_SIGMA = 120;
 /** Words condensed per ground prospect. Matches the field's 4–5 word burst
  *  (SPEC.md core loop step 3). */
 export const PROSPECT_COUNT = 5;
-/** Words condensed along a thread. Fewer than a prospect: a thread asks one
- *  question ("what connects these?"), and three answers can sit along it
- *  without overprinting at the field's density cap. UNMEASURED. */
-export const BRIDGE_COUNT = 3;
 /** Hard cap on threads. A legibility limit like the field's CAP = 14, not a
  *  performance guard. UNMEASURED. */
 export const MAX_THREADS = 24;
@@ -292,15 +290,6 @@ export function nearScore(query: number[]): (embedding: number[]) => number {
   return (e) => cosineSim(e, query);
 }
 
-/** Score for "connects A and B": the weaker of the two affinities, so a
- *  candidate that is simply a near-synonym of one end scores no better than
- *  its affinity to the OTHER end. This is what stops a bridge collapsing onto
- *  one pole — the failure the axis walk showed a point-seeking loop falls into
- *  (docs/measurements/2026-08-22-drift-mechanic-spikes.md, run 1 null). */
-export function bridgeScore(a: number[], b: number[]): (embedding: number[]) => number {
-  return (e) => Math.min(cosineSim(e, a), cosineSim(e, b));
-}
-
 /** Indices of the top `k` items by score, highest first, skipping any index for
  *  which `skip` returns true. Stable on ties (lower index first) so the spike
  *  and the DO agree exactly. */
@@ -461,8 +450,6 @@ export interface AnchorWithEmbedding extends AnchorLike {
 export type DrawPlan =
   /** Rank the pool by closeness to the query built from these pinned words. */
   | { mode: "near"; query: number[]; basis: string[] }
-  /** Rank by min affinity to both ends of a thread. */
-  | { mode: "bridge"; a: number[]; b: number[]; basis: [string, string] }
   /** Nothing pinned nearby (or not embedded yet): condense from open sky,
    *  stranger-first — the highest seed-distance candidates in the whole pool,
    *  jittered. Stronger than the field's prospect, which only bumps the tier
@@ -481,19 +468,6 @@ export function planProspect(scene: GroundScene, anchors: readonly AnchorWithEmb
   return { mode: "near", query, basis: near.filter((n) => embeddingOf(anchors, n.text)).map((n) => n.text) };
 }
 
-export function planBridge(scene: GroundScene, anchors: readonly AnchorWithEmbedding[], a: string, b: string): DrawPlan | null {
-  const threaded = scene.threads.some(
-    (t) =>
-      (groundKey(t.a) === groundKey(a) && groundKey(t.b) === groundKey(b)) ||
-      (groundKey(t.a) === groundKey(b) && groundKey(t.b) === groundKey(a)),
-  );
-  if (!threaded) return null;
-  const ea = embeddingOf(anchors, a);
-  const eb = embeddingOf(anchors, b);
-  if (!ea || !eb) return { mode: "open", basis: [] };
-  return { mode: "bridge", a: ea, b: eb, basis: [a, b] };
-}
-
 /** Open-sky score: stranger first (higher seed distance), with jitter so two
  *  open prospects do not condense the same five words. The 0.15 jitter is
  *  UNMEASURED — about a third of the typical seed-distance spread. */
@@ -504,10 +478,6 @@ export function openScore(rand: () => number): (seedDist: number) => number {
 export function planScore(plan: DrawPlan, rand: () => number): (c: { embedding: number[]; seedDist: number }) => number {
   if (plan.mode === "near") {
     const s = nearScore(plan.query);
-    return (c) => s(c.embedding);
-  }
-  if (plan.mode === "bridge") {
-    const s = bridgeScore(plan.a, plan.b);
     return (c) => s(c.embedding);
   }
   const s = openScore(rand);
@@ -531,12 +501,4 @@ export function parseProspectBody(raw: unknown): { x: number; y: number; visible
   if (typeof r.x !== "number" || typeof r.y !== "number" || !Number.isFinite(r.x) || !Number.isFinite(r.y)) return null;
   const p = clampPoint(r.x, r.y);
   return { ...p, visible: parseVisible(r.visible) };
-}
-
-export function parseBridgeBody(raw: unknown): { a: string; b: string; visible: string[] } | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  const op = parseGroundOp({ op: "thread", a: r.a, b: r.b });
-  if (!op || op.op !== "thread") return null;
-  return { a: op.a, b: op.b, visible: parseVisible(r.visible) };
 }
