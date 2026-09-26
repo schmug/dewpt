@@ -3,6 +3,7 @@
 **Date:** 2026-09-24 · **Tree:** `ideation-ground` · **Cost so far:** 63 Workers AI requests (real run) + 1 connectivity probe
 **Script:** `npm run ground-spike` ([scripts/ground-spike.ts](../../scripts/ground-spike.ts)). Its pure parts, including the pre-registered `PASS`, are in [scripts/ground-judge.ts](../../scripts/ground-judge.ts), tested by `test/ground-judge.test.ts`.
 **Design:** [2026-09-24-sky-and-ground-design.md](../superpowers/specs/2026-09-24-sky-and-ground-design.md)
+**Next:** after this INVALID run, the design narrowed to prospect only, which is re-measured on fresh data in [2026-09-25-ground-prospect-spike.md](2026-09-25-ground-prospect-spike.md) (spec Appendix B).
 
 ## Verdict: **INVALID** — the bridge judge answered by position
 

@@ -1,6 +1,6 @@
 # TASKS — dewpt as an ideation space
 
-Branch: `ideation-ground` · base `36626dd` · 2026-09-24
+Branch: `ideation-ground` · base `36626dd` · 2026-09-24. Round 2 (§7) on `ground-prospect-only` · 2026-09-25
 
 Baseline before any change: `npm run typecheck` clean, `npm test` **770 passing / 0 failing (35 files)**.
 
@@ -35,7 +35,7 @@ Baseline before any change: `npm run typecheck` clean, `npm test` **770 passing 
 - [x] Pick one and defend it (spec §2, "Why B").
 - [x] Spike `scripts/ground-spike.ts`, which prints a number. Plumbing verified offline. Pass bars pre-registered, then revised before any real run after review.
 - [x] Real run 2026-09-24 via `--binding` (Access + OAuth, WARP paused), 63 requests. **VERDICT: INVALID**: the bridge judge picked position 2 in 10/18 trials.
-- [x] Measurement doc written. Its verdict is PENDING.
+- [x] Measurement doc written. Verdict: INVALID.
 
 ## 4. Build (new route; existing surfaces untouched: `git diff 36626dd` shows 0 deletions in pre-existing files)
 - [x] Pure core `src/ground-core.ts`, plus `PoolCore.drawRanked`, with vitest.
@@ -51,8 +51,29 @@ Baseline before any change: `npm run typecheck` clean, `npm test` **770 passing 
 ## 6. Docs
 - [x] spec `docs/superpowers/specs/2026-09-24-sky-and-ground-design.md`
 - [x] plan `docs/superpowers/plans/2026-09-24-sky-and-ground.md`
-- [x] measurement `docs/measurements/2026-09-24-sky-and-ground-spike.md` (verdict pending N9)
+- [x] measurement `docs/measurements/2026-09-24-sky-and-ground-spike.md` (INVALID)
+
+## 7. Round 2: prospect only (spec Appendix B)
+Decision (Cory, 2026-09-25): back to §2, narrowed by the run. Prospect is the candidate on fresh data; the bridge is dropped and not retried; Marginalia is the fallback and is not built.
+- [x] Prospect-only spike `scripts/ground-prospect-spike.ts` (`npm run ground-prospect-spike`). It has three fresh seeds, and in each the neighbouring groups 1 and 3 are laid out 800 units apart. It supports `--binding`, `--fake` and `--max-requests` (default 70).
+- [x] Bars pre-registered in `scripts/ground-prospect-judge.ts` before any real run (`27a978a`):
+  - attribution ≥ 11/18;
+  - Jaccard ≤ 0.25 over the non-neighbour pairs;
+  - INVALID if any position gets ≥ 12/18.
+
+  Exact tails (0.0144, 0.0118) are asserted by tests.
+- [x] `--fake` works: 27 fake requests, all 9 prospects `near` on their own cluster. The output is recorded in the new measurement doc.
+- [ ] ⛔ **Real run: blocked on Cory.** Expected ~45 requests, at most 63, hard cap 70; 86 of 150 remain. Pause WARP and export the Access variables.
+- [x] De-scope `/ground/`. The bridge is removed end to end, and threads are arrangement only. The old spike keeps a frozen bridge copy, and its `--fake` output is byte-identical to the recorded run.
+- [x] Gates: `npm run typecheck` clean; `npm test` 862 passing / 0 failing (40 files).
+- [x] Re-shoot: `node scripts/ground-shots.mjs` against `scripts/dev-offline.mjs` (fake AI) passes 6/6. CAP budgeted peak 14; raw element peak 24 during 0.25 s retire fades.
+- [x] Docs:
+  - spec Appendix B plus corrected bridge claims (TL;DR, §4, §6, §7, §8; pointer under §2.B);
+  - plan N11–N14;
+  - new measurement doc `docs/measurements/2026-09-25-ground-prospect-spike.md` (PENDING).
 
 ## Before merge (Cory)
-- [x] Run the spike. Paste its output into the measurement doc. The result was INVALID, so under the rule above (PASS → merge; FAIL or INVALID → back to spec §2) the next step is Cory's call.
+- [x] Run the first spike. The result was INVALID, so under the rule (PASS → merge; FAIL or INVALID → back to spec §2) the design went back to §2 (section 7 above).
+- [ ] Run the prospect-only spike and paste its output into its measurement doc. PASS → merge; FAIL or INVALID → Marginalia (spec §2.E) becomes the candidate, starting with its pool-reuse spike.
 - [ ] Decide whether `/ground/` becomes the night walk's door (spec §7).
+- [ ] Revisit the `/board/` recommendation (spec §7): lineage no longer lives on as the bridge.

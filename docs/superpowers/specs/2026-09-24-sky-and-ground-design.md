@@ -1,6 +1,6 @@
 # Sky and ground — design
 
-**Status:** slice built at `/ground/` on branch `ideation-ground` and fresh-context reviewed; every merge-blocking review finding is fixed (Appendix A). The spike is written, and its plumbing passes offline. The **real run is pending**: this sandbox cannot reach Workers AI, so it is waiting on Cory (see [the measurement](../../measurements/2026-09-24-sky-and-ground-spike.md)). **Do not merge before it passes.** · **Date:** 2026-09-24
+**Status:** slice built at `/ground/` and fresh-context reviewed; every merge-blocking review finding is fixed (Appendix A). The first spike's real run came back **INVALID** on 2026-09-24 ([measurement](../../measurements/2026-09-24-sky-and-ground-spike.md)). The design went back to §2, and the run narrowed it to **prospect only**: the bridge is dropped and threads are arrangement (Appendix B). On branch `ground-prospect-only`, a prospect-only spike with fresh data is written and its plumbing passes offline. Its **real run is pending** on Cory ([measurement](../../measurements/2026-09-25-ground-prospect-spike.md)). **Do not merge before it passes.** · **Date:** 2026-09-24, revised 2026-09-25
 **Plan:** [2026-09-24-sky-and-ground.md](../plans/2026-09-24-sky-and-ground.md)
 **Screens:** [assets/2026-09-24-sky-and-ground/](assets/2026-09-24-sky-and-ground/)
 
@@ -12,9 +12,10 @@ dewpt becomes two planes:
 
 Where things sit on the ground is what condenses next:
 - **Beside a cluster.** Click open ground next to a cluster and dew condenses there, drawn from what is nearby.
-- **Along a thread.** Draw a thread between two words, and the mark at its midpoint asks what connects them.
 
-Both gestures are served by **re-ranking the pool the DO already holds**. Nothing calls the model inline, so the pool-depth rule stays intact.
+That gesture is served by **re-ranking the pool the DO already holds**. Nothing calls the model inline, so the pool-depth rule stays intact.
+
+**Threads are arrangement.** You can draw a thread between two words. It is shown on the ground and goes out in the export, but it condenses nothing. The earlier bridge gesture was dropped (Appendix B).
 
 **The Excalidraw verdict:** use Excalidraw's *file format*, not its *runtime*. The ground exports a valid `.excalidraw` file, which covers M5; it opens in Excalidraw with bindings intact, checked below. Embedding the editor fails on fit, not on size:
 - its font set is closed, so no Fraunces;
@@ -55,6 +56,7 @@ Each entry gives the pitch, the core gesture, what survives and what is cut, and
 - **Gesture:** click a sky word and it falls. Drag to arrange. Click open ground beside words to get dew from that neighbourhood. Thread two words, then press the mark on the thread to get words near both ends.
 - **Survives:** everything in A, plus Fraunces and gold on the ground.
 - **Riskiest assumption:** that re-ranking a *seed-only* pool by ground geometry is **perceptible**. It needs different clusters to pull recognisably different words, and bridges that do not collapse onto one end.
+- *2026-09-25:* the thread's mark (the bridge) was dropped after the first spike came back INVALID. This also retires the line under D below about a thread's bridge being a graded branch. Section 2 is kept as it was written when B was chosen; see Appendix B.
 
 ### C. Rooms with windows (Cory's)
 - **Pitch:** each project is a room with its own ground, notes and tasks. You move between rooms through a deliberate doorway (event segmentation), and each room has windows onto nearby latent space.
@@ -149,16 +151,16 @@ Choosing B makes this *smaller*. Ground ops are three verbs (`move`, `thread`, `
 | click a sky word | `POST /pin`, then `POST /ground/op {move}` to where it lands | none (the pump embeds the anchor afterwards, as today) |
 | drag a ground word | `POST /ground/op {move}` | none |
 | click open ground at *(x, y)*, or **condense beside** from a word's menu (the keyboard route) | `planProspect`: pinned words within `NEIGHBOR_RADIUS`, Gaussian-weighted → query vector → `PoolCore.drawRanked` by cosine, top `PROSPECT_COUNT` | **none** — a re-rank |
-| thread A—B, press its mark | `planBridge` → rank by `min(cos(c,A), cos(c,B))`, top `BRIDGE_COUNT` | **none** |
+| thread A—B (from a word's menu) | `POST /ground/op {thread}`. Arrangement only: drawn, exported, and condenses nothing (Appendix B) | none |
 | open ground, or anchors not yet embedded | `mode: "open"` → stranger-first: the highest seed-distance candidates in the pool, jittered. This is stronger than the field's prospect, which only bumps tier odds; open ground is where you go for the far field | none |
 | export | `toExcalidrawScene` | none |
 
-**The ground says what it listened to.** Every ground draw returns its `basis` (the pinned words it was conditioned on). The page prints it beside the gesture ("beside night bus · last train", "between X · Y", "open ground — from the sky"). The user can see why these words condensed. The system does not ask to be trusted blindly.
+**The ground says what it listened to.** Every ground draw returns its `basis` (the pinned words it was conditioned on). The page prints it beside the gesture ("beside night bus · last train", "open ground — the far field"). The user can see why these words condensed. The system does not ask to be trusted blindly.
 
 **Wire:** no embeddings. Every ground response goes through `assertNoEmbeddings` (the board's structural guard, reused).
 
 **Constants:** every behavioural or layout constant is labelled UNMEASURED at its definition, except two that inherit a measured or specced value: `PROSPECT_COUNT` (the field's 4–5 word burst) and the sky's 5–10 s lifetime (field.js). The labelled ones are:
-- in `src/ground-core.ts`: `NEIGHBOR_RADIUS`, `NEIGHBOR_SIGMA`, `BRIDGE_COUNT`, `MAX_THREADS`, the open-ground jitter, and the `autoPlace` spiral;
+- in `src/ground-core.ts`: `NEIGHBOR_RADIUS`, `NEIGHBOR_SIGMA`, `MAX_THREADS`, the open-ground jitter, and the `autoPlace` spiral;
 - in `public/ground/ground-model.js` and `ground.js`: the dew lifetime, `landingSpot` and `dewSpots` geometry, and `DRIZZLE_MS`.
 
 **Legibility:** sky words and dew share `CAP = 14`, and words already fading still count. When dew arrives it answers a gesture, so it gets priority:
@@ -167,7 +169,7 @@ Choosing B makes this *smaller*. Ground ops are three verbs (`move`, `thread`, `
 - A property test covers every combination of live, fading and incoming counts.
 - One gesture is in flight at a time.
 
-Verified in the browser: ten rapid prospects peaked at 14 words on screen, never 15 (Appendix A).
+Verified in the browser: ten rapid prospects peaked at 14 budgeted words, never 15 (Appendix A). Re-measured on 2026-09-25 by `scripts/ground-shots.mjs`, and the same: 14. The budget excludes words during their 0.25 s retire fade (`ground.js` `condenseDew`), so the raw count of word elements briefly reached **24** in the same burst. "Never 15" is true of the budget, not of every frame (Appendix B).
 
 **Reduced motion:** words don't fall and don't drift; they fade. The landing becomes a fade, and the pulse becomes a fade-out.
 
@@ -203,9 +205,9 @@ The drift critic loop stopped at cycle 3 without converging, and workstream B re
 - **No seed-survival claim.** Nothing here asserts that ground-conditioned dew is "still about the seed". It is drawn from a pool that was generated seed-conditioned, and that is all. (`SEED_TETHER_MIN = 0.414` has no provenance, #104. It is not used and not cited.)
 - **No cosine threshold as a quality gate.** The ground ranks; it never admits or rejects by a cutoff. It has no tether floor and no arrival cosine.
 - **No cheap statistic stands in for the judge.** The spike's embedding numbers (top-10 Jaccard, echo rate) are printed as *diagnostics*. The pass/fail decision rests on a blind, forced-choice judge, with thresholds registered before the first run.
-- **The clusters in the spike are hand-written**, three per seed, and deliberately distinct. Real clusters may be subtler, so a pass bounds the easy case. If the real run passes, a "near-cluster" variant is the next measurement.
+- **The clusters in the spike are hand-written**, three per seed. In the first spike they were deliberately distinct. The prospect-only spike adds the hard case: in every seed, two of the three groups sit on neighbouring sub-themes. Hand-written clusters are still a bias, and real ones may be subtler still.
 - **The judge is llama-3.3-70b**, the same model family as the generator. A pass means *a model can tell*, which is a proxy for *a person can tell*. It is not the same claim.
-- **A bridge pass must beat a hub.** `min(cos)` favours central words, so the bridge trial includes the pool's most central word as an arm. The bridge must be chosen more often than that hub, as well as clearing its bar.
+- **No bridge claim.** The bridge is dropped (Appendix B). Its only reading (3/18, hub 5) came from a run that was INVALID, so it is not evidence either way.
 - **A position-driven judge voids the run.** The result is INVALID, not a FAIL and not a PASS.
 - **Axis quality is not addressed.** The ground has no axes. That is deliberate: it sidesteps the seed-dependent axis legibility that workstream B could not resolve.
 
@@ -217,14 +219,14 @@ No existing surface is touched on this branch. These are recommendations for Cor
 
 - **field `/app/`**: the ground can replace it as the default thinking surface. What it teaches carries over. Two of its bugs (the cold-start empty bucket, and pins vanishing on resume) are fixed *on the ground* by construction: `bucketOrder` falls back across buckets, and the ground reads pins from the anchors table. Keep `/app/` until the ground has sliders.
 - **night walk `/`**: keep the atmosphere and cut the reimplementation. It should link to `/ground/` as the door, and teach the loop once, not four times.
-- **board `/board/`**: retire, or rebuild on projection. Its one unique idea (lineage) lives on as the thread's bridge.
+- **board `/board/`**: retire, or rebuild on projection. Its one unique idea (lineage) was to live on as the thread's bridge. **That no longer holds:** the bridge is dropped (Appendix B), so lineage has no home on the ground, and this recommendation needs revisiting before anyone acts on it.
 - **drift `/drift/`**: keep as the phone-first companion; fix #105–#110. Its projection mechanic is what the ground's ranked draw generalises.
 
 ---
 
 ## 8. Open questions
 
-1. **Does the real spike pass?** Everything above is conditional on it. If it fails, go back to §2. E needs its own spike, and C's windows need a projection spike.
+1. **Does the prospect-only spike pass?** Everything above is conditional on it. The first spike came back INVALID, and going back to §2 narrowed the design to prospect (Appendix B). If this spike fails, Marginalia (§2.E) is the fallback, and it needs its pool-reuse spike first. C's windows would still need a projection spike.
 2. **Sliders on the ground.** Dewpoint and altitude still exist server-side. Should open-ground prospects honour dewpoint, or should distance from your clusters *be* the dewpoint (stranger the further you walk from your words)? The second is more on-premise and unmeasured.
 3. **Freehand loops as explicit clusters.** Proximity is the only cluster signal today. A drawn loop is a clearer one, and it is where perfect-freehand would earn its place.
 4. **Pan/zoom (M3).** The ground is a fixed 1200 × 420 plane. That is fine for dozens of words. At hundreds it needs pan and zoom, and zoom-as-altitude from SPEC M3 is the obvious binding.
@@ -250,3 +252,33 @@ For each finding: what it was, what was done, and how the fix was verified.
 | 8 | **Unlabelled constants; the open-mode comment overstated** (minor). | no | Every layout and timing constant is labelled UNMEASURED at its definition. The open-mode comment now says "stranger-first, the far field". | Re-read. |
 | 9 | **Overlaps, clipping, small tap targets, wrong 409 hint** (minor). | no | Sky placement accounts for drift and skips a tick rather than overlap. Threads meet word edges on screen and in the export. The mobile empty state is left-aligned, with a "more ground →" cue. Coarse pointers get 44 px targets. The 409 hint now matches `thread-cap` or `unknown-word`. | Re-shoot (assets updated). |
 | 10 | **Client races; the DO shell and routes are untested** (minor). | no | Fixed: deferred refresh waits for in-flight scene requests; release checks its unpin; bridge marks persist across renders; network errors are caught. **Still open:** there are no route-level or DO-level tests. The repo's vitest has no Workers runtime, and adding one is its own decision. The write-back prune rule it would catch is covered at the pure level. | — |
+
+---
+
+## Appendix B — the INVALID run, and prospect only (2026-09-25)
+
+**The run.** The first spike ran on 2026-09-24 against Workers AI: 63 requests plus 1 probe, through wrangler's remote AI binding. It came back **INVALID**. The bridge judge picked display position 2 in 10 of 18 trials, and the pre-registered gate is ≥ 10. The pre-registered rule said FAIL or INVALID sends the design back to §2. Readings are recorded as information only, and none overrides the verdict:
+- attribution 13/18 (bar ≥ 11, P = 0.0009), with answer positions 7/6/5;
+- bridge 3/18, with the hub picked 5 times;
+- top-10 Jaccard 0.149;
+- echo 0/90.
+
+Full output: [the measurement](../../measurements/2026-09-24-sky-and-ground-spike.md).
+
+**The decision.** We went back to §2, but let the run narrow the choice instead of starting over:
+1. **Prospect is the candidate.** It still needs its own pre-registered pass on fresh data. The 13/18 above is not that pass: the run's combined gate decided its verdict, and using its data to validate a split chosen afterwards would be post-hoc.
+2. **The bridge is dropped as a way of generating words.** Threads stay on the ground as arrangement and in the `.excalidraw` export. They condense nothing.
+3. **Marginalia (§2.E) is the fallback** if the prospect-only spike fails. It is not built now.
+
+**Why the bridge was dropped, not retried.** The bridge trial is where the instrument broke. A judge that answers by position is a sign that the options did not separate for it. The readings fit that: the bridge arm was chosen 3 times in 18, below the 4.5 expected by chance, and the generic hub was chosen more often. §6 had already named the structural worry: `min(cos)` favours central words, so a bridge tends to collapse onto a hub. Retrying would mean tuning the score, the arms or the prompt *after* seeing this data. That is exactly the forking-paths move the pre-registration exists to forbid, and a second attempt would inherit the doubt. The bridge was also a second unmeasured claim riding on the ground. Without it the ground makes one claim, which one spike can test. Threads keep their value without the claim: they are how a person shows that two words belong together, and they survive the export to Excalidraw as bound arrows.
+
+**What changed on `ground-prospect-only`.**
+- *De-scope.* The following were removed end to end: the thread's mark button and its CSS; `bridge()` and its hint copy; `POST /api/session/:id/ground/bridge` and `parseBridgeBody`; `SessionDO.groundBridge`; `planBridge`, the bridge arm of `DrawPlan`/`planScore`, `bridgeScore` and `BRIDGE_COUNT`; and `threadMid`, which was dead without the mark. Threads, prospect, condense beside, open ground and `pruneToAnchors` are unchanged. A new test shows that a thread does not change what a prospect plans.
+- *The historical instrument still runs.* `scripts/ground-spike.ts` carries a frozen verbatim copy of the removed bridge code as of `5bceb03`. Its `--fake` output is byte-identical to the run recorded in the measurement doc (69/69 lines).
+- *The prospect-only spike.* `npm run ground-prospect-spike` uses three fresh seeds with hand-written notes. In each seed, groups 1 and 3 sit on neighbouring sub-themes and are laid out as the two outer clusters, 800 units apart. It drives the same shipped path and the same blind judge. The bars were pre-registered in `scripts/ground-prospect-judge.ts` before any real run:
+  - attribution ≥ 11/18;
+  - top-10 Jaccard ≤ 0.25;
+  - INVALID if any position gets ≥ 12/18.
+
+  One deliberate change from the first spike: the Jaccard bar covers only the **non-neighbour** pairs. The neighbouring pair overlaps by design, which is not hubness, so it is printed as a diagnostic next to attribution on the neighbouring groups. [Measurement (PENDING)](../../measurements/2026-09-25-ground-prospect-spike.md).
+- *Re-shoot.* `scripts/ground-shots.mjs`, run against a fake-AI server (`scripts/dev-offline.mjs`), passes 6/6 checks. It shows a thread with no mark and dew from condense beside. CAP = 14 holds under 10 rapid prospects (budgeted peak 14; the raw element count briefly reached 24 during 0.25 s retire fades; see §4). No pinned word is lost, there is no horizontal scroll at 390 px, and no sky word drifts under reduced motion. The screenshots in the asset folder were replaced.
