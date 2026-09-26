@@ -5,8 +5,11 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { axisFromRow, axisToRow, isDegeneratePole } from "./axis-core";
+import { AiBudgetExceededError } from "./ai-budget";
 import { selectBudgetedAiRunner } from "./ai-runner";
 import { embedTexts, expandPole, generateCandidates, type AiRunner } from "./generation";
+import { groundKey } from "./ground-core";
+import { MARGIN_DRAW_COUNT, focusFrom, marginQuery, marginScore, type MarginFocus } from "./margin-core";
 import { PoolCore } from "./pool-core";
 import {
   ALT_ABSTRACTION,
@@ -74,6 +77,12 @@ export class SessionDO extends DurableObject<Env> {
   /** Axis creations past the cap guard but not yet added to the core. See the
    *  comment in createAxis for why the guard cannot rely on axes().length alone. */
   private axisCreationsInFlight = 0;
+  /** Marginalia: the embedding of the paragraph under the writer's caret, held
+   *  in memory ONLY. The paragraph's text is embedded and dropped, never stored
+   *  or logged (src/margin-core.ts). Eviction loses it, and the margin then
+   *  ranks by the seed until the next focus: a degraded margin, never a
+   *  remembered paragraph. */
+  private marginFocusState: MarginFocus | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -143,6 +152,55 @@ export class SessionDO extends DurableObject<Env> {
   async prospect(_buckets: BucketKey[]): Promise<void> {
     if (!this.meta) return;
     await this.ensurePump(0);
+  }
+
+  /** Marginalia: focus the margin on a paragraph. User-initiated and outside
+   *  the serving path, like createAxis: the embed happens here, never inside a
+   *  draw. On any failure the previous focus stays, so the margin keeps
+   *  serving. Must not store or log `text` (test/margin-core.test.ts). */
+  async marginFocus(text: string): Promise<{ ok: true } | { ok: false; reason: "budget" | "embed"; retryAfterSeconds?: number } | null> {
+    if (!this.meta) return null;
+    let vec: number[] | undefined;
+    try {
+      [vec] = await embedTexts(this.aiRunner(), this.env.EMBED_MODEL, [text]);
+    } catch (error) {
+      if (error instanceof AiBudgetExceededError) return { ok: false, reason: "budget", retryAfterSeconds: error.retryAfterSeconds };
+      return { ok: false, reason: "embed" };
+    }
+    const focus = focusFrom(vec, Date.now());
+    if (!focus) return { ok: false, reason: "embed" };
+    this.marginFocusState = focus;
+    return { ok: true };
+  }
+
+  /** Marginalia: a margin draw. A RE-RANK of the pool toward the focused
+   *  paragraph (or the seed before any focus); no inference, so it answers as
+   *  fast as a field draw, and the pump tops up behind it. */
+  async marginDraw(visible: string[]): Promise<{ mode: "focus" | "seed" | "none"; condensed: { text: string; tier: Tier }[] } | null> {
+    if (!this.meta) return null;
+    const q = marginQuery(this.marginFocusState, this.core.getSeedEmbedding());
+    let condensed: { text: string; tier: Tier }[] = [];
+    if (q) {
+      const served = this.core.drawRanked(marginScore(q.query), MARGIN_DRAW_COUNT, Date.now(), new Set(visible.map(groundKey)));
+      this.consumeServed(served.map((s) => s.text));
+      condensed = served.map((s) => ({ text: s.text, tier: s.tier }));
+    }
+    if (this.core.genPlan(Date.now())) await this.ensurePump(0);
+    return { mode: q ? q.mode : "none", condensed };
+  }
+
+  /** The storage half of a ranked draw. Mirrors the SQL in drawPool, which is
+   *  left untouched so the field's serving path cannot change. */
+  private consumeServed(texts: string[]): void {
+    if (texts.length === 0) return;
+    this.ctx.storage.sql.exec(`DELETE FROM pool WHERE text IN (${texts.map(() => "?").join(",")})`, ...texts);
+    const now = Date.now();
+    for (const text of texts) {
+      this.ctx.storage.sql.exec("INSERT OR REPLACE INTO exclude (text, served_at) VALUES (?, ?)", text, now);
+    }
+    this.ctx.storage.sql.exec(
+      "DELETE FROM exclude WHERE text NOT IN (SELECT text FROM exclude ORDER BY served_at DESC, rowid DESC LIMIT 300)",
+    );
   }
 
   async updateParams(patch: Partial<DewptParams>): Promise<DewptParams | null> {

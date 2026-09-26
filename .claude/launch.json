@@ -11,6 +11,12 @@
       "port": 8787
     },
     {
+      "name": "dewpt-offline",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/dev-offline.mjs", "8790"],
+      "port": 8790
+    },
+    {
       "name": "static",
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8788"],

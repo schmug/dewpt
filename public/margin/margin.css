@@ -1,0 +1,132 @@
+/* margin — write, and the margin listens.
+ *
+ * Same palette, faces and tier language as the field (public/styles.css).
+ * The page is quiet paper-on-night; the margin is where weather happens. Gold
+ * means one thing: kept. Only pinned notes are gold. */
+
+:root {
+  --night: #0d0c14;
+  --paper: #dcdeea;
+  --label: #9a97b0;
+  --hair: rgb(232 233 240 / 0.14);
+  --t0: #dcdeea;             /* pale slate  — obvious */
+  --t1: #cdc7dd;             /* lilac       — adjacent */
+  --t2: #e0c8bc;             /* warm ember  — far field */
+  --pin: #f0d98c;            /* gold        — kept, and nothing else */
+  --display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --text: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --gutter: clamp(16px, 4vw, 48px);
+  --margin-w: clamp(150px, 26vw, 260px);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--night); color-scheme: dark; }
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--night);
+  color: var(--paper);
+  font-family: var(--text);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow-x: hidden;
+}
+
+.label {
+  font-family: var(--text);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+a.label, button.label { text-decoration: none; background: none; border: 0; padding: 0; cursor: pointer; }
+a.label:hover, a.label:focus-visible, button.label:hover, button.label:focus-visible { color: var(--paper); }
+:focus-visible { outline: 2px solid var(--pin); outline-offset: 3px; }
+
+/* ── header ─────────────────────────────────────────────────────────────── */
+.bar { display: flex; align-items: baseline; gap: 18px; padding: 22px var(--gutter) 14px; flex-wrap: wrap; }
+.mark { font-family: var(--display); font-size: 24px; color: var(--paper); text-decoration: none; letter-spacing: -0.01em; }
+.mark i { font-style: italic; }
+.seed { max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seed b { color: var(--paper); font-weight: 400; letter-spacing: 0.08em; }
+.doors { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; }
+
+/* ── the desk: page + margin ────────────────────────────────────────────── */
+.desk {
+  display: grid;
+  grid-template-columns: minmax(0, 640px) var(--margin-w);
+  justify-content: center;
+  gap: clamp(16px, 3vw, 40px);
+  padding: 12px var(--gutter) 48px;
+  border-top: 1px solid var(--hair);
+  position: relative;
+}
+
+.page {
+  font-family: var(--display);
+  font-size: 19px;
+  line-height: 1.62;
+  color: var(--paper);
+  min-height: 60vh;
+  outline: none;
+  caret-color: var(--pin);
+  padding-top: 18px;
+}
+.page p { margin: 0 0 1.1em; }
+.page:empty::before, .page.blank::before {
+  content: "Write. When you pause, the margin starts listening to the paragraph you are in.";
+  color: var(--label);
+  font-style: italic;
+  pointer-events: none;
+}
+
+.margin { position: relative; border-left: 1px solid var(--hair); min-height: 60vh; }
+
+.mword, .note {
+  position: absolute;
+  left: 14px;
+  right: 0;
+  font-family: var(--display);
+  font-size: 15px;
+  line-height: 26px;
+  height: 26px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+}
+.mword { opacity: 0; transition: opacity 1.1s var(--ease), transform 6s linear; color: var(--t0); }
+.mword.t1 { color: var(--t1); }
+.mword.t2 { color: var(--t2); font-style: italic; }
+.mword.leaving { opacity: 0 !important; transition: opacity 1.1s var(--ease); }
+.mword:hover, .mword:focus-visible { color: var(--pin); }
+.note { color: var(--pin); border-bottom: 1px dotted rgb(240 217 140 / 0.45); height: 26px; cursor: default; }
+
+/* ── footer ─────────────────────────────────────────────────────────────── */
+.foot { padding: 14px var(--gutter) 26px; border-top: 1px solid var(--hair); }
+.hint { margin: 0 0 12px; font-size: 13px; color: var(--label); }
+.hint b { color: var(--paper); font-weight: 400; }
+.evaporated { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+.evaporated ul { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; }
+.evaporated button { background: none; border: 0; padding: 0; font-family: var(--display); font-style: italic; font-size: 14px; color: var(--label); cursor: pointer; }
+.evaporated button:hover, .evaporated button:focus-visible { color: var(--paper); }
+
+/* ── narrow screens: the margin stays beside the page, narrower ─────────── */
+@media (max-width: 700px) {
+  :root { --margin-w: 118px; }
+  .desk { grid-template-columns: minmax(0, 1fr) var(--margin-w); gap: 10px; }
+  .page { font-size: 17px; }
+  .mword, .note { left: 8px; font-size: 13px; }
+  .doors { margin-left: 0; }
+}
+
+/* Reduced motion: fade only, no drift (SPEC.md guardrail). */
+@media (prefers-reduced-motion: reduce) {
+  .mword { transition: opacity 0.6s linear; transform: none !important; }
+}

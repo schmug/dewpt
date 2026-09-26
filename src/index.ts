@@ -5,6 +5,7 @@
 import { aiMode, selectBudgetedAiRunner } from "./ai-runner";
 import { type AdmissionKind, type AdmissionResult } from "./abuse-control";
 import { AiBudgetExceededError } from "./ai-budget";
+import { MAX_PARAGRAPH_CHARS, parseFocusBody, parseMarginDrawBody } from "./margin-core";
 import { parsePoleTerms } from "./axis-core";
 import { BUCKET_KEYS, MAX_AXES, MAX_POLE_TERM_CHARS, type BucketKey, type DewptParams, type Tier } from "./types";
 import { isBeltSpeed, type BeltSpeed } from "./board/types";
@@ -330,6 +331,32 @@ async function handleApi(request: Request, env: Env, path: string): Promise<Resp
     if (!text) return badRequest("expected text");
     const result = await stub.restore(text);
     return result ? json(result) : json({ error: "no such session" }, 404);
+  }
+
+  // ── the margin (/margin/) ─────────────────────────────────────────────
+  // Marginalia (.claude/plans/marginalia-slice.md). Focus embeds the paragraph
+  // under the caret and keeps only its embedding; draw re-ranks the pool toward
+  // it. Neither response carries an embedding.
+
+  if (rest === "/margin/focus" && method === "POST") {
+    const body = parseFocusBody(await readBody(request));
+    if (!body) return badRequest(`expected {text}: a non-empty paragraph of at most ${MAX_PARAGRAPH_CHARS} characters`);
+    const result = await stub.marginFocus(body.text);
+    if (!result) return json({ error: "no such session" }, 404);
+    if (!result.ok && result.reason === "budget") {
+      return rateLimited({ allowed: false, retryAfterSeconds: result.retryAfterSeconds ?? 60, reason: "ai budget" });
+    }
+    // 503: the paragraph was fine; the embed failed. The margin keeps its focus.
+    if (!result.ok) return json({ ok: false, error: "the margin kept its previous focus" }, 503);
+    return json({ ok: true });
+  }
+
+  if (rest === "/margin/draw" && method === "POST") {
+    const body = parseMarginDrawBody(await readBody(request));
+    const drawn = await stub.marginDraw(body.visible);
+    if (!drawn) return json({ error: "no such session" }, 404);
+    assertNoEmbeddings(drawn, "margin response");
+    return json(drawn);
   }
 
   if (rest === "/axes" && method === "GET") {
