@@ -1,12 +1,18 @@
 # Ground, prospect only — the re-ranking spike, round 2
 
-**Date:** 2026-09-25 · **Branch:** `ground-prospect-only` · **Cost so far:** 24 Workers AI requests (one aborted run, 2026-09-26)
+**Date:** 2026-09-25 · **Branch:** `ground-prospect-only` · **Cost:** 69 Workers AI requests: 24 in the aborted run and 45 in the real run (2026-09-26). The budget across all spikes now stands at 133 of 150.
 **Script:** `npm run ground-prospect-spike` ([scripts/ground-prospect-spike.ts](../../scripts/ground-prospect-spike.ts)). Its pure parts, including the pre-registered `PROSPECT_PASS`, are in [scripts/ground-prospect-judge.ts](../../scripts/ground-prospect-judge.ts), tested by `test/ground-prospect-judge.test.ts`. Shared plumbing is in [scripts/ground-harness.ts](../../scripts/ground-harness.ts), and shared judge helpers in [scripts/ground-judge.ts](../../scripts/ground-judge.ts).
 **Design:** [2026-09-24-sky-and-ground-design.md](../superpowers/specs/2026-09-24-sky-and-ground-design.md), Appendix B · **Previous run:** [2026-09-24-sky-and-ground-spike.md](2026-09-24-sky-and-ground-spike.md) (INVALID)
 
-## Verdict: **PENDING — not yet run against Workers AI**
+## Verdict: **FAIL** — attribution 10/18, below the pre-registered bar of 11
 
-Nothing in this repo should cite the prospect gesture as validated until the "Real run" section below is filled in. One real run aborted on an infrastructure error at request 24 (see "Aborted run"). It is not a result.
+Real run on 2026-09-26, complete, 45 requests, no transient retries. The judge named the right cluster in 10 of 18 trials; the bar is ≥ 11. The validity gate did not fire: positions went 3/11/4, and the gate is ≥ 12. Hubness passed, with a non-neighbour Jaccard of 0.172 against a bar of ≤ 0.25. The pre-registered rule is PASS → merge, FAIL or INVALID → Marginalia (spec §2.E) becomes the candidate, starting with its pool-reuse spike. **The prospect gesture is not validated**, and nothing in this repo should cite it as working. An earlier attempt aborted at request 24 and is not a result (see "Aborted run").
+
+Readings, recorded as information only. None of them overrides the verdict, and none was pre-registered as a bar:
+- **Chance.** 10/18 is above chance: P(X ≥ 10 | n=18, p=1/3) = 0.0433. It falls short of the registered bar, whose tail is 0.0144.
+- **Bursts.** The first burst (ranks 1–5) was right 7 of 9 times. The second (ranks 6–10) was right 3 of 9 times, which is chance level. Steering, where it exists, is shallow: roughly one prospect's worth per cluster.
+- **Neighbours.** The trials at neighbouring groups were right 7 of 12 times. The odd-one-out group was right only 3 of 6 times. The hard case is not where it failed. In `gardening`, a prospect at the social group ("swapping cuttings", "community garden waitlist") drew generic garden objects both times. That fits a pool built from the seed alone having almost no candidates for that cluster to pull. Re-ranking can only surface what the pool already holds.
+- **Judge position.** Position 2 took 11 of 18 answers, one short of the gate. Under a uniform judge, the chance that some position reaches 11 is about 0.043. The first spike's bridge judge also favoured position 2 (10/18, which tripped its gate). The same judge leaning the same way twice is worth designing around in the next spike, for example by counterbalancing each trial across positions.
 
 ## Why this spike exists
 
@@ -86,7 +92,60 @@ Output, unedited apart from wrangler's startup warnings:
 
 ## Real run (Workers AI)
 
-_Pending. Paste the unedited output of the command above here, then write the verdict at the top._
+2026-09-26. The command was `npm run ground-prospect-spike -- --binding --max-requests=62`, run by Cory with WARP paused. The output below is unedited, except that wrangler's startup warnings are removed and the terminal's HTML entities are decoded.
+
+```
+ground prospect spike  model @cf/meta/llama-3.3-70b-instruct-fp8-fast + @cf/baai/bge-m3 via remote AI binding
+bands 6x24  prospect k=5  windows 1-5, 6-10  neighbours = groups 1 & 3  rng 0x9e05
+expected requests: 18 generation + ~9 embedding + 18 judge (up to 36 with retries); hard cap 62
+
+══════════════════════════════════════════════════════════════════════════════
+seed "gardening"
+  pool: 143 raw -> 140 kept at cosine > 0.92
+  prospect at group 1 (neighbour) [first burst]  judge=group 1 ✓  compost pile · compost tumblers · skatepark composting · watering can · moss-covered robots
+  prospect at group 1 (neighbour) [second burst]  judge=group 3 ✗  bolted-down planters · garden cart wheels · pruning saws · garden gloves · garden stone markers
+  prospect at group 2 [first burst]  judge=group 1 ✗  garden fences · garden benches · garden fork · gardening kneeler · gardening hat
+  prospect at group 2 [second burst]  judge=group 3 ✗  weird sister pruning · garden cart · garden fork sets · patience · treehouse orchards
+  prospect at group 3 (neighbour) [first burst]  judge=group 3 ✓  irrigation system · mulch · fountain pen irrigation · watering can nozzles · aviary pollination
+  prospect at group 3 (neighbour) [second burst]  judge=group 3 ✓  fertilizer injectors · cultivating hope · balloon crop rotation · flourishing · irrigation timers
+  top-10 overlap (jaccard): non-neighbour pairs 0.213   neighbour pair 0.333
+
+══════════════════════════════════════════════════════════════════════════════
+seed "running"
+  pool: 141 raw -> 140 kept at cosine > 0.92
+  prospect at group 1 (neighbour) [first burst]  judge=group 1 ✓  track workout playlists · treadmill · hill sprint intervals · running group · fitness tracker
+  prospect at group 1 (neighbour) [second burst]  judge=group 2 ✗  running route planner · fitness · morning run coffee · mid-run snack carts · running shoes
+  prospect at group 2 [first burst]  judge=group 2 ✓  running lights · meditation in motion · run commute bags · the road's gentle cruelty · meditation
+  prospect at group 2 [second burst]  judge=group 2 ✓  running belt · run club mixers · post-run pancake · running socks · finish line
+  prospect at group 3 (neighbour) [first burst]  judge=group 1 ✗  wind tunnel sprinting · treadmill hacking · discipline · streetlamp pacing · unmapping the self
+  prospect at group 3 (neighbour) [second burst]  judge=group 1 ✗  self improvement · rhythmic breathing · performance · running log · endurance
+  top-10 overlap (jaccard): non-neighbour pairs 0.222   neighbour pair 0.250
+
+══════════════════════════════════════════════════════════════════════════════
+seed "learning a language"
+  pool: 140 raw -> 140 kept at cosine > 0.92
+  prospect at group 1 (neighbour) [first burst]  judge=group 1 ✓  flashcards · homework exercises · speaking practice · flashcard treasure hunt · rituals of repetition
+  prospect at group 1 (neighbour) [second burst]  judge=group 2 ✗  the weight of words · pronunciation drills · pattern recognition · listening exercises · linguistic pickpocketing
+  prospect at group 2 [first burst]  judge=group 2 ✓  conversation partners · language exchange cafe · video lessons · tongue twister challenge · language exchange apps
+  prospect at group 2 [second burst]  judge=group 1 ✗  idiom juggling · symbolic exchange · language meetups · human audio drones · language learning podcast
+  prospect at group 3 (neighbour) [first burst]  judge=group 3 ✓  idiomatic expressions · grammar guides · linguistic relativity · paralinguistic cues · cognitive dissonance
+  prospect at group 3 (neighbour) [second burst]  judge=group 3 ✓  narrative empathy · intertextuality · parrot-assisted phonetics · secret lives of nouns · encrypted narratives
+  top-10 overlap (jaccard): non-neighbour pairs 0.082   neighbour pair 0.053
+
+══════════════════════════════════════════════════════════════════════════════
+RESULT
+  attribution   10/18 correct  (judged 18)  chance 1/3  P(X>=k)=0.0433   pass >= 11
+    first burst: 7/9
+    second burst: 3/9
+    judge answers by position: 3/11/4   (INVALID at >= 12; P=0.0118 under a uniform judge)
+  hubness       mean top-10 jaccard, non-neighbour pairs 0.172 (per seed 0.213, 0.222, 0.082)   pass <= 0.25
+  neighbours    7/12 correct at the neighbouring groups; 3 of 5 misses went to the sibling   [diagnostic]
+                neighbour-pair top-10 jaccard 0.212 (per seed 0.333, 0.250, 0.053)   [diagnostic]
+  echo          0/90 steered words are near-duplicates (cos > 0.92) of a note  [diagnostic]
+
+VERDICT: FAIL  — attribution 10/18 < 11 (0 unjudged)
+requests spent: 45
+```
 
 ## Offline plumbing run (`--fake`)
 

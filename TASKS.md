@@ -64,7 +64,7 @@ Decision (Cory, 2026-09-25): back to §2, narrowed by the run. Prospect is the c
   Exact tails (0.0144, 0.0118) are asserted by tests.
 - [x] `--fake` works: 27 fake requests, all 9 prospects `near` on their own cluster. The output is recorded in the new measurement doc.
 - [x] First real attempt (2026-09-26) aborted at request 24 on a transient binding `internal error`. It is recorded in the measurement doc and not used. `retryTransient` was added and tested before the rerun.
-- [ ] ⛔ **Rerun: blocked on Cory.** 88 of 150 spent and 62 remain, so run with `--max-requests=62`. Expected ~45. Pause WARP and export the Access variables.
+- [x] Rerun 2026-09-26: complete, 45 requests, no retries. **VERDICT: FAIL.** Attribution was 10/18 against a bar of 11. Positions went 3/11/4, below the gate of 12. Jaccard was 0.172, a pass. The budget stands at 133 of 150 spent, with 17 left.
 - [x] De-scope `/ground/`. The bridge is removed end to end, and threads are arrangement only. The old spike keeps a frozen bridge copy, and its `--fake` output is byte-identical to the recorded run.
 - [x] Gates: `npm run typecheck` clean; `npm test` 866 passing / 0 failing (41 files).
 - [x] Re-shoot: `node scripts/ground-shots.mjs` against `scripts/dev-offline.mjs` (fake AI) passes 6/6. CAP budgeted peak 14; raw element peak 24 during 0.25 s retire fades.
@@ -75,6 +75,7 @@ Decision (Cory, 2026-09-25): back to §2, narrowed by the run. Prospect is the c
 
 ## Before merge (Cory)
 - [x] Run the first spike. The result was INVALID, so under the rule (PASS → merge; FAIL or INVALID → back to spec §2) the design went back to §2 (section 7 above).
-- [ ] Run the prospect-only spike and paste its output into its measurement doc. PASS → merge; FAIL or INVALID → Marginalia (spec §2.E) becomes the candidate, starting with its pool-reuse spike.
+- [x] Run the prospect-only spike and paste its output into its measurement doc. It came back FAIL. Under the pre-registered rule, the `/ground/` slice is **not merged**, and Marginalia (spec §2.E) becomes the candidate, starting with its pool-reuse spike.
+- [ ] Decide what happens next: the Marginalia pool-reuse spike (needs its own spec and budget; 17 of 150 requests remain), or something else. This is Cory's call.
 - [ ] Decide whether `/ground/` becomes the night walk's door (spec §7).
 - [ ] Revisit the `/board/` recommendation (spec §7): lineage no longer lives on as the bridge.

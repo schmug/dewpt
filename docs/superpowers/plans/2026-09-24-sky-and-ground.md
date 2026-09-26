@@ -14,7 +14,7 @@ Fourteen nodes.
   - N12: its real run, **blocked on Cory**;
   - N13: the bridge de-scope;
   - N14: the re-shoot.
-- N12 gates any merge.
+- N12 gated any merge. It came back **FAIL** (2026-09-26), so the slice is not merged.
 
 Peak parallelism is **3-wide**, reached in wave 2.
 
@@ -45,7 +45,7 @@ Three changes, each forced by a fact found in the repo rather than assumed:
 | **N9** | Real spike run → measurement doc verdict | **M** `docs/measurements/2026-09-24-sky-and-ground-spike.md` | `npm run ground-spike -- --binding` → `VERDICT: PASS` | N2 | done: **INVALID** (bridge judge answered by position) |
 | **N10** | Fresh-context review against screenshots; fix blockers | whatever the review names | `npm run typecheck && npm test` + re-shoot | N8 | done: see spec Appendix A |
 | **N11** | Prospect-only spike: fresh seeds, neighbouring groups, pre-registered `PROSPECT_PASS`, shared harness | **C** `scripts/ground-prospect-spike.ts`, `scripts/ground-prospect-judge.ts`, `scripts/ground-harness.ts`, `test/ground-prospect-judge.test.ts` · **M** `package.json` | `npx vitest run test/ground-prospect-judge.test.ts && npm run ground-prospect-spike -- --fake` | N2 (judge helpers), N3, N4 | built |
-| **N12** ⛔ | Real prospect-only run → new measurement doc verdict | **M** `docs/measurements/2026-09-25-ground-prospect-spike.md` | `npm run ground-prospect-spike -- --binding --max-requests=62` (WARP paused) → `VERDICT: PASS` | N11 | **blocked on Cory**. The first attempt aborted at request 24 on a transient binding error; not a result |
+| **N12** ⛔ | Real prospect-only run → new measurement doc verdict | **M** `docs/measurements/2026-09-25-ground-prospect-spike.md` | `npm run ground-prospect-spike -- --binding --max-requests=62` (WARP paused) → `VERDICT: PASS` | N11 | done: **FAIL**, attribution 10/18 against a bar of 11. The first attempt aborted at request 24 on a transient binding error and is not a result |
 | **N13** | De-scope the bridge end to end; frozen bridge copy in the old spike | **M** `src/ground-core.ts`, `test/ground-core.test.ts`, `src/session-do.ts`, `src/index.ts`, `public/ground/ground.js`, `public/ground/ground.css`, `public/ground/ground-model.js`, `scripts/ground-spike.ts` | `npm run typecheck && npm test && npm run ground-spike -- --fake` (output identical to the recorded run) | N4–N8 | built |
 | **N14** | Re-shoot `/ground/` with no bridge; CAP under 10 rapid prospects | **C** `scripts/ground-shots.mjs`, `scripts/dev-offline.mjs` · **M** `.claude/launch.json`, spec asset folder | `node scripts/ground-shots.mjs http://localhost:8790` → 6/6 checks | N13 | built |
 

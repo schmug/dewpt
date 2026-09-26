@@ -1,6 +1,6 @@
 # Sky and ground — design
 
-**Status:** slice built at `/ground/` and fresh-context reviewed; every merge-blocking review finding is fixed (Appendix A). The first spike's real run came back **INVALID** on 2026-09-24 ([measurement](../../measurements/2026-09-24-sky-and-ground-spike.md)). The design went back to §2, and the run narrowed it to **prospect only**: the bridge is dropped and threads are arrangement (Appendix B). On branch `ground-prospect-only`, a prospect-only spike with fresh data is written and its plumbing passes offline. Its **real run is pending** on Cory ([measurement](../../measurements/2026-09-25-ground-prospect-spike.md)). **Do not merge before it passes.** · **Date:** 2026-09-24, revised 2026-09-25
+**Status:** slice built at `/ground/` and fresh-context reviewed; every merge-blocking review finding is fixed (Appendix A). The first spike's real run came back **INVALID** on 2026-09-24 ([measurement](../../measurements/2026-09-24-sky-and-ground-spike.md)). The design went back to §2, and the run narrowed it to **prospect only**: the bridge is dropped and threads are arrangement (Appendix B). On branch `ground-prospect-only`, a prospect-only spike on fresh data came back **FAIL** on 2026-09-26: attribution 10/18 against a pre-registered bar of 11 ([measurement](../../measurements/2026-09-25-ground-prospect-spike.md)). Under the pre-registered rule, the slice is **not merged**, and Marginalia (§2.E) becomes the candidate, starting with its pool-reuse spike. · **Date:** 2026-09-24, revised 2026-09-26
 **Plan:** [2026-09-24-sky-and-ground.md](../plans/2026-09-24-sky-and-ground.md)
 **Screens:** [assets/2026-09-24-sky-and-ground/](assets/2026-09-24-sky-and-ground/)
 
@@ -226,7 +226,7 @@ No existing surface is touched on this branch. These are recommendations for Cor
 
 ## 8. Open questions
 
-1. **Does the prospect-only spike pass?** Everything above is conditional on it. The first spike came back INVALID, and going back to §2 narrowed the design to prospect (Appendix B). If this spike fails, Marginalia (§2.E) is the fallback, and it needs its pool-reuse spike first. C's windows would still need a projection spike.
+1. **Does the prospect-only spike pass?** No: it came back FAIL on 2026-09-26 (Appendix B). Everything above was conditional on it. The first spike came back INVALID, and going back to §2 narrowed the design to prospect (Appendix B). If this spike fails, Marginalia (§2.E) is the fallback, and it needs its pool-reuse spike first. C's windows would still need a projection spike.
 2. **Sliders on the ground.** Dewpoint and altitude still exist server-side. Should open-ground prospects honour dewpoint, or should distance from your clusters *be* the dewpoint (stranger the further you walk from your words)? The second is more on-premise and unmeasured.
 3. **Freehand loops as explicit clusters.** Proximity is the only cluster signal today. A drawn loop is a clearer one, and it is where perfect-freehand would earn its place.
 4. **Pan/zoom (M3).** The ground is a fixed 1200 × 420 plane. That is fine for dozens of words. At hundreds it needs pan and zoom, and zoom-as-altitude from SPEC M3 is the obvious binding.
@@ -282,3 +282,17 @@ Full output: [the measurement](../../measurements/2026-09-24-sky-and-ground-spik
 
   One deliberate change from the first spike: the Jaccard bar covers only the **non-neighbour** pairs. The neighbouring pair overlaps by design, which is not hubness, so it is printed as a diagnostic next to attribution on the neighbouring groups. [Measurement (PENDING)](../../measurements/2026-09-25-ground-prospect-spike.md).
 - *Re-shoot.* `scripts/ground-shots.mjs`, run against a fake-AI server (`scripts/dev-offline.mjs`), passes 6/6 checks. It shows a thread with no mark and dew from condense beside. CAP = 14 holds under 10 rapid prospects (budgeted peak 14; the raw element count briefly reached 24 during 0.25 s retire fades; see §4). No pinned word is lost, there is no horizontal scroll at 390 px, and no sky word drifts under reduced motion. The screenshots in the asset folder were replaced.
+
+**Result (2026-09-26): FAIL.** The prospect-only spike ran complete, using 45 requests; an earlier attempt aborted on a transient binding error and is not counted.
+- Attribution: 10/18, against a bar of ≥ 11.
+- Validity: answers by position went 3/11/4, under the gate of 12.
+- Hubness: non-neighbour Jaccard 0.172, a pass.
+
+Under the pre-registered rule, the slice is not merged, and Marginalia (§2.E) becomes the candidate, starting with its pool-reuse spike.
+
+The readings below were not pre-registered and do not change the verdict:
+- The first burst (ranks 1–5) was right 7 of 9 times. The second burst (ranks 6–10) was right 3 of 9 times.
+- The neighbouring groups (7/12) did better than the odd-one-out groups (3/6). A seed-only pool can hold too little for a cluster to pull, and re-ranking cannot add what is not there.
+- The judge leaned toward display position 2 in both spikes.
+
+[Measurement](../../measurements/2026-09-25-ground-prospect-spike.md).
