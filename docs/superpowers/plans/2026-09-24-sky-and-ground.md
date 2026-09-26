@@ -109,7 +109,7 @@ node scripts/ground-shots.mjs http://localhost:8790
 These are ordered by what they unblock, and each needs its own spec → plan cycle. The near-cluster variant that used to be item 1 is now part of N12.
 
 1. **If N12 passes:** link `/ground/` from the night walk as the door.
-2. **If N12 fails or is INVALID:** Marginalia (spec §2.E) is the fallback. Its pool-reuse spike (item 4) comes first.
+2. **If N12 fails or is INVALID:** Marginalia (spec §2.E) is the fallback. Its pool-reuse spike (item 4) comes first. **Taken:** N12 failed, and Cory chose to spec this spike on 2026-09-26, with the budget raised to 300.
 3. **M4 push.** WebSocket hibernation on `SessionDO`, broadcasting each applied ground op and pointer positions. `applyGroundOp` is already pure, so the shell broadcasts what it applied.
 4. **Marginalia pool-reuse spike** (spec §2.E). Does a pool built for paragraph *n* serve paragraph *n+1* by re-ranking?
 5. **Pan and zoom (M3)**, with zoom bound to altitude.

@@ -217,6 +217,8 @@ The drift critic loop stopped at cycle 3 without converging, and workstream B re
 
 No existing surface is touched on this branch. These are recommendations for Cory to accept or not:
 
+*2026-09-26:* the prospect-only spike failed (Appendix B), so these recommendations are moot as written. Cory closed the two open calls: `/ground/` does not become the night walk's door, and `/board/` stays as it is.
+
 - **field `/app/`**: the ground can replace it as the default thinking surface. What it teaches carries over. Two of its bugs (the cold-start empty bucket, and pins vanishing on resume) are fixed *on the ground* by construction: `bucketOrder` falls back across buckets, and the ground reads pins from the anchors table. Keep `/app/` until the ground has sliders.
 - **night walk `/`**: keep the atmosphere and cut the reimplementation. It should link to `/ground/` as the door, and teach the loop once, not four times.
 - **board `/board/`**: retire, or rebuild on projection. Its one unique idea (lineage) was to live on as the thread's bridge. **That no longer holds:** the bridge is dropped (Appendix B), so lineage has no home on the ground, and this recommendation needs revisiting before anyone acts on it.

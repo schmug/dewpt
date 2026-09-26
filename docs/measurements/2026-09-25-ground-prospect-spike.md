@@ -1,6 +1,6 @@
 # Ground, prospect only — the re-ranking spike, round 2
 
-**Date:** 2026-09-25 · **Branch:** `ground-prospect-only` · **Cost:** 69 Workers AI requests: 24 in the aborted run and 45 in the real run (2026-09-26). The budget across all spikes now stands at 133 of 150.
+**Date:** 2026-09-25 · **Branch:** `ground-prospect-only` · **Cost:** 69 Workers AI requests: 24 in the aborted run and 45 in the real run (2026-09-26). That brought the budget across all spikes to 133 of 150. Cory raised the budget to 300 on 2026-09-26, so 167 remain.
 **Script:** `npm run ground-prospect-spike` ([scripts/ground-prospect-spike.ts](../../scripts/ground-prospect-spike.ts)). Its pure parts, including the pre-registered `PROSPECT_PASS`, are in [scripts/ground-prospect-judge.ts](../../scripts/ground-prospect-judge.ts), tested by `test/ground-prospect-judge.test.ts`. Shared plumbing is in [scripts/ground-harness.ts](../../scripts/ground-harness.ts), and shared judge helpers in [scripts/ground-judge.ts](../../scripts/ground-judge.ts).
 **Design:** [2026-09-24-sky-and-ground-design.md](../superpowers/specs/2026-09-24-sky-and-ground-design.md), Appendix B · **Previous run:** [2026-09-24-sky-and-ground-spike.md](2026-09-24-sky-and-ground-spike.md) (INVALID)
 

@@ -76,6 +76,8 @@ Decision (Cory, 2026-09-25): back to §2, narrowed by the run. Prospect is the c
 ## Before merge (Cory)
 - [x] Run the first spike. The result was INVALID, so under the rule (PASS → merge; FAIL or INVALID → back to spec §2) the design went back to §2 (section 7 above).
 - [x] Run the prospect-only spike and paste its output into its measurement doc. It came back FAIL. Under the pre-registered rule, the `/ground/` slice is **not merged**, and Marginalia (spec §2.E) becomes the candidate, starting with its pool-reuse spike.
-- [ ] Decide what happens next: the Marginalia pool-reuse spike (needs its own spec and budget; 17 of 150 requests remain), or something else. This is Cory's call.
-- [ ] Decide whether `/ground/` becomes the night walk's door (spec §7).
-- [ ] Revisit the `/board/` recommendation (spec §7): lineage no longer lives on as the bridge.
+- [x] Next step (Cory, 2026-09-26): spec the Marginalia pool-reuse spike, with bars pre-registered and the judge rotating each trial through all positions.
+- [x] Budget (Cory, 2026-09-26): raised from 150 to **300** Workers AI requests; 133 spent, 167 remain.
+- [x] Branch (Cory, 2026-09-26): land the docs and measurements on `main` through a PR. The `/ground/` surface stays off `main`.
+- [x] ~~Decide whether `/ground/` becomes the night walk's door (spec §7).~~ Moot after the FAIL; closed by Cory on 2026-09-26.
+- [x] ~~Revisit the `/board/` recommendation (spec §7).~~ Moot after the FAIL; closed by Cory on 2026-09-26. `/board/` stays as it is.
