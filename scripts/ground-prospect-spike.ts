@@ -29,14 +29,14 @@
 //   npm run ground-prospect-spike -- --binding   # Access + OAuth; pause WARP
 //   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... npm run ground-prospect-spike
 //   npm run ground-prospect-spike -- --fake      # offline plumbing check, meaningless numbers
-//   options: --max-requests=70 (hard stop)
+//   options: --max-requests=70 (hard stop; lower it to what the 150-request budget has left)
 
 import { embedTexts } from "../src/generation";
 import { nearScore, planProspect, planScore, topK, PROSPECT_COUNT, type AnchorWithEmbedding, type GroundScene } from "../src/ground-core";
 import { PoolCore, cosineSim } from "../src/pool-core";
 import { DEDUPE_COSINE, type Candidate } from "../src/types";
 import { attributeMessages, binomTail, mulberry32, shuffle } from "./ground-judge";
-import { BANDS, CENTRES, OFFSETS, PER_BAND, buildPool, makeJudge, requestCap, spikeRunner } from "./ground-harness";
+import { BANDS, CENTRES, OFFSETS, PER_BAND, buildPool, makeJudge, requestCap, retryTransient, spikeRunner } from "./ground-harness";
 import { PROSPECT_PASS, jaccardSplit, neighbourSummary, positionMaxTail, prospectVerdict } from "./ground-prospect-judge";
 import { CF_EMBED_MODEL, CF_GEN_MODEL, numberFlag, parseArgs } from "./runner-lib";
 
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   const runner = await spikeRunner(flags);
   const capped = requestCap(runner.ai, MAX_REQUESTS);
   spent = capped.spent;
-  const ai = capped.ai;
+  const ai = retryTransient(capped.ai); // outside the cap: every retry is counted
   const rand = mulberry32(RNG_SEED);
   const judge = makeJudge(ai, FAKE, rand);
 

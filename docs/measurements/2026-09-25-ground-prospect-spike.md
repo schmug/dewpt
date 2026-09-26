@@ -1,12 +1,12 @@
 # Ground, prospect only — the re-ranking spike, round 2
 
-**Date:** 2026-09-25 · **Branch:** `ground-prospect-only` · **Cost so far:** 0 Workers AI requests
+**Date:** 2026-09-25 · **Branch:** `ground-prospect-only` · **Cost so far:** 24 Workers AI requests (one aborted run, 2026-09-26)
 **Script:** `npm run ground-prospect-spike` ([scripts/ground-prospect-spike.ts](../../scripts/ground-prospect-spike.ts)). Its pure parts, including the pre-registered `PROSPECT_PASS`, are in [scripts/ground-prospect-judge.ts](../../scripts/ground-prospect-judge.ts), tested by `test/ground-prospect-judge.test.ts`. Shared plumbing is in [scripts/ground-harness.ts](../../scripts/ground-harness.ts), and shared judge helpers in [scripts/ground-judge.ts](../../scripts/ground-judge.ts).
 **Design:** [2026-09-24-sky-and-ground-design.md](../superpowers/specs/2026-09-24-sky-and-ground-design.md), Appendix B · **Previous run:** [2026-09-24-sky-and-ground-spike.md](2026-09-24-sky-and-ground-spike.md) (INVALID)
 
 ## Verdict: **PENDING — not yet run against Workers AI**
 
-Nothing in this repo should cite the prospect gesture as validated until the "Real run" section below is filled in.
+Nothing in this repo should cite the prospect gesture as validated until the "Real run" section below is filled in. One real run aborted on an infrastructure error at request 24 (see "Aborted run"). It is not a result.
 
 ## Why this spike exists
 
@@ -61,14 +61,28 @@ Fixed in `scripts/ground-prospect-judge.ts` (`PROSPECT_PASS`) and committed in `
 
 ## Cost and how to run
 
-**Expected cost:** 18 generation + ~9 embedding + 18 judge = **~45 requests**, or up to 63 if every judge call retries. The run hard-stops at `--max-requests=70`. Of the 150-request budget across all spikes, 64 are already spent (63 in the first run and 1 probe), which leaves 86.
+**Expected cost:** 18 generation + ~9 embedding + 18 judge = **~45 requests**, or up to 63 if every judge call retries, plus any transient-error retries. Of the 150-request budget across all spikes, **88 are spent**: 63 in the first run, 1 probe, and 24 in the aborted run. That leaves **62**, so the rerun uses `--max-requests=62`. The cap is below the 63-request worst case: a run in which nearly every judge answer needs its retry would stop at the cap rather than exceed the budget.
 
 ```sh
 source ~/.zshenv; export CLOUDFLARE_ACCESS_CLIENT_ID CLOUDFLARE_ACCESS_CLIENT_SECRET   # pause WARP first
-npm run ground-prospect-spike -- --binding
+npm run ground-prospect-spike -- --binding --max-requests=62
 ```
 
 `--binding` uses wrangler's remote AI binding: the OAuth login plus the Access service token, and no API token. The REST path (`CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`, exported) also works.
+
+## Aborted run (2026-09-26): not a result
+
+The first real attempt stopped at request 24. It had finished seed 1 (`gardening`) and built seed 2's pool. Then the remote AI binding threw `internal error; reference = …` on the small embed call for seed 2's notes (10 texts). The first spike logged 36 errors of this kind as noise without any call failing; this time one reached the caller. The wrangler log for the run holds nothing more.
+
+**Why it is not used.** The verdict needs one complete run. Seed 1's six trials are not carried into a rerun. Keeping or dropping them now that their results are visible would be a choice made after seeing data, and the rerun's pools will differ anyway. The rerun was triggered by the crash, not by what seed 1 showed.
+
+**What changed before the rerun.** `retryTransient` in `scripts/ground-harness.ts`, tested in `test/ground-harness.test.ts`. It retries only that binding error, at most 3 attempts per call. It sits outside the request cap, so every attempt is counted and paid for, and each retry is printed in the output. A failed call returns nothing, so retrying it changes no measurement. The bars are unchanged, and the `--fake` output is byte-identical.
+
+Output, unedited apart from wrangler's startup warnings:
+
+```
+''' + aborted + '''
+```
 
 ## Real run (Workers AI)
 

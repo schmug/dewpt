@@ -63,9 +63,10 @@ Decision (Cory, 2026-09-25): back to §2, narrowed by the run. Prospect is the c
 
   Exact tails (0.0144, 0.0118) are asserted by tests.
 - [x] `--fake` works: 27 fake requests, all 9 prospects `near` on their own cluster. The output is recorded in the new measurement doc.
-- [ ] ⛔ **Real run: blocked on Cory.** Expected ~45 requests, at most 63, hard cap 70; 86 of 150 remain. Pause WARP and export the Access variables.
+- [x] First real attempt (2026-09-26) aborted at request 24 on a transient binding `internal error`. It is recorded in the measurement doc and not used. `retryTransient` was added and tested before the rerun.
+- [ ] ⛔ **Rerun: blocked on Cory.** 88 of 150 spent and 62 remain, so run with `--max-requests=62`. Expected ~45. Pause WARP and export the Access variables.
 - [x] De-scope `/ground/`. The bridge is removed end to end, and threads are arrangement only. The old spike keeps a frozen bridge copy, and its `--fake` output is byte-identical to the recorded run.
-- [x] Gates: `npm run typecheck` clean; `npm test` 862 passing / 0 failing (40 files).
+- [x] Gates: `npm run typecheck` clean; `npm test` 866 passing / 0 failing (41 files).
 - [x] Re-shoot: `node scripts/ground-shots.mjs` against `scripts/dev-offline.mjs` (fake AI) passes 6/6. CAP budgeted peak 14; raw element peak 24 during 0.25 s retire fades.
 - [x] Docs:
   - spec Appendix B plus corrected bridge claims (TL;DR, §4, §6, §7, §8; pointer under §2.B);

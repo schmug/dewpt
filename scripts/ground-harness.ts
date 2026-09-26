@@ -59,6 +59,28 @@ export function requestCap(ai: AiRunner, max: number): { ai: AiRunner; spent: ()
   };
 }
 
+/** Retries ONLY the remote binding's transient `internal error; reference = …`.
+ *  On 2026-09-26 one such error, on a 10-text embed call, aborted a real run
+ *  at request 24. Nothing else is retried: a request-cap stop, a WARP timeout,
+ *  or a malformed answer must surface. Wrap it OUTSIDE requestCap so every
+ *  attempt is counted and paid for; each retry is printed, so the run output
+ *  discloses it. */
+export function retryTransient(ai: AiRunner, attempts = 3, waitMs = 2000): AiRunner {
+  return {
+    async run(model, inputs) {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return await ai.run(model, inputs);
+        } catch (err) {
+          if (attempt >= attempts || !/internal error; reference/i.test(String(err))) throw err;
+          console.log(`  (transient binding error on ${model}, attempt ${attempt}/${attempts} — retrying: ${String(err).slice(0, 80)})`);
+          await new Promise((r) => setTimeout(r, waitMs));
+        }
+      }
+    },
+  };
+}
+
 function extract(result: unknown): unknown {
   const r = result as { response?: unknown; choices?: { message?: { content?: unknown } }[] };
   if (typeof r?.response === "string") return r.response;
