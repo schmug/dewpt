@@ -19,6 +19,7 @@
     "axis-projection": "tsx scripts/axis-projection-spike.ts",
     "axis-power": "tsx scripts/axis-power-spike.ts",
     "ground-spike": "tsx scripts/ground-spike.ts",
+    "ground-prospect-spike": "tsx scripts/ground-prospect-spike.ts",
     "smoke": "node scripts/smoke.mjs",
     "ui-smoke": "node scripts/ui-smoke.mjs",
     "critic": "node scripts/critic.mjs"
