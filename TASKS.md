@@ -83,3 +83,18 @@ Decision (Cory, 2026-09-25): back to §2, narrowed by the run. Prospect is the c
 - [x] Branch (Cory, 2026-09-26): land the docs and measurements on `main` through a PR. The `/ground/` surface stays off `main`.
 - [x] ~~Decide whether `/ground/` becomes the night walk's door (spec §7).~~ Moot after the FAIL; closed by Cory on 2026-09-26.
 - [x] ~~Revisit the `/board/` recommendation (spec §7).~~ Moot after the FAIL; closed by Cory on 2026-09-26. `/board/` stays as it is.
+
+## 8. Marginalia pool-reuse spike (spec §2.E; plan `.claude/plans/marginalia-pool-reuse.md`)
+- [x] Spec confirmed by Cory (2026-09-26):
+  - essays hand-written;
+  - seed = paragraph 1 cut at a sentence boundary within 200 chars;
+  - Jaccard is a diagnostic;
+  - llama judge with rotation.
+- [x] `scripts/marginalia-spike.ts` (`npm run marginalia-spike`): 5 essays × 3 moves = 15 trials, each in 3 cyclic rotations, scored by majority. Supports `--binding`, `--fake` and `--max-requests` (default 140).
+- [x] Bars pre-registered in `scripts/marginalia-judge.ts` before any real run:
+  - ≥ 8/15 correct (P = 0.0215 under p₀ = 7/27);
+  - INVALID if any position gets ≥ 24/45 (0.0134).
+
+  Tests assert both, and that a position-only judge scores 0.
+- [x] `--fake` works: 45 fake requests. Recorded in `docs/measurements/2026-09-26-marginalia-pool-reuse-spike.md` (PENDING).
+- [ ] ⛔ **Real run: blocked on Cory.** Expect ~90 requests, at most 135; 167 of 300 remain. Pause WARP and export the Access variables.
