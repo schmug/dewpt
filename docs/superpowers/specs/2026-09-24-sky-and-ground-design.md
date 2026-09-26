@@ -299,3 +299,5 @@ The readings below were not pre-registered and do not change the verdict:
 - The judge leaned toward display position 2 in both spikes.
 
 [Measurement](../../measurements/2026-09-25-ground-prospect-spike.md).
+
+**Then (2026-09-26): Marginalia's pool-reuse spike PASSED.** 11/15 moves followed the writer, against a pre-registered bar of 8 ([measurement](../../measurements/2026-09-26-marginalia-pool-reuse-spike.md)). §2.E's riskiest assumption holds on its first test.

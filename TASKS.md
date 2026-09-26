@@ -97,4 +97,4 @@ Decision (Cory, 2026-09-25): back to §2, narrowed by the run. Prospect is the c
 
   Tests assert both, and that a position-only judge scores 0.
 - [x] `--fake` works: 45 fake requests. Recorded in `docs/measurements/2026-09-26-marginalia-pool-reuse-spike.md` (PENDING).
-- [ ] ⛔ **Real run: blocked on Cory.** Expect ~90 requests, at most 135; 167 of 300 remain. Pause WARP and export the Access variables.
+- [x] Real run 2026-09-26: **VERDICT: PASS**. 11/15 correct against a bar of 8 (P = 0.0002). Positions went 14/16/15. The run cost 91 requests, including 1 transient retry, which brings the budget to 224 of 300. All 4 misses were stuck on the previous paragraph.

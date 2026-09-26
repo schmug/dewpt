@@ -1,12 +1,29 @@
 # Marginalia pool-reuse spike
 
-**Date:** 2026-09-26 · **Branch:** `marginalia-pool-reuse` · **Cost so far:** 0 Workers AI requests
+**Date:** 2026-09-26 · **Branch:** `marginalia-pool-reuse` · **Cost:** 91 Workers AI requests, including 1 transient retry. The budget now stands at 224 of 300.
 **Script:** `npm run marginalia-spike` ([scripts/marginalia-spike.ts](../../scripts/marginalia-spike.ts)). Its pure parts, including the pre-registered `MARGINALIA_PASS`, are in [scripts/marginalia-judge.ts](../../scripts/marginalia-judge.ts), tested by `test/marginalia-judge.test.ts`. Plumbing is in [scripts/ground-harness.ts](../../scripts/ground-harness.ts).
 **Plan:** [.claude/plans/marginalia-pool-reuse.md](../../.claude/plans/marginalia-pool-reuse.md) · **Design:** [spec §2.E](../superpowers/specs/2026-09-24-sky-and-ground-design.md) · **Why now:** the prospect-only ground spike came back FAIL ([measurement](2026-09-25-ground-prospect-spike.md)), and under its pre-registered rule Marginalia became the candidate.
 
-## Verdict: **PENDING — not yet run against Workers AI**
+## Verdict: **PASS** — 11/15 trials followed the writer, against a pre-registered bar of 8
 
-Nothing in this repo should cite pool reuse for Marginalia as working until the "Real run" section below is filled in.
+Real run on 2026-09-26: complete, 91 requests, 1 transient retry. On 11 of 15 moves, the words re-ranked from paragraph 1's pool were placed beside the paragraph the writer had moved to, in a majority of the three rotations. The bar was ≥ 8; P(X ≥ 11 | chance) = 0.0002. The validity gate did not fire: answers by position were 14/16/15 of 45, against a gate of 24, with none unjudged.
+
+**What this does and does not show.** It shows that, on these essays, re-ranking a pool built from paragraph 1 follows the writer into paragraphs 2–4 well enough that a blind judge can tell where they are. It does **not** show that:
+- the words are good margin material (the spike never asked);
+- reuse holds beyond four paragraphs or across bigger topic shifts;
+- reused words match what a fresh pool would give (there was no ceiling arm);
+- a person reads them the same way (the judge is the generator's model family).
+
+The essays were written knowing the test. Seeds were paragraph 1 cut to 200 characters.
+
+Readings, recorded as information only. None of them was pre-registered, and none changes the verdict:
+- **Where the misses were.** All 4 misses were *stuck on the previous paragraph*. None was placed on the next paragraph, and none was a split vote. So when reuse fails, it lags the writer rather than scattering.
+- **By move.** Moves into paragraph 2 went 3/5, into paragraph 3 went 3/5, and into paragraph 4 went 5/5. Both paragraph-2 misses (night shift, swimming) drew words that sit squarely in paragraph 1's own subject. For the move away from the pool's source, lag is the risk.
+- **Rotation.** The judge's position lean did not recur (14/16/15), and rotation scoring would have neutralised it if it had.
+- **Other diagnostics.**
+  - Top-10 Jaccard across a draft's targets was 0.127.
+  - The mean cosine gap, cos(target) − cos(previous), was 0.077.
+  - After three moves, 114–127 of ~140 candidates remained in each pool, so depth was never the limit here.
 
 ## The assumption under test
 
@@ -56,7 +73,70 @@ npm run marginalia-spike -- --binding
 
 ## Real run (Workers AI)
 
-_Pending. Paste the unedited output of the command above here, then write the verdict at the top._
+2026-09-26. The command was `npm run marginalia-spike -- --binding`, run by Cory with WARP paused, on code identical to `main` at `ca06409`. The output below is unedited, except that wrangler's startup warnings are removed and the terminal's HTML entities and full-width `＠` are normalised.
+
+```
+marginalia pool-reuse spike  model @cf/meta/llama-3.3-70b-instruct-fp8-fast + @cf/baai/bge-m3 via remote AI binding
+bands 6x24  k=5 per move  5 essays x 3 moves = 15 trials x 3 rotations = 45 judge calls
+expected requests: 30 generation + ~15 embedding + 45 judge (up to 90 with retries); hard cap 140
+
+══════════════════════════════════════════════════════════════════════════════
+essay "restoring an old bicycle"  seed (158 chars): The bicycle was in my grandfather's shed, under a tarp that had turned to dust. A steel frame, rust blooming through green paint, both tyres flat and cracked.
+  pool: 142 raw -> 141 kept at cosine > 0.92
+  -> paragraph 2  votes HERE/prev/HERE ✓  chrome-plated scissors · broken toaster coils · grease stained gloves · histories in peeling paint · decaying rope coil
+  -> paragraph 3  votes next/prev/prev ✗  old pedals · wheel truing stands · vintage bike locks · passage of time · old clockwork mechanism
+  -> paragraph 4  votes HERE/HERE/next ✓  nostalgia · echoes of past · bicycle bell · bike light brackets · bike lock
+  top-10 overlap across targets (jaccard) 0.111   pool left after paragraph 4: 126/141
+
+══════════════════════════════════════════════════════════════════════════════
+essay "keeping bees"  seed (157 chars): My first hive arrived in a cardboard box that hummed. Five frames of bees, a queen I could not find, and a neighbour watching over the fence with open alarm.
+  pool: 130 raw -> 129 kept at cosine > 0.92
+  (transient binding error on @cf/meta/llama-3.3-70b-instruct-fp8-fast, attempt 1/3 — retrying: Error: Error: internal error; reference = sc2v5kbjm6khrvc72igg8t2a
+    at async )
+  -> paragraph 2  votes HERE/HERE/HERE ✓  beekeeping as ritual · honey as surveillance tool · apparitions in the apiary · neighborhood watch bees · watchful waiting
+  -> paragraph 3  votes prev/prev/prev ✗  bee as neighbor · backyard bee bureaucrats · bee as messenger · pollen baskets · colony as organism
+  -> paragraph 4  votes HERE/HERE/HERE ✓  honey extractor · honey as currency · beekeeper's pride · frame holder · backyard frontier
+  top-10 overlap across targets (jaccard) 0.133   pool left after paragraph 4: 114/129
+
+══════════════════════════════════════════════════════════════════════════════
+essay "moving to a new city"  seed (193 chars): I arrived with two suitcases and a key to an apartment that smelled of fresh paint. The walls were bare, the fridge was empty, and I did not know a single person within four hundred kilometres.
+  pool: 140 raw -> 140 kept at cosine > 0.92
+  -> paragraph 2  votes HERE/HERE/HERE ✓  neighborhood walk · local coffee shop · grocery shopping · flea market finds · neighbor introduction
+  -> paragraph 3  votes HERE/HERE/HERE ✓  loneliness · lonely nights · solitude · inhabiting silence · emptiness
+  -> paragraph 4  votes HERE/HERE/HERE ✓  suitcase full of strangers · new routine · smell of new carpet · identity as a rumor · uncertainty
+  top-10 overlap across targets (jaccard) 0.072   pool left after paragraph 4: 125/140
+
+══════════════════════════════════════════════════════════════════════════════
+essay "working the night shift"  seed (158 chars): My first night shift on the ward began at nine. By three in the morning the corridors were hushed and the fluorescent lights hummed louder than anything else.
+  pool: 142 raw -> 142 kept at cosine > 0.92
+  -> paragraph 2  votes prev/prev/prev ✗  somnambulant patients · somnolence · hospital intercom whispers · hospital beds · the somnambulist's ward
+  -> paragraph 3  votes HERE/HERE/HERE ✓  nurse's log · fatigue · pharmacy after hours · monotony · routine
+  -> paragraph 4  votes HERE/HERE/HERE ✓  patient charts · nursing the shadow shift · nurse's desk · nursing as ritual · hospital room whiteboards
+  top-10 overlap across targets (jaccard) 0.201   pool left after paragraph 4: 127/142
+
+══════════════════════════════════════════════════════════════════════════════
+essay "learning to swim as an adult"  seed (121 chars): I was afraid of water for thirty-four years. A wave had knocked me over as a child and I had kept my distance ever since.
+  pool: 140 raw -> 137 kept at cosine > 0.92
+  -> paragraph 2  votes prev/prev/prev ✗  swimming lessons · water aerobics class · surfing class · swimming lessons adults · swim instructor
+  -> paragraph 3  votes HERE/HERE/prev ✓  pool noodle exercises · tide pools · survival swimming drills · pool anxiety · pool noodle therapy
+  -> paragraph 4  votes HERE/HERE/HERE ✓  near drowning · fear of drowning · lake shore walks · water phobia · fear of depths
+  top-10 overlap across targets (jaccard) 0.120   pool left after paragraph 4: 122/137
+
+══════════════════════════════════════════════════════════════════════════════
+RESULT
+  follows the writer   11/15 trials correct (majority of 3 rotations)  chance 0.259  P(X>=k)=0.0002   pass >= 8
+    into paragraph 2: 3/5
+    into paragraph 3: 3/5
+    into paragraph 4: 5/5
+    misses: 4 stuck on the previous paragraph · 0 placed on the next · 0 no majority   [diagnostic]
+    judge answers by position: 14/16/15 of 45 calls, 0 unjudged   (INVALID at >= 24; P=0.0134 under a uniform judge)
+  overlap       mean top-10 jaccard across a draft's targets 0.127 (per essay 0.111, 0.133, 0.072, 0.201, 0.120)   [diagnostic]
+  cosine gap    served words: mean cos(target) - cos(previous) 0.077   [diagnostic]
+  pool depth    left after paragraph 4: 126, 114, 125, 127, 122   [diagnostic]
+
+VERDICT: PASS
+requests spent: 91
+```
 
 ## Offline plumbing run (`--fake`)
 

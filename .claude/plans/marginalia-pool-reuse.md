@@ -1,6 +1,6 @@
 # Marginalia pool-reuse spike (spec §2.E)
 
-Confirmed by Cory 2026-09-26. Branch `marginalia-pool-reuse`, stacked on
+Confirmed by Cory 2026-09-26. **Result: PASS** (11/15 against a bar of 8; 91 requests). See the measurement doc. Branch `marginalia-pool-reuse`, stacked on
 `ground-results` (PR #113). Measurement:
 `docs/measurements/2026-09-26-marginalia-pool-reuse-spike.md`.
 
