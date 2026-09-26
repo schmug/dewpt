@@ -62,6 +62,35 @@ export function cloudflareRunner(accountId: string, token: string): AiRunner {
   };
 }
 
+/** Workers AI through wrangler's remote AI binding (`getPlatformProxy`), for
+ *  when the REST token is unavailable. Auth is the wrangler OAuth login plus
+ *  the Access service token for the workers.dev domain
+ *  (CLOUDFLARE_ACCESS_CLIENT_ID/SECRET, exported). The binding runs inside
+ *  workerd, so WARP's egress block (CLAUDE.md) applies: a blocked call hangs
+ *  rather than failing, hence the per-call timeout. Call `dispose` when done or
+ *  the process never exits. */
+export async function bindingRunner(timeoutMs = 90_000): Promise<{ ai: AiRunner; dispose: () => Promise<void> }> {
+  const { getPlatformProxy } = await import("wrangler");
+  const { env, dispose } = await getPlatformProxy<{ AI: { run(model: string, inputs: unknown): Promise<unknown> } }>({
+    configPath: "wrangler.jsonc",
+  });
+  return {
+    ai: {
+      run(model, inputs) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`AI binding: no answer from ${model} in ${timeoutMs}ms — WARP blocking workerd egress? (CLAUDE.md)`)),
+            timeoutMs,
+          );
+        });
+        return Promise.race([env.AI.run(model, inputs), timeout]).finally(() => clearTimeout(timer));
+      },
+    },
+    dispose,
+  };
+}
+
 export interface Backend {
   ai: AiRunner;
   model: string;
