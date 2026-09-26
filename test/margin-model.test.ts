@@ -8,7 +8,11 @@ import { seedFrom as spikeSeedFrom } from "../scripts/marginalia-judge";
 import * as marginModelUntyped from "../public/margin/margin-model.js";
 
 type Draft = { sessionId: string | null; paragraphs: string[]; notes: { text: string; tier: number; para: number }[] };
-const { MARGIN_CAP, decodeDraft, encodeDraft, focusChanged, normKey, room, seedFrom, slotNear, ttl } = marginModelUntyped as {
+const { DRIP_MS, MARGIN_CAP, MAX_EMPTY_RETRIES, decodeDraft, drawRetryDelay, encodeDraft, focusChanged, normKey, restMs, room, seedFrom, slotNear, ttl } = marginModelUntyped as {
+  DRIP_MS: number;
+  MAX_EMPTY_RETRIES: number;
+  drawRetryDelay: (attempt: number) => number | null;
+  restMs: (retryAfter: string | null) => number;
   MARGIN_CAP: number;
   decodeDraft: (raw: string | null) => Draft;
   encodeDraft: (d: Draft) => string;
@@ -78,6 +82,23 @@ describe("draft persistence (browser-only)", () => {
     expect(decodeDraft("{not json")).toEqual({ sessionId: null, paragraphs: [], notes: [] });
     const d = decodeDraft(JSON.stringify({ sessionId: "nope", paragraphs: ["ok", 3], notes: [{ text: "x", tier: 9, para: 0 }, { text: "y", tier: 1, para: -1 }] }));
     expect(d).toEqual({ sessionId: null, paragraphs: ["ok"], notes: [] });
+  });
+});
+
+describe("an empty margin retries with backoff, and stops", () => {
+  it("doubles from 400 ms, never past the drip cadence, and gives up after MAX_EMPTY_RETRIES", () => {
+    const delays = [...Array(MAX_EMPTY_RETRIES + 2)].map((_, i) => drawRetryDelay(i));
+    expect(delays[0]).toBe(400);
+    expect(delays[1]).toBe(800);
+    for (const d of delays.slice(0, MAX_EMPTY_RETRIES)) expect(d).toBeLessThanOrEqual(DRIP_MS);
+    expect(delays[MAX_EMPTY_RETRIES]).toBeNull();
+    expect(delays[MAX_EMPTY_RETRIES + 1]).toBeNull();
+  });
+  it("reads a 429's retry-after as the time to rest, defaulting and capping", () => {
+    expect(restMs("12")).toBe(12_000);
+    expect(restMs(null)).toBe(30_000);
+    expect(restMs("banana")).toBe(30_000);
+    expect(restMs("100000")).toBe(300_000);
   });
 });
 

@@ -144,6 +144,41 @@ try {
     await ctx.close();
   }
 
+  // ── 2b. a backend that never answers is not hammered ──
+  {
+    const ctx = await browser.newContext({ viewport: DESKTOP });
+    const page = await ctx.newPage();
+    let draws = 0;
+    await page.route("**/margin/draw", (route) => { draws++; route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ mode: "none", condensed: [] }) }); });
+    await page.goto(`${BASE}/margin/`);
+    const created = page.waitForResponse((r) => r.url().endsWith("/api/session") && r.request().method() === "POST");
+    await writeParagraphs(page, [P1]);
+    await created;
+    const start = draws;
+    await wait(10_000);
+    const n = draws - start;
+    // Most it may make: 1 initial + MAX_EMPTY_RETRIES (4) backed-off retries + ceil(10000 / DRIP_MS 1400) = 8
+    // drip ticks = 13. The unbounded 400 ms loop this replaced makes ~1 + 25 + 8 = 34.
+    check("a seed that never embeds is polled with backoff, not every 400 ms", n <= 13, `${n} draws in 10 s (max 13; unbounded ≈ 34)`);
+    await ctx.close();
+  }
+  {
+    const ctx = await browser.newContext({ viewport: DESKTOP });
+    const page = await ctx.newPage();
+    let draws = 0;
+    await page.route("**/margin/draw", (route) => { draws++; route.fulfill({ status: 429, contentType: "application/json", headers: { "retry-after": "6" }, body: '{"error":"request limit exceeded"}' }); });
+    await page.goto(`${BASE}/margin/`);
+    const created = page.waitForResponse((r) => r.url().endsWith("/api/session") && r.request().method() === "POST");
+    await writeParagraphs(page, [P1]);
+    await created;
+    await page.waitForResponse((r) => r.url().endsWith("/margin/draw"));
+    const after429 = draws;
+    await wait(4500);
+    const hintText = await page.locator("#hint").textContent();
+    check("a 429 on draw rests the margin for its retry-after, and says so", draws === after429 && /resting/.test(hintText ?? ""), `${draws - after429} draws in 4.5 s after a 429 (retry-after 6 s); hint: "${hintText}"`);
+    await ctx.close();
+  }
+
   // ── 3. 390 px, and reduced motion ──
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });

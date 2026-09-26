@@ -13,6 +13,27 @@ export const FOCUS_SETTLE_MS = 900;
 /** One margin word condenses per tick while there is room. UNMEASURED. */
 export const DRIP_MS = 1400;
 
+/** While the seed is still embedding (a draw answers mode "none") an EMPTY
+ *  margin asks again sooner than the drip: 400 ms, doubling, never slower than
+ *  the drip, and only this many times. After that the drip's own cadence is
+ *  the only retry, so a backend that never answers cannot be polled faster
+ *  than one draw per DRIP_MS (review of PR #117, finding 1). */
+export const MAX_EMPTY_RETRIES = 4;
+
+export function drawRetryDelay(attempt) {
+  if (attempt >= MAX_EMPTY_RETRIES) return null;
+  return Math.min(400 * 2 ** attempt, DRIP_MS);
+}
+
+/** How long to stop drawing after a 429: its retry-after, in ms. Defaults to
+ *  30 s when absent or unreadable; capped at 5 min so a bad header cannot
+ *  silence the margin for good. */
+export function restMs(retryAfter) {
+  const s = Number(retryAfter);
+  if (!Number.isFinite(s) || s <= 0) return 30_000;
+  return Math.min(s * 1000, 300_000);
+}
+
 export function normKey(text) {
   return text.trim().toLowerCase().replace(/\s+/g, ' ');
 }

@@ -55,6 +55,9 @@ describe("marginQuery", () => {
   });
 });
 
+// Textual, not data-flow: this proves marginFocus's own body touches no storage
+// or log. A refactor that moves work into a helper called from marginFocus must
+// extend this gate to cover the helper.
 describe("ephemerality: the DO shell never stores or logs the paragraph", () => {
   const src = readFileSync(new URL("../src/session-do.ts", import.meta.url), "utf8");
   const start = src.indexOf("async marginFocus(");

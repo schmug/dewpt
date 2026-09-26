@@ -83,6 +83,10 @@ export class SessionDO extends DurableObject<Env> {
    *  ranks by the seed until the next focus: a degraded margin, never a
    *  remembered paragraph. */
   private marginFocusState: MarginFocus | null = null;
+  /** Orders overlapping focus calls: only the most recently STARTED one may
+   *  set the focus, so a slow embed of an older paragraph cannot land last and
+   *  win (review of PR #117, finding 2). */
+  private marginFocusSeq = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -160,6 +164,7 @@ export class SessionDO extends DurableObject<Env> {
    *  serving. Must not store or log `text` (test/margin-core.test.ts). */
   async marginFocus(text: string): Promise<{ ok: true } | { ok: false; reason: "budget" | "embed"; retryAfterSeconds?: number } | null> {
     if (!this.meta) return null;
+    const seq = ++this.marginFocusSeq;
     let vec: number[] | undefined;
     try {
       [vec] = await embedTexts(this.aiRunner(), this.env.EMBED_MODEL, [text]);
@@ -169,6 +174,7 @@ export class SessionDO extends DurableObject<Env> {
     }
     const focus = focusFrom(vec, Date.now());
     if (!focus) return { ok: false, reason: "embed" };
+    if (seq !== this.marginFocusSeq) return { ok: true }; // a newer focus owns the margin
     this.marginFocusState = focus;
     return { ok: true };
   }

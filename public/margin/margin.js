@@ -15,7 +15,8 @@
 // Plan: .claude/plans/marginalia-slice.md.
 
 import {
-  DRIP_MS, FOCUS_SETTLE_MS, decodeDraft, encodeDraft, focusChanged, normKey, room, seedFrom, slotNear, ttl,
+  DRIP_MS, FOCUS_SETTLE_MS, decodeDraft, drawRetryDelay, encodeDraft, focusChanged, normKey, restMs, room, seedFrom,
+  slotNear, ttl,
 } from '/margin/margin-model.js';
 
 const $ = (id) => document.getElementById(id);
@@ -36,6 +37,8 @@ const state = {
   focusSeq: 0,        // only the latest focus response may change state.focus
   buffer: [],         // words drawn but not yet shown
   drawing: false,
+  emptyRetries: 0,    // fast retries used while the seed embeds (drawRetryDelay)
+  restUntil: 0,       // after a 429, no draws until this time
   creating: false,
   live: new Map(),    // key -> { el, text, tier, y, timer, leaving, pinning }
   evaporated: [],
@@ -57,7 +60,7 @@ async function api(path, method = 'GET', body) {
   }
   let data = null;
   try { data = await res.json(); } catch { /* empty body */ }
-  return { ok: res.ok, status: res.status, data };
+  return { ok: res.ok, status: res.status, data, retryAfter: res.headers.get('retry-after') };
 }
 
 function hint(parts) {
@@ -202,6 +205,10 @@ function enter(info) {
 }
 
 function lostSession() {
+  // Words already in the margin belong to the lost session: their evaporate and
+  // keep timers would only post to a session that is gone (review, finding 5).
+  for (const v of state.live.values()) { clearTimeout(v.timer); v.el.remove(); }
+  state.live.clear();
   state.id = null;
   state.focus = null;
   state.buffer = [];
@@ -213,20 +220,30 @@ function lostSession() {
 // ── the margin ──────────────────────────────────────────────────────────────
 
 async function drawMore() {
-  if (!state.id || state.drawing) return;
+  if (!state.id || state.drawing || Date.now() < state.restUntil) return;
   state.drawing = true;
   try {
     const visible = [...state.live.values()].map((v) => v.text).concat(state.notes.map((n) => n.text));
     const r = await api('/margin/draw', 'POST', { visible });
     if (r.status === 404) return lostSession();
+    if (r.status === 429) {
+      state.restUntil = Date.now() + restMs(r.retryAfter);
+      hint(['The margin is resting — too many requests just now. It will ', 'pick up again', ' on its own.']);
+      return;
+    }
     const taken = new Set([...state.live.keys(), ...state.notes.map((n) => normKey(n.text)), ...state.buffer.map((w) => normKey(w.text))]);
     for (const w of r.data?.condensed ?? []) {
       if (!taken.has(normKey(w.text))) { state.buffer.push(w); taken.add(normKey(w.text)); }
     }
     // An empty margin should not wait a whole drip tick. Show the first word
-    // now, and while the seed is still embedding (mode "none"), ask again soon.
+    // now, and while the seed is still embedding (mode "none"), ask again soon,
+    // with backoff and a limit (drawRetryDelay).
+    if (r.data?.condensed?.length) state.emptyRetries = 0;
     if (state.live.size === 0 && state.buffer.length) spawn(state.buffer.shift());
-    if (r.ok && r.data?.mode === 'none' && state.live.size === 0) setTimeout(drawMore, 400);
+    if (r.ok && r.data?.mode === 'none' && state.live.size === 0) {
+      const delay = drawRetryDelay(state.emptyRetries++);
+      if (delay !== null) setTimeout(drawMore, delay);
+    }
   } finally {
     state.drawing = false;
   }
