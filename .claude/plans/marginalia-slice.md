@@ -17,8 +17,11 @@ In:
   with a margin column.
 - **Session.** The first pause after paragraph 1 creates a session seeded with
   `seedFrom(paragraph 1)`: at most 200 chars, cut at a sentence end.
-  `seedFrom` moves from `scripts/marginalia-judge.ts` into `src/margin-core.ts`,
-  so the app and the spike share one copy.
+  *As built:* `seedFrom` is **mirrored**, not moved. The client needs it and is
+  raw JS with no build step, so it cannot import from `src/`. The copy lives in
+  `public/margin/margin-model.js`, and `test/margin-model.test.ts` checks it
+  against `scripts/marginalia-judge.ts` on the spike's cases and edge cases. An
+  edit to one copy must be mirrored in the other.
 - **Focus.** When the caret settles in a paragraph (debounced), the page calls
   `POST /api/session/:id/margin/focus {text}`. The Durable Object embeds the
   paragraph and holds only the embedding, in memory. The paragraph text is
@@ -65,8 +68,9 @@ Out:
 - **Pool depth.** Draw never runs inference. The focus embed is off the
   serving path, and on failure the previous ranking keeps serving.
 - **Ephemerality.** The product must not remember words the user did not keep
-  (the fog-of-war test). Draft text never reaches Durable Object storage or
-  logs. Pins are the only thing kept.
+  (the fog-of-war test). Focused paragraphs never reach Durable Object storage
+  or logs. Pins and the session seed (paragraph 1's first ≤ 200 chars, as for
+  any session) are the only things kept.
 - **Guardrails.**
   - Reduced motion is fade only.
   - Pinned words never decay; re-check after the fade timer.
@@ -84,9 +88,16 @@ Out:
 2. With the focus route delayed 3 s, the count of visible margin words never
    drops to 0 after the first fill (Playwright). Each caret settle sends
    exactly one focus request.
-3. No paragraph text reaches Durable Object storage. A pure test shows the
-   focus plan carries only the embedding, and a grep gate checks the DO shell.
-   No response carries an embedding.
+3. No **focused** paragraph's text reaches Durable Object storage. A pure test
+   shows the focus plan carries only the embedding, and a grep gate checks the
+   DO shell. No response carries an embedding. The grep gate is textual: it
+   proves `marginFocus`'s own body touches no storage or log. It would NOT
+   catch a helper called from that body, so a refactor that delegates must
+   extend the gate. *Correction found while
+   building:* the session seed (paragraph 1's first ≤ 200 chars, cut by
+   `seedFrom`) IS stored, exactly like any field seed. That follows from the
+   confirmed seed decision; the original wording ("no paragraph text")
+   overstated it.
 4. Under 10 rapid focus changes, visible margin words stay ≤ 7. Reduced
    motion means no transform. A pinned margin word outlives its evaporation
    timer. No horizontal scroll at 390 px.

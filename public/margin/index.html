@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>dewpt — margin</title>
+<meta name="description" content="Write, and the margin listens. Words condense beside the paragraph you are in and evaporate unless you keep them.">
+<meta name="theme-color" content="#0d0c14">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Space+Grotesk:wght@300..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/margin/margin.css">
+</head>
+<body>
+<header class="bar">
+  <a class="mark" href="/">dew<i>pt</i></a>
+  <span class="label place">margin</span>
+  <span class="label seed" id="seedLabel" hidden>seed <b id="seedText"></b></span>
+  <nav class="doors" aria-label="other surfaces">
+    <a class="label" href="/">night walk</a>
+    <a class="label" id="fieldDoor" href="/app/">the field</a>
+    <a class="label" href="/drift/">drift</a>
+    <button type="button" class="label" id="newPage">new page</button>
+  </nav>
+</header>
+
+<main class="desk" id="desk">
+  <article class="page" id="page" contenteditable="true" role="textbox" aria-multiline="true" aria-label="your page — write here; the margin listens to the paragraph you are in" spellcheck="true"></article>
+  <aside class="margin" id="margin" aria-label="margin — words condense beside the paragraph you are in; click one to keep it" aria-live="off"></aside>
+</main>
+
+<footer class="foot">
+  <p class="hint" id="hint" aria-live="polite"></p>
+  <div class="evaporated">
+    <span class="label">evaporated</span>
+    <ul id="evaporated" aria-label="evaporated words — click one to condense it again"></ul>
+  </div>
+</footer>
+
+<script type="module" src="/margin/margin.js"></script>
+</body>
+</html>
