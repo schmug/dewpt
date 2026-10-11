@@ -306,3 +306,76 @@ describe("a flush recovers through one path, whichever refill saw it (#106)", ()
     expect(after.slice(7).sort()).toEqual(["w0a1", "w1a0", "w1a1", "w2a0", "w2a1"]);
   });
 });
+
+describe("what is pinnable is what is visible (#105)", () => {
+  // advance() used to commit state.current and state.seen the instant a card
+  // was CHOSEN, while paintCard() swapped the text FADE_MS later. A tap inside
+  // that window pinned the incoming word while the outgoing one was still on
+  // screen, and rapid swipes burned candidates nobody ever saw. Fixed in
+  // 8d86c14 by committing at paint time; these pin the fix behaviourally.
+  type Drift = {
+    onSwipe(a: number, d: number): unknown;
+    state: { current: { text: string } | null; seen: Set<string>; pinned: string[] };
+  };
+  const FADE_MS = 300; // mirrors drift.js; the crossfade test above owns its accuracy
+
+  it("a tap mid-fade never pins the incoming card", async () => {
+    const { mod, fetchMock } = await toCardStage(POOL);
+    const drift = mod as Drift;
+    const card = document.getElementById("drift-card")!;
+    const visible = card.textContent!;
+    vi.useFakeTimers();
+
+    drift.onSwipe(0, 1);
+    expect(card.dataset.leaving).toBe("true");
+    // Mid-fade, the controller's idea of the current card is still the one on
+    // screen, not the one queued behind the fade.
+    expect(drift.state.current?.text).toBe(visible);
+    card.click();
+    await vi.advanceTimersByTimeAsync(0);
+    const pinCalls = () => fetchMock.mock.calls.filter(([u]) => String(u).includes("/pin"));
+    expect(pinCalls(), "a tap during the fade reached the server").toHaveLength(0);
+    expect(drift.state.pinned).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(FADE_MS);
+    const incoming = card.textContent!;
+    expect(incoming).not.toBe(visible);
+    expect(card.dataset.leaving).toBeUndefined();
+
+    // Once the fade lands, a tap keeps exactly the word now showing.
+    card.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(drift.state.pinned).toEqual([incoming]);
+    expect(document.getElementById("drift-condensate-panel")!.textContent).toBe(incoming);
+    expect(pinCalls()).toHaveLength(1);
+    const [, init] = pinCalls()[0] as unknown as [string, RequestInit];
+    expect(String(init.body)).toContain(JSON.stringify(incoming));
+  });
+
+  it("rapid swipes do not consume candidates that were never displayed", async () => {
+    const { mod } = await toCardStage(POOL);
+    const drift = mod as Drift;
+    const card = document.getElementById("drift-card")!;
+    vi.useFakeTimers();
+
+    // Record every word that actually reaches the screen.
+    const shown = new Set([card.textContent!]);
+    const observer = new MutationObserver(() => { if (card.textContent) shown.add(card.textContent); });
+    observer.observe(card, { childList: true, characterData: true, subtree: true });
+
+    // Five swipes, each landing well inside the previous fade.
+    for (let i = 0; i < 5; i++) {
+      drift.onSwipe(0, 1);
+      await vi.advanceTimersByTimeAsync(FADE_MS / 5);
+    }
+    // Let the last fade land and the observer flush.
+    await vi.advanceTimersByTimeAsync(FADE_MS);
+    observer.disconnect();
+
+    // Exactly the starting card and the one the burst ended on were painted…
+    expect(shown.size).toBe(2);
+    // …and only those were spent.
+    expect([...drift.state.seen].sort()).toEqual([...shown].sort());
+    expect(drift.state.current?.text).toBe(card.textContent);
+  });
+});

@@ -9,7 +9,7 @@
 // looks identical from the outside.
 
 import { axisVector, coordsFor } from "../axis-core";
-import { parseCandidateList, type AiRunner, type ChatMessage } from "../generation";
+import { extractResponse, parseCandidateList, type AiRunner, type ChatMessage } from "../generation";
 import { cosineSim } from "../pool-core";
 import { DEDUPE_COSINE } from "../types";
 import { ARRIVAL_COSINE, TETHER_FLOOR } from "./types";
@@ -253,20 +253,5 @@ export async function generateRewrites(ai: AiRunner, model: string, inputs: Rewr
     temperature: REWRITE_TEMPERATURE,
     max_tokens: 512,
   });
-  return parseCandidateList(extractRewriteResponse(result), inputs.count);
-}
-
-/** Mirrors generation.ts's envelope handling; kept local because that module
- *  does not export its version. */
-function extractRewriteResponse(result: unknown): unknown {
-  if (result === null || result === undefined) return null;
-  if (typeof result === "string" || Array.isArray(result)) return result;
-  if (typeof result !== "object") return null;
-  const obj = result as Record<string, unknown>;
-  if (obj.response !== undefined) return obj.response;
-  const choices = obj.choices as { message?: { content?: unknown } }[] | undefined;
-  if (Array.isArray(choices) && choices[0]?.message?.content !== undefined) return choices[0].message.content;
-  if (obj.output_text !== undefined) return obj.output_text;
-  if (obj.result !== undefined) return extractRewriteResponse(obj.result);
-  return null;
+  return parseCandidateList(extractResponse(result), inputs.count);
 }

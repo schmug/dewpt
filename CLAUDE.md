@@ -32,6 +32,12 @@ is pure and heavily tested, [src/session-do.ts](src/session-do.ts) is the thin
 stateful shell around it. New pool/scoring/projection logic belongs in the
 former.
 
+## Merging is deploying
+
+- Merging to `main` triggers a Workers Builds production deploy. There is no separate release step.
+- Any request to Schmug to merge must say the merge is a production deploy.
+- A PR that adds a Durable Object migration ships that migration on merge; never `wrangler deploy` such a branch before it lands (#70).
+
 ## Reaching Workers AI locally
 
 Two independent traps, and they stack. Probe before debugging app code —
