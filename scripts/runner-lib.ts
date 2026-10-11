@@ -131,11 +131,30 @@ function chatOptionsFor(flags: Map<string, string>, role: "gen" | "embed"): Reco
   return options;
 }
 
+/** A role flag's value, refusing one that is present but blank. parseArgs
+ *  records `--gen-model=`, `--gen-model="   "` and a space-separated
+ *  `--gen-model qwen` (bare flag, value as a positional) all as a blank value,
+ *  and every one of those used to fall through `||` to a default — so the run
+ *  still produced numbers, attributed to a model or backend that was never
+ *  asked for. Absent is fine; present-but-blank is a mistake to name. */
+function roleFlag(flags: Map<string, string>, name: string): string | undefined {
+  const value = flags.get(name);
+  if (value === undefined) return undefined;
+  if (value.trim() === "") {
+    console.error(`--${name} needs a value: write --${name}=value (space-separated and empty values are not read)`);
+    process.exit(1);
+  }
+  return value;
+}
+
 /** Resolve one role (`gen` or `embed`) to a backend. `--<role>-endpoint` selects
  *  an OpenAI-compatible server; without it the role falls back to Workers AI. */
 export function resolveBackend(flags: Map<string, string>, role: "gen" | "embed", cfDefaultModel: string): Backend {
-  const endpoint = flags.get(`${role}-endpoint`);
-  const model = flags.get(`${role}-model`);
+  const endpoint = roleFlag(flags, `${role}-endpoint`);
+  const model = roleFlag(flags, `${role}-model`);
+  const apiFlag = roleFlag(flags, `${role}-api`);
+  const keyFlag = roleFlag(flags, `${role}-key`);
+  roleFlag(flags, `${role}-body`);
 
   if (endpoint) {
     if (!model) {
@@ -143,7 +162,7 @@ export function resolveBackend(flags: Map<string, string>, role: "gen" | "embed"
       process.exit(1);
     }
 
-    const api = flags.get(`${role}-api`) || "openai";
+    const api = apiFlag ?? "openai";
     if (api !== "openai" && api !== "ollama") {
       console.error(`--${role}-api must be "openai" or "ollama", got "${api}"`);
       process.exit(1);
@@ -161,7 +180,7 @@ export function resolveBackend(flags: Map<string, string>, role: "gen" | "embed"
       };
     }
 
-    const apiKey = flags.get(`${role}-key`) || process.env[`${role.toUpperCase()}_API_KEY`];
+    const apiKey = keyFlag ?? process.env[`${role.toUpperCase()}_API_KEY`];
     const chatOptions = chatOptionsFor(flags, role);
     return {
       ai: createOpenAiRunner({ baseUrl: endpoint, apiKey, chatOptions }),
@@ -172,15 +191,17 @@ export function resolveBackend(flags: Map<string, string>, role: "gen" | "embed"
     };
   }
 
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const token = process.env.CLOUDFLARE_API_TOKEN;
+  // Trimmed before the guard: a whitespace-only value is unset, and untrimmed
+  // it builds https://api.cloudflare.com/client/v4/accounts/%20%20/ai/run/…
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+  const token = process.env.CLOUDFLARE_API_TOKEN?.trim();
   if (!accountId || !token) {
     console.error(`the ${role} role falls back to Workers AI, which needs CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN`);
     console.error(`the API token needs the "Workers AI - Read" permission`);
     console.error(`(or point this role at a local server with --${role}-endpoint=… --${role}-model=…)`);
     process.exit(1);
   }
-  const chosen = model || cfDefaultModel;
+  const chosen = model ?? cfDefaultModel;
   return {
     ai: cloudflareRunner(accountId, token),
     model: chosen,

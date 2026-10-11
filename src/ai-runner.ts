@@ -6,6 +6,7 @@
 
 import { fakeAiRunner } from "./dev-fake-ai";
 import { budgetedAiRunner, type AccountBudgetEnv } from "./ai-budget";
+import { createOpenAiRunner } from "./local-runners";
 import type { AiRunner } from "./generation";
 
 export interface LocalAiConfig {
@@ -31,82 +32,16 @@ export interface LocalAiConfig {
   chatOptions?: Record<string, unknown>;
 }
 
-interface EmbeddingRow {
-  index?: number;
-  embedding?: number[];
-}
-
-const BODY_SNIPPET_CHARS = 200;
-
-/** An AiRunner over an OpenAI-compatible HTTP API (Ollama, llama.cpp's server,
- *  LM Studio, vLLM). Translates in both directions so the rest of the app keeps
- *  speaking the Workers AI binding's shapes:
- *
- *  - `{ text }` → POST /embeddings, and the `{ data: [{ embedding }] }`
- *    envelope back into the `{ data: number[][] }` embedTexts expects.
- *  - anything else → POST /chat/completions. `messages`, `temperature` and
- *    `max_tokens` already share OpenAI's names, so they pass straight through,
- *    and generation.ts's extractResponse already reads `choices[0].message`. */
+/** The Worker's local-model runner: main's OpenAI-compatible client
+ *  (createOpenAiRunner) behind the LOCAL_AI_* config. The only thing added here
+ *  is the host split — chat on `baseUrl`, embeddings on `embedBaseUrl` — so
+ *  there is one OpenAI client in the codebase, not two. chatOptions ride on
+ *  chat requests only; createOpenAiRunner never merges them into embeddings. */
 export function localAiRunner(config: LocalAiConfig): AiRunner {
-  const trim = (url: string) => url.replace(/\/+$/, "");
-  const chatBase = trim(config.baseUrl);
-  const embedBase = config.embedBaseUrl ? trim(config.embedBaseUrl) : chatBase;
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;
-
-  async function post(root: string, path: string, body: unknown): Promise<unknown> {
-    const response = await fetch(`${root}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
-    if (!response.ok) {
-      const detail = (await response.text()).slice(0, BODY_SNIPPET_CHARS);
-      throw new Error(`local AI ${root}${path} returned ${response.status}: ${detail}`);
-    }
-    return response.json();
-  }
-
-  return {
-    async run(model, inputs) {
-      if (inputs.text === undefined) {
-        return post(chatBase, "/chat/completions", { model, ...inputs, ...config.chatOptions });
-      }
-
-      const input = Array.isArray(inputs.text) ? inputs.text : [inputs.text];
-      const body = (await post(embedBase, "/embeddings", { model, input })) as { data?: EmbeddingRow[] };
-      const rows = body?.data;
-      if (!Array.isArray(rows)) throw new Error(`local AI ${embedBase}/embeddings returned no embedding rows`);
-      // OpenAI does not promise `data` comes back in request order, and a
-      // misordered row would attach the wrong vector to every candidate.
-      const vectors: number[][] = [];
-      rows.forEach((row, i) => {
-        vectors[row?.index ?? i] = row?.embedding as number[];
-      });
-      return { data: vectors };
-    },
-  };
-}
-
-/** Workers AI over its REST API rather than a binding. Scripts run in node with
- *  no binding available, and this path is also unaffected by the wrangler-dev
- *  egress traps documented in CLAUDE.md. */
-export function restAiRunner(accountId: string, token: string): AiRunner {
-  return {
-    async run(model, inputs) {
-      const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify(inputs),
-      });
-      const body = (await response.json()) as {
-        success: boolean;
-        result?: unknown;
-        errors?: { message: string }[];
-      };
-      if (!response.ok || !body.success) {
-        const detail = body.errors?.map((e) => e.message).join("; ") || `HTTP ${response.status}`;
-        throw new Error(`Workers AI call failed for ${model}: ${detail}`);
-      }
-      return body.result;
-    },
-  };
+  const chat = createOpenAiRunner({ baseUrl: config.baseUrl, apiKey: config.apiKey, chatOptions: config.chatOptions });
+  if (!config.embedBaseUrl) return chat;
+  const embed = createOpenAiRunner({ baseUrl: config.embedBaseUrl, apiKey: config.apiKey });
+  return { run: (model, inputs) => (inputs.text === undefined ? chat : embed).run(model, inputs) };
 }
 
 export interface AiEnv {
@@ -123,9 +58,9 @@ export interface AiEnv {
   LOCAL_AI_CHAT_OPTIONS?: string;
 }
 
-/** Exported so the node-side eval scripts validate the same value the same way.
- *  Two parsers for one option is how the eval harness ends up posting garbage
- *  keys the Worker would have rejected. */
+/** Exported so node-side scripts can validate the same value the same way.
+ *  Two parsers for one option is how a harness ends up posting garbage keys
+ *  the Worker would have rejected. */
 export function parseChatOptions(raw: string | undefined): Record<string, unknown> | undefined {
   const text = raw?.trim();
   if (!text) return undefined;
