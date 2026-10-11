@@ -10,6 +10,10 @@ pool generation via Workers AI, drip client, evaporated sidebar.
 
 ## Run
 
+Requires **Node 22 or newer** (`engines` in `package.json`; CI runs 22). The
+wrangler CLI needs 22; the board's `crypto.randomUUID()` id factory alone
+would need 19.
+
 ```sh
 npm install
 npm run dev        # wrangler dev on http://localhost:8787
