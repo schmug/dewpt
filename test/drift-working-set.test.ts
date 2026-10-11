@@ -6,6 +6,7 @@ import * as wsUntyped from "../public/drift/working-set.js";
 interface Item { text: string; tier: number; alt: number; seedDist: number; coords: number[]; arrivedAt: number }
 interface WorkingSet {
   prime(): Promise<void>;
+  retry(): Promise<void>;
   all(): Item[];
   topUp(): Promise<void>;
   axisIds(): string[];
@@ -220,5 +221,94 @@ describe("throttling is reported on every call, not just pool draws", () => {
       json: async () => ({}), text: async () => "boom",
     })) as unknown as typeof fetch;
     await expect(ws.createSession("seed", {}, failing)).rejects.not.toMatchObject({ name: "ThrottledError" });
+  });
+});
+
+describe("retry draws only what is deficient (#106)", () => {
+  // drawPool DELETEs every row it returns. Redrawing all six buckets to serve a
+  // retry aimed at one drains five healthy ones for nothing — and with one
+  // bucket permanently empty, it does that on every attempt.
+  const drawsOf = (f: typeof fetch) =>
+    (f as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([u]) => new URL(String(u), "http://x").searchParams.get("bucket"));
+
+  it("a permanently-empty bucket does not redrain healthy ones", async () => {
+    const fetchImpl = poolFetch((b) => ({
+      condensed: b === "w0a0" ? [] : [served(`${b}-x`)],
+      axisIds: ["ax"],
+    }));
+    const set = ws.createWorkingSet("s1", { fetchImpl });
+    await set.prime();
+    expect(set.emptyBuckets()).toEqual(["w0a0"]);
+    const healthy = set.size();
+
+    for (let i = 0; i < 5; i++) await set.retry();
+
+    const draws = drawsOf(fetchImpl);
+    // One prime of all six, then five retries of the one empty bucket.
+    expect(draws.filter((b) => b === "w0a0")).toHaveLength(6);
+    for (const b of ws.BUCKETS.filter((x) => x !== "w0a0")) {
+      expect(draws.filter((d) => d === b), `${b} was redrawn by a retry`).toHaveLength(1);
+    }
+    expect(set.size()).toBe(healthy);
+    expect(set.emptyBuckets()).toEqual(["w0a0"]);
+  });
+
+  it("retries a failed bucket too, and stops once it answers", async () => {
+    let w1a1Up = false;
+    const fetchImpl = vi.fn(async (url: string) => {
+      const bucket = new URL(url, "http://x").searchParams.get("bucket")!;
+      if (bucket === "w1a1" && !w1a1Up) return { ok: false, status: 500, json: async () => ({}) } as unknown as Response;
+      return { ok: true, status: 200, json: async () => ({ condensed: [served(bucket)], axisIds: ["ax"] }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    const set = ws.createWorkingSet("s1", { fetchImpl });
+    await set.prime();
+    expect(set.failedBuckets()).toEqual(["w1a1"]);
+
+    await set.retry();
+    expect(drawsOf(fetchImpl).slice(ws.BUCKETS.length)).toEqual(["w1a1"]);
+
+    w1a1Up = true;
+    await set.retry();
+    expect(set.failedBuckets()).toEqual([]);
+    const before = drawsOf(fetchImpl).length;
+    await set.retry();
+    expect(drawsOf(fetchImpl).length, "retried with nothing deficient").toBe(before);
+  });
+
+  it("counts a bucket whose rows all lack coords as empty, not healthy", async () => {
+    // A draw that beat the axes to readiness answers 200 with coords: []. The
+    // rows are dropped, so the bucket contributed nothing and is still owed.
+    const fetchImpl = poolFetch((b) => ({
+      condensed: [b === "w2a0" ? { ...served(b), coords: [] } : served(b)],
+      axisIds: ["ax"],
+    }));
+    const set = ws.createWorkingSet("s1", { fetchImpl });
+    await set.prime();
+    expect(set.emptyBuckets()).toEqual(["w2a0"]);
+  });
+
+  it("a flush makes every bucket owed again, so the re-prime refills them all", async () => {
+    // The rows the healthy buckets contributed were scored against the old
+    // axis set and are gone; leaving them marked healthy would strand the
+    // surface on one bucket's worth of candidates.
+    let ids = ["ax"];
+    const fetchImpl = poolFetch((b) => ({
+      condensed: b === "w0a0" ? [] : [served(`${b}-${ids.join("")}`)],
+      axisIds: ids,
+    }));
+    const set = ws.createWorkingSet("s1", { fetchImpl });
+    await set.prime();
+
+    ids = ["ax", "ay"];
+    // Only w0a0 is deficient, so only w0a0 is drawn — and its answer carries
+    // the new axis set, which flushes.
+    await set.retry();
+    expect(set.size()).toBe(0);
+    expect(set.axisIds()).toEqual(["ax", "ay"]);
+
+    await set.retry();
+    const tail = drawsOf(fetchImpl).slice(ws.BUCKETS.length + 1);
+    expect(tail.sort()).toEqual([...ws.BUCKETS].sort());
+    expect(set.size()).toBe(ws.BUCKETS.length - 1);
   });
 });

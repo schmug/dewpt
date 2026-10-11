@@ -125,23 +125,21 @@ export function createWorkingSet(sessionId, opts = {}) {
     return { condensed: body.condensed ?? [], axisIds: body.axisIds ?? [] };
   }
 
-  let lastFailedBuckets = [];
-  let lastEmptyBuckets = [];
+  /** Per-bucket outcome of the LAST draw that touched it: 'ok' (it contributed
+   *  rankable candidates), 'failed' (the request errored), 'empty' (200 with
+   *  nothing usable — generation has not caught up there), or 'pending' (never
+   *  drawn, or its rows were discarded by a flush). Kept per bucket rather than
+   *  per pass because a retry draws only some buckets, and a bucket it did not
+   *  touch keeps whatever it last earned. */
+  const status = new Map(BUCKETS.map((b) => [b, 'pending']));
 
-  async function draw() {
+  async function draw(buckets) {
     const results = await Promise.all(
-      BUCKETS.map((b) => drawBucket(b).catch(() => null)),
+      buckets.map((b) => drawBucket(b).catch(() => null)),
     );
-    // Which buckets contributed nothing, so the caller can keep trying them in
-    // the background instead of treating one bad pass as the final answer.
-    lastFailedBuckets = BUCKETS.filter((_, i) => results[i] === null);
-    // A 200 carrying zero candidates is NOT a success. It means generation has
-    // not caught up for that bucket, and treating it as done is how a sparse
-    // pool got mistaken for a full one. Tracked separately from a request
-    // failure because the two want different responses: retry vs wait. Cycle 2.
-    lastEmptyBuckets = BUCKETS.filter((_, i) => results[i] !== null && (results[i].condensed?.length ?? 0) === 0);
-    for (const result of results) {
-      if (!result) continue;
+    buckets.forEach((bucket, i) => {
+      const result = results[i];
+      if (result === null) { status.set(bucket, 'failed'); return; }
       if (!sameAxisIds(currentAxisIds, result.axisIds)) {
         // ADOPTION IS NOT A FLUSH. On the first draw currentAxisIds is [] and
         // the server returns the real set, which is not a change — there is
@@ -152,44 +150,66 @@ export function createWorkingSet(sessionId, opts = {}) {
           // Every held coord was scored against the old axis set and cannot be
           // reconciled. Losing the set is free — it is ephemeral by design —
           // and the caller must also reset its frozen range and seen set,
-          // which is what onFlush is for.
+          // which is what onFlush is for. Every bucket's contribution went with
+          // it, so every bucket is owed a draw again.
           items = [];
+          for (const b of BUCKETS) status.set(b, 'pending');
+          currentAxisIds = result.axisIds;
           for (const cb of flushHandlers) cb();
+        } else {
+          currentAxisIds = result.axisIds;
         }
-        currentAxisIds = result.axisIds;
       }
+      let kept = 0;
       for (const row of result.condensed) {
         // An empty coords array means the draw beat the axes to readiness.
         // Such a row has no position; ranking it would place it wherever the
         // maths happens to land.
         if (!Array.isArray(row.coords) || row.coords.length === 0) continue;
         items.push(ingest(row));
+        kept++;
       }
-    }
+      // A 200 carrying zero usable candidates is NOT a success. It means
+      // generation has not caught up for that bucket, and treating it as done
+      // is how a sparse pool got mistaken for a full one. Tracked separately
+      // from a request failure because the two want different responses:
+      // retry vs wait. Cycle 2.
+      status.set(bucket, kept > 0 ? 'ok' : 'empty');
+    });
   }
+
+  const withStatus = (...wanted) => BUCKETS.filter((b) => wanted.includes(status.get(b)));
 
   /** Serialized: draws are destructive, so two concurrent passes drain the DO
    *  faster than its pump refills. */
-  function once() {
+  function once(buckets) {
     // Refuse to draw at all while throttled. Six buckets x every retry is
     // exactly how a rate limit turns into a console full of 429s.
     if (Date.now() < throttledUntil) return Promise.resolve();
     if (inflight) return inflight;
-    inflight = draw().finally(() => { inflight = null; });
+    if (buckets.length === 0) return Promise.resolve();
+    inflight = draw(buckets).finally(() => { inflight = null; });
     return inflight;
   }
 
   return {
-    prime: once,
-    topUp: once,
+    /** Draws every bucket. The opening pass, and a demand-driven top-up when
+     *  local supply runs low, both want the whole spread. */
+    prime: () => once(BUCKETS),
+    topUp: () => once(BUCKETS),
+    /** Draws ONLY the buckets still owed something — failed, empty, or never
+     *  drawn. drawPool is destructive, so redrawing a healthy bucket to serve a
+     *  retry aimed at another one drains it for nothing, and a single
+     *  permanently-empty bucket would do that on every attempt. */
+    retry: () => once(withStatus('failed', 'empty', 'pending')),
     all: () => items,
     size: () => items.length,
     axisIds: () => currentAxisIds,
     /** Buckets whose REQUEST errored on the last pass. */
-    failedBuckets: () => [...lastFailedBuckets],
+    failedBuckets: () => withStatus('failed'),
     /** Buckets that answered 200 with nothing in them — generation has not
      *  caught up there yet. */
-    emptyBuckets: () => [...lastEmptyBuckets],
+    emptyBuckets: () => withStatus('empty'),
     /** Milliseconds until the field will accept draws again, or 0. */
     throttledFor: () => Math.max(0, throttledUntil - Date.now()),
     onFlush(cb) { flushHandlers.push(cb); },
