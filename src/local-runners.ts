@@ -44,7 +44,9 @@ function errorMessage(status: number, body: string): string {
 
 export function createOpenAiRunner(options: OpenAiRunnerOptions): AiRunner {
   const base = options.baseUrl.replace(/\/+$/, "");
-  const doFetch = options.fetchImpl ?? fetch;
+  // Global fetch is looked up per call, not captured here: the Worker builds
+  // this runner once per DO and should see whatever fetch the runtime has then.
+  const doFetch = options.fetchImpl ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
 
   async function post(path: string, payload: Record<string, unknown>): Promise<unknown> {
     const url = `${base}${path}`;
@@ -72,9 +74,9 @@ export function createOpenAiRunner(options: OpenAiRunnerOptions): AiRunner {
   return {
     async run(model, inputs) {
       // Same discriminator the Workers AI binding uses: an embedding request
-      // carries `text`, a chat request carries `messages`.
-      const texts = inputs.text;
-      if (Array.isArray(texts)) {
+      // carries `text` (one string or many), a chat request carries `messages`.
+      if (inputs.text !== undefined) {
+        const texts = Array.isArray(inputs.text) ? inputs.text : [inputs.text];
         const body = (await post("/embeddings", { model, input: texts })) as { data?: EmbeddingItem[] };
         const data = body.data;
         if (!Array.isArray(data) || data.length !== texts.length) {
