@@ -107,11 +107,21 @@ This is what makes it a medium rather than a filter: moving the slider doesn't h
 
 ### Consequence: the wire format stays small
 
-Because axes are fixed once named, **slider movement never re-projects anything.** The server computes each word's coordinates once and sends `{text, tier, x, y, z}` — a few extra floats per word. The client can drag sliders at 60fps with no round trip.
+Because axes are fixed once named, **slider movement never re-projects anything.** The server computes each word's coordinates once and sends them as a variable-length array — a few extra floats per word. The client can drag sliders at 60fps with no round trip.
+
+What shipped (`Served` in [src/types.ts](../src/types.ts), returned by `drawPool` in [src/session-do.ts](../src/session-do.ts)):
+
+```
+{ condensed: [{ text, tier, alt, seedDist, coords: number[] }, ...], axisIds: string[], depths }
+```
+
+- **`coords`, not `{x, y, z}`.** This section originally specified `{text, tier, x, y, z}`. That assumed exactly three axes with the server deciding which axis is `x`. Workstream C ([#28](https://github.com/schmug/dewpt/pull/28)) shipped an array instead, deliberately, and recorded it in that plan's open questions: the axis count varies (0–3), so a fixed triple does not fit, and assigning axes to screen dimensions is a client concern, not the server's. `coords` is `[]` when no axis is ready.
+- **`coords` is indexed by the *ready* axes, not all axes.** `coords[i]` is the raw cosine against the i-th axis whose two poles are both embedded, in axis order. An axis with a pending pole contributes no coordinate rather than a wrong one.
+- **`axisIds` is required, not a convenience.** Because `coords` indexes the ready subset while the axis list reports every axis, one pending axis shifts the whole mapping, and the client cannot tell which axis `coords[i]` belongs to. `axisIds` names them, in the same order, on every draw ([`readyAxisIds()` in pool-core.ts](../src/pool-core.ts)). The client discards buffered words drawn under a different `axisIds` ([`sameAxisIds` in pool-client.js](../public/pool-client.js)). Omitting it was a bug caught in the whole-branch review of #28; do not reintroduce it.
 
 Re-projection happens only when an axis is *renamed*, which is a deliberate, infrequent act that can afford a round trip and a visible re-layout animation.
 
-This matters because today the client receives **text only** ([pool-client.js:24](../public/pool-client.js), consumed at [field.js:50](../public/field.js)). Shipping raw 1024-dim embeddings to the client would be ~245 KB per bucket; shipping three floats is nothing. **Do not put embeddings on the wire.**
+This matters because today the client receives **text only** ([pool-client.js:24](../public/pool-client.js), consumed at [field.js:50](../public/field.js)). Shipping raw 1024-dim embeddings to the client would be ~245 KB per bucket; shipping at most three floats is nothing. **Do not put embeddings on the wire.**
 
 ---
 
@@ -148,8 +158,10 @@ Paste-only, session-scoped. Chunk on arrival, embed in the DO, store alongside t
 The mechanic from the spike. An axis is:
 
 ```
-{ id, negTerm, posTerm, negPhrase, posPhrase, negVec, posVec, assignedTo: 'x'|'y'|'z' }
+{ id, negTerm, posTerm, negPhrase, posPhrase, negVec, posVec }
 ```
+
+Which screen dimension an axis drives is decided by the client, not stored on the axis (see the wire format above).
 
 **Flow:** user types a pole term → LLM expands it to a descriptive phrase → phrase is embedded → axis vector is `posVec − negVec` → every pooled word's coordinate on that axis is `cosine(wordVec, axisVec)`.
 
