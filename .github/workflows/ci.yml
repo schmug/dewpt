@@ -2,8 +2,8 @@
 # commands the repo's CLAUDE.md names as the gates, so "tests pass" is an
 # observation by a system rather than a claim by whoever opened the PR.
 #
-# Node 22 is not arbitrary: crypto.randomUUID needs >= 19 (issue #55) and
-# nothing else in the repo pinned a floor until now.
+# Node 22 is not arbitrary: it matches engines.node in package.json. wrangler
+# needs >= 22; crypto.randomUUID alone would need >= 19 (issue #55).
 #
 # `npm run typecheck` shells out to `wrangler types` first, which regenerates
 # the gitignored worker-configuration.d.ts. That regeneration is derived from
