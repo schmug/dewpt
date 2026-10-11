@@ -132,11 +132,14 @@ function fakeRewrite(fragment: string, n: number): string {
   return `${stem}${marker}`;
 }
 
-export function fakeAiRunner(): AiRunner {
+/** `latencyMs` is pretend latency per call. The dev server keeps the default so
+ *  the field drips at a believable pace; the Durable Object harness
+ *  (test/helpers/do-harness.ts) passes 0 so tests do not sleep. */
+export function fakeAiRunner({ latencyMs = 250 }: { latencyMs?: number } = {}): AiRunner {
   const counters = new Map<string, number>();
   return {
     async run(_model, inputs) {
-      await new Promise((r) => setTimeout(r, 250)); // a little pretend latency
+      if (latencyMs > 0) await new Promise((r) => setTimeout(r, latencyMs));
       if (Array.isArray(inputs.text)) {
         return { data: (inputs.text as string[]).map(pseudoEmbedding) };
       }

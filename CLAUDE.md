@@ -32,6 +32,21 @@ is pure and heavily tested, [src/session-do.ts](src/session-do.ts) is the thin
 stateful shell around it. New pool/scoring/projection logic belongs in the
 former.
 
+For what genuinely lives in the shell (SQL round trips, alarm kicks, guards
+that span awaits), [test/helpers/do-harness.ts](test/helpers/do-harness.ts)
+drives a real `SessionDO` inside the same bare-node `npm test`. Storage is a
+real in-memory SQLite (`node:sqlite`, Node 22), so the DO's own SQL runs as
+written; alarms only fire when a test calls `fireAlarm()`/`drainAlarms()`;
+`restart()` re-constructs over the same storage to simulate eviction; AI is
+`fakeAiRunner` behind the production `selectBudgetedAiRunner` seam, with
+`h.ai.calls` to count calls and `h.ai.intercept` to fail or hold them. Each
+test file stubs the runtime module itself (vi.mock is per file):
+`vi.mock("cloudflare:workers", () => import("./helpers/cloudflare-workers-stub"))`.
+See [test/session-do.test.ts](test/session-do.test.ts). Stored embeddings come
+back at float32 precision; compare against `Float32Array`-rounded values.
+`@cloudflare/vitest-pool-workers` was passed over: a second pool inside
+workerd, and the `remote: true` AI binding drags in the Access-gated proxy.
+
 ## Reaching Workers AI locally
 
 Two independent traps, and they stack. Probe before debugging app code —
