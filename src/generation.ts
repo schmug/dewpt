@@ -138,8 +138,9 @@ export function bandTemperature(strangeness: number): number {
   return 0.6 + 0.6 * Math.min(1, Math.max(0, strangeness));
 }
 
-const MAX_PHRASE_WORDS = 5;
-const MAX_PHRASE_CHARS = 64;
+/** `cleanList`'s ceilings. Exported so the fake AI can fit its rewrites to them. */
+export const MAX_PHRASE_WORDS = 5;
+export const MAX_PHRASE_CHARS = 64;
 
 function cleanList(items: unknown[], count: number): string[] {
   const out: string[] = [];
@@ -193,7 +194,7 @@ export function parseCandidateList(raw: unknown, count: number): string[] {
 }
 
 /** Pull the text (or array) payload out of the various Workers AI response envelopes. */
-function extractResponse(result: unknown): unknown {
+export function extractResponse(result: unknown): unknown {
   if (result === null || result === undefined) return null;
   if (typeof result === "string" || Array.isArray(result)) return result;
   if (typeof result !== "object") return null;

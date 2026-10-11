@@ -5,7 +5,7 @@
 // the real remote AI binding unreachable. Production generation is Workers AI
 // only — this fixture just lets the field/pool machinery be exercised locally.
 
-import type { AiRunner } from "./generation";
+import { MAX_PHRASE_CHARS, MAX_PHRASE_WORDS, type AiRunner } from "./generation";
 import { MAX_POLE_PHRASE_CHARS } from "./types";
 
 // The demo's pre-baked pools, reused as canned generation output per bucket.
@@ -89,7 +89,7 @@ function fakePolePhrase(term: string): string {
  *  through — enforces TWO ceilings and drops a violating item in full rather
  *  than trimming it, so tripping either one starves the lineage instead of
  *  letting it hop. Both have to be honoured here, for every fragment a card can
- *  legally hold (mirrored constants; `cleanList`'s own are not exported):
+ *  legally hold (`cleanList`'s own constants, imported from generation.ts):
  *
  *  - Five words. The board's prompt admits 1-5 word fragments, so a five-word
  *    parent plus a space-separated marker is already over. A hyphenated marker
@@ -110,11 +110,8 @@ function fakePolePhrase(term: string): string {
  *  prefix is what keeps the tether high; the marker still varies per call, so
  *  successive children stay distinct and lineage dedupe has something real to
  *  reject. */
-const MAX_FAKE_REWRITE_WORDS = 5;
-const MAX_FAKE_REWRITE_CHARS = 64;
-
 function fitsCleanList(text: string): boolean {
-  return text.length <= MAX_FAKE_REWRITE_CHARS && text.split(" ").length <= MAX_FAKE_REWRITE_WORDS;
+  return text.length <= MAX_PHRASE_CHARS && text.split(" ").length <= MAX_PHRASE_WORDS;
 }
 
 function fakeRewrite(fragment: string, n: number): string {
@@ -124,8 +121,8 @@ function fakeRewrite(fragment: string, n: number): string {
   if (fitsCleanList(spaced)) return spaced;
   const marker = `-${n}`;
   const words = text.split(" ");
-  let stem = words.length > MAX_FAKE_REWRITE_WORDS ? words.slice(0, MAX_FAKE_REWRITE_WORDS).join(" ") : text;
-  const budget = MAX_FAKE_REWRITE_CHARS - marker.length;
+  let stem = words.length > MAX_PHRASE_WORDS ? words.slice(0, MAX_PHRASE_WORDS).join(" ") : text;
+  const budget = MAX_PHRASE_CHARS - marker.length;
   // trimEnd so a cut that lands on a space cannot leave a trailing one, which
   // `cleanList` would collapse into a different string than the one measured.
   if (stem.length > budget) stem = stem.slice(0, budget).trimEnd();
