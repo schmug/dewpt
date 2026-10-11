@@ -46,7 +46,8 @@ Every cell balanced at 10+/10-; null p50 0.450-0.520, correctly on chance.
 
 **1 of 8 clears its null p95.** At n = 10 v 10 the Mann-Whitney null has
 sd ~= 0.135, so a p95 near 0.73 is expected; several cells sit higher still,
-which the pool's own anisotropy (0.414) plausibly inflates. The chance line is
+which the pool's own anisotropy (0.414, from an external run, not computed here;
+#104) plausibly inflates. The chance line is
 honest and most axes do not clear it.
 
 ### The killing evidence: the proxies reverse sign between runs

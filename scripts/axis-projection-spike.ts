@@ -3,7 +3,8 @@
 //
 // The walk spike killed the rewrite-chain (translation) mechanic: the seed was
 // abandoned at step 2 while TETHER_FLOOR still read 0.4+, and mean displacement
-// along the named axis was +0.096 against a 0.414 anisotropy baseline. The
+// along the named axis was +0.096 against a 0.414 anisotropy baseline (an
+// externally reported figure, not computed in this repo; #104). The
 // recommendation was projection instead — generate a pool from the seed ONCE,
 // then let the swipe RE-RANK it by position along the named axis. Nothing is
 // ever rewritten, so the seed survives by construction.
@@ -285,9 +286,10 @@ async function main(): Promise<void> {
   const Q = (p: number) => allTethers[Math.min(allTethers.length - 1, Math.floor(p * allTethers.length))] ?? NaN;
   console.log(`\n  ACROSS BOTH SEEDS — ${surfaced} cards surfaced, ${edges} edge hits`);
   console.log(`    min ${f(allTethers[0] ?? NaN)}  p01 ${f(Q(0.01))}  p05 ${f(Q(0.05))}  p50 ${f(Q(0.5))}  max ${f(allTethers[allTethers.length - 1] ?? NaN)}`);
-  console.log(`\n  A retention floor set at the p01 of ${f(Q(0.01))} cosine would exclude the`);
-  console.log(`  weakest 1% of surfaced cards. Expressed as PoolCore's seedDist that is`);
-  console.log(`  ${f(1 - Q(0.01))}. This is the number to put in position.js, or to argue with.`);
+  // Descriptive only. position.js enforces no tether floor (#104): a cosine
+  // cutoff cannot separate on-seed from off-seed cards without a labelled set.
+  console.log(`\n  These are pool properties, not an enforced floor. position.js filters`);
+  console.log(`  nothing on tether; see #104 before turning any of them into a cutoff.`);
 
   console.log(`\nrequests spent: ${requests}`);
 }

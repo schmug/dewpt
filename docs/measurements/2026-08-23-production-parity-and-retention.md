@@ -49,17 +49,24 @@ ACROSS BOTH  277 cards surfaced, 523 edge hits
   min 0.377  p01 0.398  p05 0.436  p50 0.545  max 0.788
 ```
 
-**This is where `SEED_TETHER_MIN = 0.414` comes from, and it is not the p01.**
-0.414 is the measured `bge-m3` anisotropy — the mean cosine between two
-*unrelated* phrases. A card below it is, by the space's own yardstick, no more
-related to the seed than a random phrase, so it cannot be shown as being about
-the seed. Choosing the p01 instead would have cut a fixed 1% for no reason
-beyond wanting a number.
+**RETRACTED (2026-08-23, ee3486c / #90; recorded here for #104).** This entry
+originally said `SEED_TETHER_MIN = 0.414` came from here, as "the measured
+`bge-m3` anisotropy", and that it made retention an invariant. Neither holds:
 
-It excludes a small tail (`larder time capsules` 0.377, `can opener` 0.392)
-and nothing else. Retention was already holding for free because every candidate
-is seed-generated; this makes it an invariant rather than a tendency, which is
-what cycle 2's blocker asked for.
+- Nothing in this repository computes 0.414. It comes from an external run
+  described in a design document, so it was never measured here.
+- The walk spike's own counterexamples (`yard twinkle lights` 0.438, `lawn
+  jenga party` 0.414, both off-seed) sit at or above it, so it cannot separate
+  on-seed from off-seed cards.
+
+The constant was removed. **Drift enforces no seed-survival criterion.** The
+numbers above are a property of the pool (every candidate is seed-generated),
+not an invariant the ranker enforces. Because the shipped `nextCard` no longer
+filters on tether, the harness that imports it again drives the same
+unfiltered loop this table describes (`npm run axis-projection`; a rerun needs
+live Workers AI and was not repeated for #104).
+Enforcement would need a non-circular relevance instrument and a labelled set;
+workstream B found no cheap one (below), and #104 records that trade.
 
 Note the 523 edge hits against 277 cards: with `MAX_REACH = 3 x STEP` most of
 a 400-swipe random walk lands somewhere empty. That is the edge working, but it

@@ -57,9 +57,9 @@ Three consequences:
   lights` → … → `lawn jenga party` — while `tetherSeed` sat at 0.407–0.532,
   above `TETHER_FLOOR = 0.4` the entire time. Issue
   [#52](https://github.com/schmug/dewpt/issues/52) observed live in a chain.
-- **Nothing moves along the named axis.** `axisDisp` +0.096 against a measured
-  `bge-m3` anisotropy of **0.414**, the mean cosine between two *unrelated*
-  phrases. Four times below the unrelated-phrase baseline is not a direction.
+- **Nothing moves along the named axis.** `axisDisp` +0.096 against a `bge-m3`
+  anisotropy of **0.414**, the mean cosine between two *unrelated* phrases,
+  as reported by an external run (not computed in this repo; #104). Four times below the unrelated-phrase baseline is not a direction.
 
 The null captured at step 1 and paraphrased its own target forever, which proves
 the instrument could have detected capture had there been any.
@@ -125,6 +125,12 @@ already shown to change the neighbourhood. Ten swipes crosses an axis.
 The tails are thin; out there cards arrive sparse and eventually nothing
 tethered to the seed remains. That is the stakes #43 wanted, discovered rather
 than invented.
+
+**Seed survival is not enforced.** Cards stay near the seed because every
+candidate is generated from it; nothing filters on `tetherSeed`. A
+`SEED_TETHER_MIN = 0.414` floor shipped briefly and was retracted (ee3486c):
+the number was not computed in this repo and admits the walk spike's own
+off-seed counterexamples. See `public/drift/position.js` and #104.
 
 **Exactly two axes**, so four directions is the whole gesture vocabulary.
 `MAX_AXES` is unchanged; this surface uses two of them.
