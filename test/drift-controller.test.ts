@@ -58,10 +58,9 @@ function stubFetch(pool: unknown[]) {
 const json = (body: unknown) =>
   ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response;
 
-async function boot(pool: unknown[]) {
+async function boot(pool: unknown[], fetchMock: ReturnType<typeof vi.fn> = stubFetch(pool)) {
   document.body.innerHTML = MARKUP;
   document.body.className = "drift-surface";
-  const fetchMock = stubFetch(pool);
   vi.stubGlobal("fetch", fetchMock);
   vi.stubGlobal("matchMedia", (q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} }));
   location.hash = "";
@@ -75,8 +74,8 @@ async function boot(pool: unknown[]) {
 }
 
 /** Runs the full setup flow so the stage is open with a card showing. */
-async function toCardStage(pool: unknown[]) {
-  const { mod, fetchMock } = await boot(pool);
+async function toCardStage(pool: unknown[], fetchImpl?: ReturnType<typeof vi.fn>) {
+  const { mod, fetchMock } = await boot(pool, fetchImpl);
   (document.getElementById("drift-seed-input") as HTMLInputElement).value = "a seed";
   document.getElementById("drift-seed-form")!.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
   await vi.waitFor(() => expect(document.getElementById("drift-axis-form")!.hidden).toBe(false));
@@ -174,5 +173,136 @@ describe("a weakly-related pool still renders (the tether-floor retraction)", ()
     await toCardStage(fakeAiShaped);
     expect(document.getElementById("drift-card")!.textContent).toMatch(/^local word \d+$/);
     expect(document.getElementById("drift-edge")!.hidden).toBe(true);
+  });
+});
+
+describe("a flush recovers through one path, whichever refill saw it (#106)", () => {
+  // An axisIds change used to be repaired twice, differently: the flush handler
+  // nulled the range, backgroundFill then painted gauges against null, and
+  // maybeTopUp rebuilt the range on its own while the OLD axis labels stayed on
+  // screen. These drive the same flush through each refill and require the
+  // same end state from both.
+  type Drift = {
+    onSwipe(a: number, d: number): unknown;
+    state: {
+      axes: { id: string }[];
+      range: unknown;
+      position: number[] | null;
+      seen: Set<string>;
+      current: { text: string } | null;
+    };
+  };
+  const AXIS = {
+    a: { id: "a", neg: { term: "solemn", phrase: "a solemn thing here" }, pos: { term: "playful", phrase: "a playful thing here" }, ready: true, degraded: false },
+    b: { id: "b", neg: { term: "concrete", phrase: "a concrete thing here" }, pos: { term: "abstract", phrase: "an abstract thing here" }, ready: true, degraded: false },
+    c: { id: "c", neg: { term: "calm", phrase: "a calm thing here" }, pos: { term: "frantic", phrase: "a frantic thing here" }, ready: true, degraded: false },
+  };
+
+  /** A field whose axis set can change under the client. Before the switch
+   *  every bucket but `emptyBucket` holds one word scored against [a, b]; after
+   *  it, every bucket holds three words scored against [b, c], and the axis list
+   *  has caught up. */
+  function switchableField(emptyBucket: string | null) {
+    const world = { switched: false };
+    const fetchMock = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u === "/api/session") return json({ id: "11111111-1111-4111-8111-111111111111" });
+      if (u.includes("/axes")) return json({ axes: world.switched ? [AXIS.a, AXIS.b, AXIS.c] : [AXIS.a, AXIS.b] });
+      if (u.includes("/pool")) {
+        const bucket = new URL(u, "http://x").searchParams.get("bucket")!;
+        if (!world.switched) {
+          const i = ["w0a0", "w0a1", "w1a0", "w1a1", "w2a0", "w2a1"].indexOf(bucket);
+          return json({
+            condensed: bucket === emptyBucket ? [] : [served(`old ${bucket}`, [i / 6 - 0.4, (i % 3) / 3 - 0.3])],
+            axisIds: ["a", "b"],
+          });
+        }
+        return json({
+          // Three per bucket across a span, so the centre the frame resets to
+          // always has something in reach.
+          condensed: [0, 1, 2].map((k) => served(`new ${bucket} ${k}`, [k * 0.1 - 0.1, (Number(bucket[1]) - 1) * 0.1])),
+          axisIds: ["b", "c"],
+        });
+      }
+      return json({});
+    });
+    return { world, fetchMock };
+  }
+
+  async function stageWith(field: ReturnType<typeof switchableField>) {
+    const { mod } = await toCardStage([], field.fetchMock);
+    return mod as Drift;
+  }
+
+  function endState(drift: Drift) {
+    const labels = Array.from(document.querySelectorAll(".drift-gauge")).map((g) =>
+      Array.from(g.querySelectorAll("span")).map((s) => s.textContent).join("|"));
+    const marks = Array.from(document.querySelectorAll<HTMLElement>(".drift-gauge-mark")).map((m) => m.style.left || m.style.top);
+    return {
+      axes: drift.state.axes.map((a) => a.id),
+      labels,
+      marks,
+      rangeSet: drift.state.range !== null,
+      position: drift.state.position,
+      seen: [...drift.state.seen],
+      current: drift.state.current?.text ?? null,
+      card: document.getElementById("drift-card")!.textContent,
+      leaving: document.getElementById("drift-card")!.dataset.leaving ?? null,
+    };
+  }
+
+  async function viaTopUp() {
+    // Every bucket answers, so no background fill is pending; the swipe's
+    // low-local-supply top-up is the refill that sees the flush.
+    const field = switchableField(null);
+    const drift = await stageWith(field);
+    expect(document.getElementById("drift-card")!.textContent).toMatch(/^old /);
+    field.world.switched = true;
+    drift.onSwipe(0, 1);
+    await vi.waitFor(() => expect(drift.state.axes.map((a) => a.id)).toEqual(["b", "c"]), { timeout: 3000 });
+    await vi.waitFor(() => expect(document.getElementById("drift-card")!.textContent).toMatch(/^new /), { timeout: 3000 });
+    return { drift, field };
+  }
+
+  async function viaBackgroundFill() {
+    // One bucket answered empty, so enterStage leaves a background fill
+    // pending; that retry is the refill that sees the flush.
+    const field = switchableField("w0a0");
+    const drift = await stageWith(field);
+    expect(document.getElementById("drift-card")!.textContent).toMatch(/^old /);
+    field.world.switched = true;
+    await vi.waitFor(() => expect(drift.state.axes.map((a) => a.id)).toEqual(["b", "c"]), { timeout: 5000 });
+    await vi.waitFor(() => expect(document.getElementById("drift-card")!.textContent).toMatch(/^new /), { timeout: 3000 });
+    return { drift, field };
+  }
+
+  it("the top-up path relabels the gauges to the axes the coords were scored against", async () => {
+    const { drift } = await viaTopUp();
+    const s = endState(drift);
+    expect(s.labels).toEqual(["concrete|abstract", "calm|frantic"]);
+    expect(s.rangeSet).toBe(true);
+    expect(s.marks.every((m) => /^\d+(\.\d+)?%$/.test(m))).toBe(true);
+    // Nothing from before the flush survives as seen or current.
+    expect(s.seen).toEqual([s.card]);
+    expect(s.current).toBe(s.card);
+  });
+
+  it("the background-fill path ends in the same state as the top-up path", async () => {
+    const a = endState((await viaTopUp()).drift);
+    const b = endState((await viaBackgroundFill()).drift);
+    expect(b).toEqual(a);
+  });
+
+  it("the background-fill path redraws only the buckets the flush emptied", async () => {
+    const { field } = await viaBackgroundFill();
+    const after = field.fetchMock.mock.calls
+      .map(([u]) => String(u))
+      .filter((u) => u.includes("/pool"))
+      .map((u) => new URL(u, "http://x").searchParams.get("bucket"));
+    // enterStage's prime: six. The background retry: only the empty w0a0,
+    // whose answer flushes. The recovery re-prime: the five the flush emptied.
+    expect(after.slice(0, 6).sort()).toEqual(["w0a0", "w0a1", "w1a0", "w1a1", "w2a0", "w2a1"]);
+    expect(after[6]).toBe("w0a0");
+    expect(after.slice(7).sort()).toEqual(["w0a1", "w1a0", "w1a1", "w2a0", "w2a1"]);
   });
 });

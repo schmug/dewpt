@@ -67,18 +67,7 @@ els.seedForm.addEventListener('submit', async (e) => {
     state.sessionId = session.id;
     state.axisClient = createAxisClient(session.id);
     state.set = createWorkingSet(session.id);
-    // A flush means every held coord was scored against a different axis set.
-    // The frozen range and the seen set are shaped for those coords too, so
-    // they go with it.
-    // A flush means every held coord was scored against a different axis set —
- // so the CARD ON SCREEN is stale too. Clearing range and seen while leaving it
- // painted left the user looking at a position that no longer exists.
-    state.set.onFlush(() => {
-      state.range = null;
-      state.seen = new Set();
-      state.current = null;
-      if (els.card) els.card.textContent = '';
-    });
+    state.set.onFlush(onFlush);
     location.hash = session.id;
     els.seedForm.hidden = true;
     els.axisForm.hidden = false;
@@ -335,7 +324,10 @@ async function enterStage() {
   let wait = PRIME_RETRY_MS;
   let attempts = 0;
   while (true) {
-    await state.set.prime();
+    // The first pass draws everything; every later one draws only the buckets
+    // still owed something. drawPool is destructive, so redrawing a bucket that
+    // already answered would drain it to serve a retry aimed elsewhere.
+    await (attempts === 0 ? state.set.prime() : state.set.retry());
     attempts++;
     const failed = state.set.failedBuckets();
     const empty = state.set.emptyBuckets();
@@ -365,8 +357,6 @@ async function enterStage() {
     await new Promise((resolve) => setTimeout(resolve, wait));
     wait = Math.min(wait * 1.5, 10_000);
   }
-  state.range = freezeRange(state.set.all(), state.axes.length);
-  state.position = initialPosition(state.range);
   // Stage 2 needs a pool to rank, so it can only run now. Warn and allow, same
   // as stage 1 — the surface stays usable either way.
   state.axes.forEach((axis, i) => {
@@ -377,9 +367,8 @@ async function enterStage() {
   });
   els.setup.hidden = true;
   els.stage.hidden = false;
-  renderGauges();
   paintCondensate();
-  advance();
+  frame();
 }
 
 // renderGauges, advance, onSwipe and the condensate handlers are Task 6 and 7.
@@ -399,19 +388,106 @@ function backgroundFill(attempt = 0) {
     return;
   }
   fillTimer = setTimeout(() => {
-    state.set.topUp()
+    state.set.retry()
+      .then(settleRefill)
       .then(() => {
-        if (state.range) state.range = widenRange(state.range, state.set.all());
-        paintGauges();
-        if (state.current === null) advance();
+        // A frame recover() could not rebuild yet counts as outstanding too:
+        // this loop is what retries it, on the same backoff and budget.
         const outstanding = state.set.failedBuckets().length + state.set.emptyBuckets().length;
-        if (outstanding > 0) backgroundFill(attempt + 1);
+        if (outstanding > 0 || stale) backgroundFill(attempt + 1);
       })
       .catch((err) => {
         console.error('drift background refill failed', err);
         backgroundFill(attempt + 1);
       });
   }, Math.min(2_000 * 2 ** attempt, 20_000));
+}
+
+// ── recovery ────────────────────────────────────────────────────────────────
+//
+// ONE PATH. A flush (the axis set changed under us) used to be handled twice:
+// the flush handler nulled the range, then backgroundFill painted gauges
+// against that null range while maybeTopUp rebuilt the range on its own and
+// left the old axis labels on screen. Which repair you got depended on which
+// refill happened to see the flush. Now the flush only marks the frame stale,
+// and every refill settles through settleRefill(), which hands a stale frame to
+// recover(). Critic cycle 3.
+
+/** True from a flush until recover() has rebuilt the frame. The swipe path is
+ *  inert meanwhile — onSwipe already refuses a null range. */
+let stale = false;
+let recovering = null;
+
+function onFlush() {
+  // Synchronous and minimal: this runs INSIDE the working set's draw. Mark the
+  // frame unusable so nothing ranks against coords of the wrong shape; the
+  // rebuild happens in recover(), once the draw has settled.
+  stale = true;
+  state.range = null;
+}
+
+/** What every refill does once its draw settles, whichever refill it was. */
+function settleRefill() {
+  if (stale) return recover();
+  if (state.range === null) return undefined;
+  state.range = widenRange(state.range, state.set.all());
+  paintGauges();
+  if (state.current === null) advance();
+  return undefined;
+}
+
+/** Rebuilds the frame after a flush. Order matters and is the issue's:
+ *  cancel the fade, refresh the axes, clear stale current/seen, re-prime,
+ *  freeze a range, reset position, repaint. Serialized — two refills can both
+ *  notice the same flush. */
+function recover() {
+  if (!recovering) recovering = doRecover().finally(() => { recovering = null; });
+  return recovering;
+}
+
+async function doRecover() {
+  // 1. Cancel the pending fade. Its write() would commit a card chosen from
+  //    the discarded set — and repaint the stale word over a blank frame.
+  clearTimeout(fadeTimer);
+  delete els.card.dataset.leaving;
+
+  // 2. Refresh the axes, and order them by the ids the coords are indexed by.
+  //    Labels from the old set over coords from the new one is the bug.
+  const listed = await state.axisClient.list();
+  const byId = new Map((Array.isArray(listed) ? listed : listed?.axes ?? []).map((a) => [a.id, a]));
+  const axes = state.set.axisIds().slice(0, 2).map((id) => byId.get(id));
+  if (axes.length === 0 || axes.some((a) => !a)) {
+    // The axis list is behind the pool. Stay stale; the next refill retries.
+    console.warn('drift recovery: axis list does not cover the pool axis ids yet');
+    return;
+  }
+  state.axes = axes;
+
+  // 3. Nothing held before the flush is a position any more.
+  state.current = null;
+  state.seen = new Set();
+  els.card.textContent = '';
+
+  // 4. Re-prime. Only the deficient buckets: the flush already marked every
+  //    bucket owed, but any that refilled since are left alone.
+  await state.set.retry();
+  if (state.set.size() === 0) return; // still nothing to frame; stays stale
+
+  // 5–7. Freeze, reset, repaint. A second flush during the re-prime means the
+  //      axes just fetched are already stale; leave the frame stale and let
+  //      the next settle start over rather than framing the wrong shape.
+  if (state.set.axisIds().slice(0, 2).some((id, i) => id !== state.axes[i]?.id)) return;
+  frame();
+}
+
+/** Freeze a range over the resident set, put the position at its centre, and
+ *  repaint gauges and card. */
+function frame() {
+  state.range = freezeRange(state.set.all(), state.axes.length);
+  state.position = initialPosition(state.range);
+  stale = false;
+  renderGauges();
+  advance();
 }
 
 // ── resume ──────────────────────────────────────────────────────────────────
@@ -443,12 +519,7 @@ async function resumeFromHash() {
       console.error('drift could not restore pins', err);
     }
     state.set = createWorkingSet(id);
-    state.set.onFlush(() => {
-      state.range = null;
-      state.seen = new Set();
-      state.current = null;
-      if (els.card) els.card.textContent = '';
-    });
+    state.set.onFlush(onFlush);
     els.seedForm.hidden = true;
     els.axisForm.hidden = true;
     await enterStage();
@@ -471,7 +542,10 @@ const AXIS_KEYS = [
 ];
 
 function renderGauges() {
+  // Both containers. Recovery re-renders after a flush, and clearing only the
+  // horizontal one stacked a second vertical gauge beside the first.
   els.gauges.textContent = '';
+  els.gaugeY.textContent = '';
   // With one axis named — or one of two failing to create — up/down have
   // nowhere to go. The spec's degradation rule is that they go inert and are
   // LABELLED inert, so the surface opens rather than refusing and the user is
@@ -603,19 +677,10 @@ function maybeTopUp() {
   const supply = localSupply(state.set.all(), state.position, state.range, state.seen, SUPPLY_RADIUS);
   if (supply >= SUPPLY_FLOOR) return;
   state.set.topUp()
-    .then(() => {
-      if (state.range === null) {
-        // The set flushed under us — the axis set changed. Re-freeze from
-        // whatever arrived rather than reusing a range shaped for old coords.
-        if (state.set.size() === 0) return;
-        state.range = freezeRange(state.set.all(), state.axes.length);
-        state.position = initialPosition(state.range);
-      } else {
-        state.range = widenRange(state.range, state.set.all());
-      }
-      paintGauges();
-      if (state.current === null) advance();
-    })
+    .then(settleRefill)
+    // A recovery that could not finish here is handed to the background loop,
+    // which retries it with backoff — the swipe path is inert until it lands.
+    .then(() => { if (stale) backgroundFill(); })
     .catch((err) => console.error('drift top-up failed', err));
 }
 
