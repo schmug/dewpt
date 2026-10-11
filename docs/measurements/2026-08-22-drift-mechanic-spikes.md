@@ -98,8 +98,9 @@ requests spent: 63
   `tetherSeed` sitting at 0.407–0.532 the whole way, above `TETHER_FLOOR = 0.4`.
   This is issue #52 ("admits 53% of non-sequiturs") observed live in a chain.
 - **Movement is not along the named axis.** Mean `axisDisp` +0.096 real,
-  −0.052 null, against a measured `bge-m3` anisotropy of 0.414 — the mean cosine
-  between two *unrelated* phrases. Displacement alignment four times below the
+  −0.052 null, against a `bge-m3` anisotropy of 0.414 — the mean cosine
+  between two *unrelated* phrases, as reported by an external run (not
+  computed in this repo; #104). Displacement alignment four times below the
   unrelated-phrase baseline is not movement along a direction.
 
 The cause is structural: the probe reuses the board's shipped `scoreCandidates`,
